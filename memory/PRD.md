@@ -155,3 +155,25 @@ Frontend Playwright (7/7) PASS — estimator hides Pricing/Company/Integrations/
 - 2FA / TOTP for super admins.
 - Split `server.py` (~1840 lines) into routers + services.
 - Reset stale Phase 1 `TestPricing::test_get_pricing_any_auth` (fixed in iteration 2 but recurred — flagged by testing agent).
+
+
+## Phase 5+ Delete Users — Live (2026-06-14)
+
+### Implemented
+- **Soft delete**: `DELETE /api/users/{id}` (`users.manage`) sets `deleted_at`, `deleted_by_user_id`, `is_active=false`. Soft-deleted users are excluded from default `GET /api/users` (`?status=active`), cannot log in (generic 401 message "Invalid email or password" — no existence leak), and fail the JWT bearer check.
+- **Hard delete**: `DELETE /api/users/{id}?permanent=true` (super-admin only). Server runs `_count_user_references(user_id)` across quotes.created_by, jobs.status_history.by_user_id, invoices.created_by, customers/projects/users created_by/updated_by/deleted_by. If ANY reference → 400 with `{message, references, suggestion}`. Otherwise hard-deletes the document.
+- **Restore**: `POST /api/users/{id}/restore` (`users.manage`) — clears `deleted_at`/`deleted_by_user_id`, sets `is_active=true`. Rejects if another active user now owns the email.
+- **References preview**: `GET /api/users/{id}/references` (super-admin) returns `{user_id, email, name, references:{quotes_created, jobs_modified, invoices_created, customers_created, projects_created, user_records_referenced}, total}` — used by the UI to disable Permanently Delete before the request.
+- **List filter**: `GET /api/users?status=active|inactive|deleted|all` (default `active`). Active count of super admins for last-admin safety also excludes soft-deleted.
+- **Safety**: cannot delete yourself; cannot delete the last active super admin; non-super-admin cannot hard-delete (`users.manage` is super-only by Phase 5 elevated guard, so this is enforced upstream).
+- **UI**: `/users` table now has 4-state filter (Active/Inactive/Deleted/All), a Trash icon per row (soft delete with confirmation modal), Restore + Permanently buttons in the Deleted view, an email-typing confirmation modal for permanent delete that fetches refs first and disables itself when refs > 0. Soft-deleted rows render with `(deleted)` in red italic and `opacity-60`.
+
+### Acceptance — 10/10 PASS (curl smoke + UI)
+Backend curl 16/16 (incl. setup): soft delete + restore + login block + self-protection + last-super safety + hard-delete reference breakdown + clean hard delete + status filter. Frontend Playwright: 4 filter buttons render, Delete buttons appear on 17 active rows, Deleted view shows `(deleted)` tags + Restore + Permanently buttons for 3 test rows.
+
+### Endpoints added
+- `DELETE /api/users/{id}` (soft, `users.manage`)
+- `DELETE /api/users/{id}?permanent=true` (hard, super-admin only, ref-check guarded)
+- `POST /api/users/{id}/restore` (super-admin restores supers; `users.manage` for regulars)
+- `GET /api/users/{id}/references` (super-admin)
+- `GET /api/users?status=active|inactive|deleted|all` extended

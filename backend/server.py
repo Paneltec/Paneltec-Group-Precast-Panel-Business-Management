@@ -71,6 +71,8 @@ def user_to_public(u: dict) -> dict:
         "is_active": u.get("is_active", True),
         "must_change_password": bool(u.get("must_change_password", False)),
         "last_login_at": u.get("last_login_at"),
+        "deleted_at": u.get("deleted_at"),
+        "deleted_by_user_id": u.get("deleted_by_user_id"),
         "created_at": u.get("created_at"),
         "updated_at": u.get("updated_at"),
         # legacy compat
@@ -167,7 +169,7 @@ async def _get_current_user_raw(request: Request, creds: Optional[HTTPAuthorizat
     except jwt.InvalidTokenError: raise HTTPException(status_code=401, detail="Invalid token")
     if payload.get("type") != "access": raise HTTPException(status_code=401, detail="Invalid token type")
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
-    if not user or not user.get("is_active", True):
+    if not user or not user.get("is_active", True) or user.get("deleted_at"):
         raise HTTPException(status_code=401, detail="User not found or inactive")
     return user
 
@@ -836,7 +838,8 @@ async def _seed_phase3_demo():
 async def auth_login(payload: LoginRequest):
     email = payload.email.lower().strip()
     user = await db.users.find_one({"email": email}, {"_id":0})
-    if not user:
+    if not user or user.get("deleted_at"):
+        # generic 401 for missing or soft-deleted so we don't leak existence
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.get("is_active", True):
         raise HTTPException(status_code=401, detail="Account deactivated. Contact administrator.")
@@ -876,9 +879,25 @@ async def permissions_catalogue(_user: dict = Depends(_get_current_user_raw)):
 # Users (super admin only for create/update; users.view for list)
 # ---------------------------------------------------------------------------
 async def _count_active_super_admins(exclude_id: Optional[str] = None) -> int:
-    q: Dict[str, Any] = {"is_super_admin": True, "is_active": True}
+    q: Dict[str, Any] = {"is_super_admin": True, "is_active": True, "deleted_at": {"$in": [None]}}
     if exclude_id: q["id"] = {"$ne": exclude_id}
     return await db.users.count_documents(q)
+
+async def _count_user_references(user_id: str) -> Dict[str, int]:
+    """Count all historical references to user_id across the DB."""
+    # Note: quotes/jobs/invoices use field name `created_by` (not `created_by_user_id`).
+    return {
+        "quotes_created":         await db.quotes.count_documents({"created_by": user_id}),
+        "jobs_modified":          await db.jobs.count_documents({"status_history.by_user_id": user_id}),
+        "invoices_created":       await db.invoices.count_documents({"created_by": user_id}),
+        "customers_created":      await db.customers.count_documents({"$or":[{"created_by_user_id": user_id},{"updated_by_user_id": user_id}]}),
+        "projects_created":       await db.projects.count_documents({"$or":[{"created_by_user_id": user_id},{"updated_by_user_id": user_id}]}),
+        "user_records_referenced":await db.users.count_documents({"$or":[
+            {"created_by_user_id": user_id, "id": {"$ne": user_id}},
+            {"updated_by_user_id": user_id, "id": {"$ne": user_id}},
+            {"deleted_by_user_id": user_id, "id": {"$ne": user_id}},
+        ]}),
+    }
 
 def _validate_permissions_payload(perms: Dict[str, bool], is_super_admin: bool) -> Dict[str, bool]:
     clean = normalise_permissions(perms)
@@ -890,9 +909,24 @@ def _validate_permissions_payload(perms: Dict[str, bool], is_super_admin: bool) 
     return clean
 
 @api_router.get("/users")
-async def list_users(_u: dict = Depends(require_permission("users.view"))):
-    docs = await db.users.find({}, {"_id":0,"password_hash":0}).sort("created_at", -1).to_list(500)
+async def list_users(_u: dict = Depends(require_permission("users.view")), status: str = Query("active")):
+    q: Dict[str, Any] = {}
+    s = (status or "active").lower()
+    if s == "active":      q = {"is_active": True, "deleted_at": {"$in": [None]}}
+    elif s == "inactive":  q = {"is_active": False, "deleted_at": {"$in": [None]}}
+    elif s == "deleted":   q = {"deleted_at": {"$ne": None}}
+    elif s == "all":       q = {}
+    else: raise HTTPException(status_code=400, detail="status must be one of active|inactive|deleted|all")
+    docs = await db.users.find(q, {"_id":0,"password_hash":0}).sort("created_at", -1).to_list(500)
     return docs
+
+@api_router.get("/users/{user_id}/references")
+async def get_user_references(user_id: str, _admin: dict = Depends(require_super_admin)):
+    target = await db.users.find_one({"id": user_id}, {"_id":0, "id":1, "email":1, "name":1})
+    if not target: raise HTTPException(status_code=404, detail="User not found")
+    refs = await _count_user_references(user_id)
+    return {"user_id": user_id, "email": target["email"], "name": target["name"],
+            "references": refs, "total": sum(refs.values())}
 
 @api_router.patch("/users/me")
 async def update_me(payload: UserSelfUpdate, user: dict = Depends(get_current_user)):
@@ -1001,6 +1035,69 @@ async def reset_user_password(user_id: str, payload: ResetPasswordRequest,
     }})
     return {"ok": True, "email": target["email"], "new_password": payload.new_password,
             "must_change_password": bool(payload.must_change_password)}
+
+@api_router.delete("/users/{user_id}")
+async def delete_user(user_id: str, permanent: bool = Query(False),
+                       actor: dict = Depends(require_permission("users.manage"))):
+    target = await db.users.find_one({"id": user_id}, {"_id":0})
+    if not target: raise HTTPException(status_code=404, detail="User not found")
+
+    # Safety: cannot delete yourself
+    if user_id == actor["id"]:
+        raise HTTPException(status_code=400, detail="You cannot delete yourself")
+    # Safety: only super admins can delete other super admins
+    if target.get("is_super_admin") and not actor.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Only super admins can delete super admins")
+    # Safety: only super admins can hard-delete (anyone)
+    if permanent and not actor.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Only super admins can permanently delete users")
+    # Safety: last active super admin
+    if target.get("is_super_admin") and not target.get("deleted_at") and target.get("is_active", True):
+        if await _count_active_super_admins(exclude_id=user_id) == 0:
+            raise HTTPException(status_code=400, detail="At least one active super admin is required")
+
+    if permanent:
+        refs = await _count_user_references(user_id)
+        if sum(refs.values()) > 0:
+            raise HTTPException(status_code=400, detail={
+                "message": "Cannot permanently delete — user has historical references",
+                "references": refs,
+                "suggestion": "Use soft delete instead",
+            })
+        await db.users.delete_one({"id": user_id})
+        return {"permanently_deleted": True, "email": target["email"]}
+
+    # Soft delete
+    if target.get("deleted_at"):
+        raise HTTPException(status_code=400, detail="User is already deleted")
+    await db.users.update_one({"id": user_id}, {"$set": {
+        "deleted_at": now_iso(),
+        "deleted_by_user_id": actor["id"],
+        "is_active": False,
+        "updated_at": now_iso(),
+        "updated_by_user_id": actor["id"],
+    }})
+    return {"soft_deleted": True, "email": target["email"]}
+
+@api_router.post("/users/{user_id}/restore")
+async def restore_user(user_id: str, actor: dict = Depends(require_permission("users.manage"))):
+    target = await db.users.find_one({"id": user_id}, {"_id":0})
+    if not target: raise HTTPException(status_code=404, detail="User not found")
+    if not target.get("deleted_at"):
+        raise HTTPException(status_code=400, detail="User is not deleted")
+    if target.get("is_super_admin") and not actor.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Only super admins can restore super admins")
+    # Ensure no email collision with an active user (very rare but possible if email was reused)
+    collision = await db.users.find_one({"email": target["email"], "deleted_at": {"$in": [None]},
+                                          "id": {"$ne": user_id}})
+    if collision:
+        raise HTTPException(status_code=409, detail="Another active user now uses that email")
+    await db.users.update_one({"id": user_id}, {"$set": {
+        "deleted_at": None, "deleted_by_user_id": None, "is_active": True,
+        "updated_at": now_iso(), "updated_by_user_id": actor["id"],
+    }})
+    fresh = await db.users.find_one({"id": user_id}, {"_id":0, "password_hash":0})
+    return user_to_public(fresh)
 
 
 # ---------------------------------------------------------------------------

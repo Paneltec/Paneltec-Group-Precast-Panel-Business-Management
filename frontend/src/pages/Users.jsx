@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, UserPlus, Search, KeyRound, ShieldCheck } from "lucide-react";
+import { Loader2, UserPlus, Search, KeyRound, ShieldCheck, Trash2, AlertTriangle, RotateCcw, Skull } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
@@ -8,7 +8,7 @@ import { Label } from "../components/ui/label";
 import { Switch } from "../components/ui/switch";
 import { Checkbox } from "../components/ui/checkbox";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogFooter,
 } from "../components/ui/dialog";
 import { Toaster, toast } from "sonner";
 import { formatDateTime } from "../lib/format";
@@ -17,34 +17,36 @@ export default function UsersPage() {
   const { user: me, isSuperAdmin } = useAuth();
   const [users, setUsers] = useState(null);
   const [search, setSearch] = useState("");
-  const [activeFilter, setActiveFilter] = useState("all"); // all | true | false
+  const [statusFilter, setStatusFilter] = useState("active"); // active|inactive|deleted|all
   const [catalogue, setCatalogue] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);       // soft-delete confirmation
+  const [permDeleteTarget, setPermDeleteTarget] = useState(null); // hard-delete confirmation
+  const [restoreTarget, setRestoreTarget] = useState(null);     // restore confirmation
 
-  const load = async () => {
+  const load = async (status = statusFilter) => {
     try {
-      const { data } = await api.get("/users");
+      const { data } = await api.get(`/users?status=${status}`);
       setUsers(data);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     }
   };
   useEffect(() => {
-    load();
+    load(statusFilter);
     api.get("/permissions/catalogue").then(({ data }) => setCatalogue(data)).catch(() => {});
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
 
   const filtered = useMemo(() => {
     if (!users) return [];
-    return users.filter((u) => {
-      if (activeFilter === "true" && !u.is_active) return false;
-      if (activeFilter === "false" && u.is_active) return false;
-      if (!search) return true;
-      const s = search.toLowerCase();
-      return u.email.toLowerCase().includes(s) || (u.name || "").toLowerCase().includes(s);
-    });
-  }, [users, search, activeFilter]);
+    if (!search) return users;
+    const s = search.toLowerCase();
+    return users.filter((u) =>
+      u.email.toLowerCase().includes(s) || (u.name || "").toLowerCase().includes(s)
+    );
+  }, [users, search]);
 
   const toggleActive = async (u) => {
     try {
@@ -87,9 +89,9 @@ export default function UsersPage() {
             onChange={(e) => setSearch(e.target.value)} data-testid="user-search"/>
         </div>
         <div className="inline-flex rounded border border-gray-200 bg-white p-0.5 text-xs">
-          {[["all","All"],["true","Active"],["false","Inactive"]].map(([k,l]) => (
-            <button key={k} onClick={() => setActiveFilter(k)} data-testid={`filter-${k}`}
-              className={`px-3 py-1.5 rounded font-semibold ${activeFilter===k ? "bg-[#1F2A33] text-white" : "text-gray-600 hover:bg-gray-50"}`}>{l}</button>
+          {[["active","Active"],["inactive","Inactive"],["deleted","Deleted"],["all","All"]].map(([k,l]) => (
+            <button key={k} onClick={() => setStatusFilter(k)} data-testid={`filter-${k}`}
+              className={`px-3 py-1.5 rounded font-semibold ${statusFilter===k ? "bg-[#1F2A33] text-white" : "text-gray-600 hover:bg-gray-50"}`}>{l}</button>
           ))}
         </div>
       </div>
@@ -110,15 +112,20 @@ export default function UsersPage() {
                   <th className="px-4 py-3 text-left">Super admin</th>
                   <th className="px-4 py-3 text-left">Last login</th>
                   <th className="px-4 py-3 text-left">Created</th>
-                  <th className="px-4 py-3 text-right">Active</th>
+                  <th className="px-4 py-3 text-right">{statusFilter === "deleted" ? "Actions" : "Active"}</th>
                 </tr>
               </thead>
               <tbody data-testid="users-table-body">
-                {filtered.map((u) => (
+                {filtered.map((u) => {
+                  const isDeleted = !!u.deleted_at;
+                  return (
                   <tr key={u.id} data-testid={`user-row-${u.email}`}
-                    className="border-t border-gray-200 hover:bg-gray-50 cursor-pointer"
-                    onClick={() => isSuperAdmin && setEditing(u)}>
-                    <td className="px-4 py-3 font-medium text-[#1F2A33]">{u.name}</td>
+                    className={`border-t border-gray-200 hover:bg-gray-50 ${!isDeleted && isSuperAdmin ? "cursor-pointer" : ""} ${isDeleted ? "opacity-60" : ""}`}
+                    onClick={() => !isDeleted && isSuperAdmin && setEditing(u)}>
+                    <td className="px-4 py-3 font-medium text-[#1F2A33]">
+                      {u.name}
+                      {isDeleted && <span className="ml-2 text-[10px] text-red-700 italic" data-testid={`deleted-tag-${u.email}`}>(deleted)</span>}
+                    </td>
                     <td className="px-4 py-3 text-gray-700">{u.email}</td>
                     <td className="px-4 py-3 text-gray-600">{u.role_label || "—"}</td>
                     <td className="px-4 py-3">
@@ -133,12 +140,36 @@ export default function UsersPage() {
                     <td className="px-4 py-3 text-gray-500 text-xs">{u.last_login_at ? formatDateTime(u.last_login_at) : "Never"}</td>
                     <td className="px-4 py-3 text-gray-500 text-xs">{formatDateTime(u.created_at)}</td>
                     <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                      <Switch checked={u.is_active} onCheckedChange={() => toggleActive(u)}
-                        disabled={u.id === me?.id || !isSuperAdmin}
-                        data-testid={`user-active-${u.email}`}/>
+                      {isDeleted ? (
+                        <div className="inline-flex gap-2 justify-end">
+                          <button onClick={() => setRestoreTarget(u)} data-testid={`user-restore-${u.email}`}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33]">
+                            <RotateCcw className="w-3 h-3"/> Restore
+                          </button>
+                          {isSuperAdmin && (
+                            <button onClick={() => setPermDeleteTarget(u)} data-testid={`user-perm-delete-${u.email}`}
+                              className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-red-900 hover:text-red-700">
+                              <Skull className="w-3 h-3"/> Permanently
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="inline-flex gap-3 items-center justify-end">
+                          <Switch checked={u.is_active} onCheckedChange={() => toggleActive(u)}
+                            disabled={u.id === me?.id || !isSuperAdmin}
+                            data-testid={`user-active-${u.email}`}/>
+                          {isSuperAdmin && u.id !== me?.id && (
+                            <button onClick={() => setDeleteTarget(u)} data-testid={`user-delete-${u.email}`}
+                              title="Delete user"
+                              className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50">
+                              <Trash2 className="w-4 h-4"/>
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </td>
-                  </tr>
-                ))}
+                  </tr>);
+                })}
               </tbody>
             </table>
           </div>
@@ -152,7 +183,186 @@ export default function UsersPage() {
             onDone={() => { setEditing(null); load(); }} />
         </Dialog>
       )}
+
+      {/* Soft delete confirmation */}
+      <DeleteConfirm
+        target={deleteTarget} onClose={() => setDeleteTarget(null)}
+        onConfirmed={() => { setDeleteTarget(null); load(); }} />
+
+      {/* Permanent delete confirmation */}
+      <PermDeleteConfirm
+        target={permDeleteTarget} onClose={() => setPermDeleteTarget(null)}
+        onConfirmed={() => { setPermDeleteTarget(null); load(); }} />
+
+      {/* Restore confirmation */}
+      <RestoreConfirm
+        target={restoreTarget} onClose={() => setRestoreTarget(null)}
+        onConfirmed={() => { setRestoreTarget(null); load(); }} />
     </div>
+  );
+}
+
+// -------------------------------------------------------------------------
+// Soft delete confirmation modal
+// -------------------------------------------------------------------------
+function DeleteConfirm({ target, onClose, onConfirmed }) {
+  const [busy, setBusy] = useState(false);
+  if (!target) return null;
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await api.delete(`/users/${target.id}`);
+      toast.success(`${target.email} soft-deleted`);
+      onConfirmed?.();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally { setBusy(false); }
+  };
+  return (
+    <Dialog open={!!target} onOpenChange={(v) => { if (!v) onClose?.(); }}>
+      <DialogContent data-testid="delete-confirm-dialog" className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-red-700 inline-flex items-center gap-2">
+            <Trash2 className="w-5 h-5"/> Delete user?
+          </DialogTitle>
+          <DialogDescription className="pt-2 text-sm text-gray-700">
+            This will soft-delete <strong>{target.name}</strong> ({target.email}). Their historical contributions
+            (quotes, jobs, invoices) remain visible but marked as deleted. They will no longer be able to log in.
+            You can restore them later from the <em>Deleted</em> filter.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} data-testid="delete-cancel">Cancel</Button>
+          <Button onClick={submit} disabled={busy} className="bg-red-600 text-white hover:bg-red-700" data-testid="delete-confirm">
+            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Trash2 className="w-4 h-4 mr-2"/>} Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// -------------------------------------------------------------------------
+// Permanent delete modal — fetches reference count, requires email confirmation
+// -------------------------------------------------------------------------
+function PermDeleteConfirm({ target, onClose, onConfirmed }) {
+  const [refs, setRefs] = useState(null);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setTyped(""); setRefs(null);
+    if (!target) return;
+    api.get(`/users/${target.id}/references`)
+      .then(({ data }) => setRefs(data))
+      .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message));
+  }, [target]);
+
+  if (!target) return null;
+  const total = refs ? refs.total : null;
+  const blocked = total === null || total > 0;
+  const emailMatches = typed.trim().toLowerCase() === target.email.toLowerCase();
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await api.delete(`/users/${target.id}?permanent=true`);
+      toast.success(`${target.email} permanently deleted`);
+      onConfirmed?.();
+    } catch (e) {
+      const d = e.response?.data?.detail;
+      if (d && typeof d === "object" && d.references) {
+        // server-side refs found that weren't in the prefetch — show them
+        setRefs({ user_id: target.id, email: target.email, name: target.name, references: d.references, total: Object.values(d.references).reduce((a,b)=>a+b,0) });
+        toast.error("Cannot permanently delete — historical references exist");
+      } else {
+        toast.error(formatApiErrorDetail(d) || e.message);
+      }
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Dialog open={!!target} onOpenChange={(v) => { if (!v) onClose?.(); }}>
+      <DialogContent data-testid="perm-delete-confirm-dialog" className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-red-900 inline-flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5"/> Permanently delete user — irreversible
+          </DialogTitle>
+          <DialogDescription className="pt-2 text-sm text-gray-700">
+            This permanently removes <strong>{target.name}</strong> ({target.email}) from the database.
+            This action <strong>cannot</strong> be undone.
+          </DialogDescription>
+        </DialogHeader>
+
+        {refs === null ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500 py-3"><Loader2 className="w-4 h-4 animate-spin"/> Counting references…</div>
+        ) : total > 0 ? (
+          <div className="bg-red-50 border border-red-200 rounded p-3 text-sm" data-testid="perm-delete-refs">
+            <div className="font-bold text-red-800 mb-2">Cannot permanently delete — historical references exist:</div>
+            <ul className="text-xs text-red-900 space-y-0.5">
+              {Object.entries(refs.references).map(([k, v]) => v > 0 && (
+                <li key={k}><code className="bg-red-100 px-1 rounded">{k}</code>: {v}</li>
+              ))}
+            </ul>
+            <div className="mt-2 text-xs text-red-700">Use soft delete instead — it preserves history.</div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="text-xs text-gray-600">No references found. Type <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono">{target.email}</code> to confirm:</div>
+            <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={target.email}
+              data-testid="perm-delete-email-input" autoComplete="off"/>
+          </div>
+        )}
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} data-testid="perm-delete-cancel">Cancel</Button>
+          <Button onClick={submit} disabled={busy || blocked || !emailMatches}
+            className="bg-red-900 text-white hover:bg-red-800 disabled:opacity-40"
+            data-testid="perm-delete-confirm">
+            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Skull className="w-4 h-4 mr-2"/>} Permanently delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// -------------------------------------------------------------------------
+// Restore confirmation
+// -------------------------------------------------------------------------
+function RestoreConfirm({ target, onClose, onConfirmed }) {
+  const [busy, setBusy] = useState(false);
+  if (!target) return null;
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/users/${target.id}/restore`);
+      toast.success(`${target.email} restored`);
+      onConfirmed?.();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally { setBusy(false); }
+  };
+  return (
+    <Dialog open={!!target} onOpenChange={(v) => { if (!v) onClose?.(); }}>
+      <DialogContent data-testid="restore-confirm-dialog" className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-[#3A6B8C] inline-flex items-center gap-2">
+            <RotateCcw className="w-5 h-5"/> Restore user?
+          </DialogTitle>
+          <DialogDescription className="pt-2 text-sm text-gray-700">
+            This reactivates <strong>{target.name}</strong> ({target.email}). They will be able to log in again
+            with their previous password and the same permissions they had before.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} data-testid="restore-cancel">Cancel</Button>
+          <Button onClick={submit} disabled={busy} className="bg-[#3A6B8C] text-white hover:bg-[#1F2A33]" data-testid="restore-confirm">
+            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <RotateCcw className="w-4 h-4 mr-2"/>} Restore
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
