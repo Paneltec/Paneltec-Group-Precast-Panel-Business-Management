@@ -23,6 +23,10 @@ import InvoiceDetail from "./pages/InvoiceDetail";
 import InvoicePrint from "./pages/InvoicePrint";
 import Vehicles from "./pages/Vehicles";
 import Employees from "./pages/Employees";
+import IntegrationSettings from "./pages/IntegrationSettings";
+import CustomerPrint from "./pages/CustomerPrint";
+import ProjectPrint from "./pages/ProjectPrint";
+import JobPrint from "./pages/JobPrint";
 
 function App() {
   return (
@@ -36,6 +40,9 @@ function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/quotes/:id/print" element={<ProtectedRoute><QuotePrint /></ProtectedRoute>} />
                 <Route path="/invoices/:id/print" element={<ProtectedRoute><InvoicePrint /></ProtectedRoute>} />
+                <Route path="/customers/:id/print" element={<ProtectedRoute><CustomerPrint /></ProtectedRoute>} />
+                <Route path="/projects/:id/print" element={<ProtectedRoute><ProjectPrint /></ProtectedRoute>} />
+                <Route path="/jobs/:id/print" element={<ProtectedRoute><JobPrint /></ProtectedRoute>} />
                 <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/calculator" element={<CalculatorPage />} />
@@ -54,6 +61,7 @@ function App() {
                   <Route path="/employees" element={<Employees />} />
                   <Route path="/settings/pricing" element={<ProtectedRoute adminOnly><PricingSettings /></ProtectedRoute>} />
                   <Route path="/settings/company" element={<ProtectedRoute adminOnly><CompanySettings /></ProtectedRoute>} />
+                  <Route path="/settings/integrations" element={<ProtectedRoute adminOnly><IntegrationSettings /></ProtectedRoute>} />
                   <Route path="/users" element={<ProtectedRoute adminOnly><UsersPage /></ProtectedRoute>} />
                 </Route>
                 <Route path="*" element={<Login />} />

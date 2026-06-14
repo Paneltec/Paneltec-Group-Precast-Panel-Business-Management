@@ -252,6 +252,34 @@ class InvoiceUpdate(BaseModel):
 class InvoiceMarkPaid(BaseModel):
     paid_amount: float = Field(ge=0); payment_reference: str = ""; paid_at: Optional[str] = None
 
+class EmailSentLog(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    subject: str = ""
+    recipient: str = ""
+
+class IntegrationM365(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tenant_id: str = ""; client_id: str = ""; client_secret: str = ""
+    sender_mailbox: str = ""; enabled: bool = False
+class IntegrationSimpro(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    build_name: str = ""; client_id: str = ""; client_secret: str = ""
+    api_base_url: str = ""; enabled: bool = False
+class IntegrationNavixy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    api_key: str = ""; api_base_url: str = "https://api.navixy.com/v2"
+    account_id: str = ""; enabled: bool = False
+class IntegrationXero(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    client_id: str = ""; client_secret: str = ""; tenant_id: str = ""
+    redirect_uri: str = ""; enabled: bool = False
+class IntegrationSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    m365: IntegrationM365 = Field(default_factory=IntegrationM365)
+    simpro: IntegrationSimpro = Field(default_factory=IntegrationSimpro)
+    navixy: IntegrationNavixy = Field(default_factory=IntegrationNavixy)
+    xero: IntegrationXero = Field(default_factory=IntegrationXero)
+
 class SendQuoteOverride(BaseModel):
     """Optional overrides for the (mocked) email send."""
     recipient: Optional[str] = None
@@ -420,6 +448,41 @@ DEFAULT_COMPANY = {
     "invoice_footer_note": "Thank you for your business. Please quote the invoice number on EFT payments.",
 }
 
+DEFAULT_INTEGRATIONS = {
+    "m365": {"tenant_id":"","client_id":"","client_secret":"","sender_mailbox":"","enabled":False},
+    "simpro": {"build_name":"","client_id":"","client_secret":"","api_base_url":"","enabled":False},
+    "navixy": {"api_key":"","api_base_url":"https://api.navixy.com/v2","account_id":"","enabled":False},
+    "xero": {"client_id":"","client_secret":"","tenant_id":"","redirect_uri":"","enabled":False},
+}
+
+SECRET_FIELDS = {
+    "m365": {"client_secret"},
+    "simpro": {"client_secret"},
+    "navixy": {"api_key"},
+    "xero": {"client_secret"},
+}
+MASK_PREFIX = "••••••••"
+
+def _mask_secret(value: str) -> str:
+    if not value: return ""
+    tail = value[-4:] if len(value) >= 4 else value
+    return f"{MASK_PREFIX}{tail}"
+
+def _is_masked(value: str) -> bool:
+    return isinstance(value, str) and value.startswith(MASK_PREFIX)
+
+def _mask_integrations(doc: Dict[str, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for ikey, fields in SECRET_FIELDS.items():
+        section = dict(doc.get(ikey, DEFAULT_INTEGRATIONS[ikey]))
+        for f in fields:
+            if section.get(f):
+                section[f] = _mask_secret(section[f])
+        out[ikey] = section
+    # carry meta
+    if "updated_at" in doc: out["updated_at"] = doc["updated_at"]
+    return out
+
 MOCK_VEHICLES = [
     {"id":"V-001","name":"Hino 700 Series","rego":"PT-001","capacity_tonnes":25,"status":"available","source":"MOCKED_NAVIXY"},
     {"id":"V-002","name":"Volvo FH16","rego":"PT-002","capacity_tonnes":30,"status":"on_delivery","source":"MOCKED_NAVIXY"},
@@ -481,6 +544,9 @@ async def seed_database():
     if await db.settings.find_one({"key": "company"}) is None:
         await db.settings.insert_one({"key":"company", **DEFAULT_COMPANY, "updated_at": now_iso()})
         logger.info("Seeded company settings")
+    if await db.settings.find_one({"key": "integrations"}) is None:
+        await db.settings.insert_one({"key":"integrations", **DEFAULT_INTEGRATIONS, "updated_at": now_iso()})
+        logger.info("Seeded integration settings (empty templates)")
 
     if await db.customers.count_documents({}) == 0:
         await _seed_phase2()
@@ -1397,6 +1463,69 @@ async def dashboard_kpis(_user: dict = Depends(get_current_user)):
         "outstanding_aud":_round2(outstanding), "paid_this_month_aud":_round2(paid_this_month),
         "recent_quotes":recent_quotes, "recent_jobs":recent_jobs,
     }
+
+
+# ---------------------------------------------------------------------------
+# Integration Settings (admin) + email-sent recording
+# ---------------------------------------------------------------------------
+@api_router.get("/settings/integrations")
+async def get_integrations(_admin: dict = Depends(require_admin)):
+    doc = await db.settings.find_one({"key":"integrations"}, {"_id":0,"key":0})
+    if not doc:
+        doc = dict(DEFAULT_INTEGRATIONS)
+    return _mask_integrations(doc)
+
+@api_router.put("/settings/integrations")
+async def update_integrations(payload: IntegrationSettings, _admin: dict = Depends(require_admin)):
+    existing = await db.settings.find_one({"key":"integrations"}, {"_id":0,"key":0}) or {}
+    incoming = payload.model_dump()
+    # Preserve stored secrets if the client returned a masked value
+    for ikey, fields in SECRET_FIELDS.items():
+        cur_section = existing.get(ikey, {}) or {}
+        new_section = incoming.get(ikey, {}) or {}
+        for f in fields:
+            if _is_masked(new_section.get(f, "")):
+                new_section[f] = cur_section.get(f, "")
+        incoming[ikey] = new_section
+    incoming["updated_at"] = now_iso()
+    await db.settings.update_one({"key":"integrations"}, {"$set": incoming}, upsert=True)
+    saved = await db.settings.find_one({"key":"integrations"}, {"_id":0,"key":0})
+    return _mask_integrations(saved)
+
+@api_router.post("/settings/integrations/{integration}/test")
+async def test_integration(integration: str, _admin: dict = Depends(require_admin)):
+    if integration not in ("m365","simpro","navixy","xero"):
+        raise HTTPException(status_code=400, detail="Unknown integration")
+    return {"status":"MOCKED",
+        "integration": integration,
+        "message": f"Real {integration} API connection coming in Phase 4 Part 2. Credentials saved successfully."}
+
+
+# Universal email-sent recording
+async def _record_email_sent(collection, entity_id: str, subject: str, recipient: str, user_id: str):
+    r = await collection.update_one({"id": entity_id},
+        {"$set":{"last_email_sent_at": now_iso(), "last_email_subject": subject,
+                 "last_email_recipient": recipient, "last_email_sent_by_user_id": user_id,
+                 "updated_at": now_iso()}})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    return await collection.find_one({"id": entity_id}, {"_id":0})
+
+@api_router.post("/customers/{cid}/email-sent")
+async def customer_email_sent(cid: str, payload: EmailSentLog, user: dict = Depends(get_current_user)):
+    return await _record_email_sent(db.customers, cid, payload.subject, payload.recipient, user["id"])
+
+@api_router.post("/projects/{pid}/email-sent")
+async def project_email_sent(pid: str, payload: EmailSentLog, user: dict = Depends(get_current_user)):
+    return await _record_email_sent(db.projects, pid, payload.subject, payload.recipient, user["id"])
+
+@api_router.post("/jobs/{jid}/email-sent")
+async def job_email_sent(jid: str, payload: EmailSentLog, user: dict = Depends(get_current_user)):
+    return await _record_email_sent(db.jobs, jid, payload.subject, payload.recipient, user["id"])
+
+@api_router.post("/invoices/{iid}/email-sent")
+async def invoice_email_sent(iid: str, payload: EmailSentLog, user: dict = Depends(get_current_user)):
+    return await _record_email_sent(db.invoices, iid, payload.subject, payload.recipient, user["id"])
 
 
 # ---------------------------------------------------------------------------

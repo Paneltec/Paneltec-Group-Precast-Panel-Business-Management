@@ -1,0 +1,43 @@
+{
+  "summary": "Phase 4 Part 1 (Integrations Templates + Universal Edit/Email/Print) end-to-end tested. Backend Phase 4 pytest: 15/15 passed (integrations CRUD, mask preservation, MOCKED test connection, admin-only enforcement, customer/job/invoice email-sent, no vendor libs imported, seeded Q→J→INV chain intact, OpenAPI 200). Phase 1 regression: 19/20 (1 stale Phase 1 test where pricing GET is now admin-only since Phase 2 — NOT a Phase 4 regression). Frontend Playwright: admin sees nav-integrations, staff hidden + redirected; 4 cards render with all testids; M365 secret masked as ••••••••XXXX after reload; MOCKED toast on all 4 Test Connection clicks; EmailModal opens on customer/job/invoice with prefilled fields, copy buttons, Mark-as-Sent persists and last-emailed-label appears; Print buttons present on customer/job/invoice.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/settings/pricing", "issue": "Returns 403 to staff (Phase 2/3 admin-gating change). Pre-existing Phase 1 test backend_test.py::TestPricing::test_get_pricing_any_auth still expects 200 for staff and now fails. Either tighten Phase 1 test expectation to admin-only OR re-allow staff GET. Not a Phase 4 regression — flagged for housekeeping."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase4_integrations.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Housekeeping, NOT Phase 4 blocker) Update /app/backend/tests/backend_test.py::TestPricing::test_get_pricing_any_auth to expect 403 for staff (or use admin_headers) — pricing was tightened to admin-only after Phase 1."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1555 lines — should be split (auth, users, settings, integrations, customers, projects, jobs, invoices, quotes, calculator) before Phase 4 Part 2 to keep <700 lines/module.",
+    "Mask/secret logic: _mask_secret + _is_masked + per-section SECRET_FIELDS pattern is clean and reusable. Plaintext fields (tenant_id, sender_mailbox, api_base_url) correctly preserved; secrets correctly preserved when masked value resubmitted — verified by curl + pytest.",
+    "No real vendor libraries (msal/xero_python/graph.microsoft.com/login.microsoftonline.com/api.xero.com) referenced anywhere in server.py — confirmed via test_server_source_has_no_vendor_libs.",
+    "Test Connection endpoint is correctly admin-only (403 for staff) and returns deterministic {status:'MOCKED', integration, message} — no real HTTP fan-out.",
+    "Universal /email-sent endpoints (customers/projects/jobs/invoices) all reuse _record_email_sent helper, return 404 for unknown id, and stamp last_email_sent_at/subject/recipient/by_user_id consistently.",
+    "Frontend IntegrationSettings testid scheme is `<key>-card`, `<key>-card-test`, `<key>-card-save`, `<key>-enabled`, plus per-field `<key>-tenant-id`/`<key>-client-secret` etc. — well structured and stable for automation.",
+    "EmailModal exposes ALL specified testids (email-modal, email-recipient, email-subject, email-body, email-copy-recipient, email-copy-content, email-mark-sent) and LastEmailedLabel renders with data-testid=last-emailed-label.",
+    "Print buttons (customer-print-btn, job-print-btn, invoice-print-btn) and Email buttons (customer-email-btn, job-email-btn, invoice-email-btn) all wired and present in their detail pages.",
+    "Staff hard-block: /settings/integrations server returns 403 AND client-side redirects staff away (verified — staff direct visit lands on / and integrations-page testid is absent)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase4_integrations.py (new — 15 tests)"
+  ],
+  "success_rate": {"backend": "100% on Phase 4 (15/15); Phase 1 regression 95% (19/20, 1 stale staff-pricing expectation)", "frontend": "100% (M365 mask, MOCKED test, Email modal incl. Mark-as-Sent → last-emailed-label, Print buttons, staff hidden + redirected)"},
+  "test_credentials": "admin@paneltec.com.au / Paneltec2026! ; staff@paneltec.com.au / Staff2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Tests PUT m365 client_secret='SuperSecret1234' and then resubmit masked '••••••••1234' to verify preservation. Customer/Job/Invoice last_email_* fields are stamped on first seeded customer + J-2026-0001 + INV-2026-0001 by tests (these are append-only audit fields and are harmless to leave populated).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 4 Part 1 backend regression lives at /app/backend/tests/test_phase4_integrations.py (15 tests, ~3s). Run: `pytest backend/tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml`. Integration card testids are `<key>-card`, buttons are `<key>-card-save` / `<key>-card-test` (NOT `<key>-save` / `<key>-test`). Login selectors: login-email-input / login-password-input / login-submit-button. M365 secret input uses type=text when masked so Playwright `page.fill` semantics matter — to forcefully change the secret in UI, use .click() then .press('Control+A') then .type(new_value) rather than .fill() (the masked value can otherwise be re-sent unchanged on save, which backend then preserves as designed).",
+  "rca of the issue": "No Phase 4 bugs found. Single Phase 1 test failure (test_get_pricing_any_auth) RCA: pricing GET became admin-only during Phase 2 hardening; the Phase 1 test asserting staff can GET pricing is stale. Mitigation: change fixture to admin_headers or assert 403 — one-line fix in backend_test.py."
+}

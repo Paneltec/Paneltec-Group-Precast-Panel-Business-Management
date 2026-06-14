@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Loader2, ArrowLeft, Send, Check, Printer, ExternalLink } from "lucide-react";
+import { Loader2, ArrowLeft, Send, Check, Printer, ExternalLink, Mail } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -8,6 +8,7 @@ import { Label } from "../components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog";
 import { formatAUD, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
+import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
 
 const STATUS_STYLES = {
   draft:"bg-gray-100 text-gray-700",issued:"bg-blue-100 text-blue-800",
@@ -22,6 +23,7 @@ export default function InvoiceDetail() {
   const [paidOpen, setPaidOpen] = useState(false);
   const [paidAmount, setPaidAmount] = useState("");
   const [paidRef, setPaidRef] = useState("");
+  const [emailOpen, setEmailOpen] = useState(false);
   const [error, setError] = useState("");
 
   const load = async () => {
@@ -73,10 +75,14 @@ export default function InvoiceDetail() {
             {" · "}
             <Link to={`/jobs/${inv.job_id}`} className="text-[#3A6B8C] hover:text-[#1F2A33]">Job {inv.job_number}</Link>
           </p>
+          <LastEmailedLabel at={inv.last_email_sent_at} subject={inv.last_email_subject}/>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => window.open(`/invoices/${id}/print`, "_blank")} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="invoice-print-btn">
             <Printer className="w-4 h-4 mr-2"/> Print
+          </Button>
+          <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold h-10" data-testid="invoice-email-btn">
+            <Mail className="w-4 h-4 mr-2"/> Email
           </Button>
           {inv.status === "draft" && (
             <Button onClick={issue} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-10" data-testid="invoice-issue-btn">
@@ -162,6 +168,16 @@ export default function InvoiceDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <EmailModal
+        open={emailOpen} onOpenChange={setEmailOpen}
+        defaultRecipient={customer.contact_email}
+        defaultSubject={`Tax Invoice ${inv.invoice_number} from Paneltec Group`}
+        defaultBody={`Hi ${customer.contact_name || customer.company_name},\n\nPlease find Tax Invoice ${inv.invoice_number} for Job ${inv.job_number}.\n\nAmount due: AUD $${(inv.total||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})} (inc GST)\nDue date: ${inv.due_date}\n\nPayment instructions are on the printable invoice attached.\n\nKind regards,\nPaneltec Group Accounts Team`}
+        attachmentNotice={`Print the invoice (Print button → Save as PDF) and attach to this email.`}
+        endpoint={`/invoices/${id}/email-sent`}
+        onSent={load}
+      />
     </div>
   );
 }

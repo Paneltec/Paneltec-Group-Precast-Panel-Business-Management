@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { Loader2, ArrowLeft, Save, Trash2 } from "lucide-react";
+import { Loader2, ArrowLeft, Save, Trash2, Mail, Printer } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -10,6 +10,7 @@ import { Checkbox } from "../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast, Toaster } from "sonner";
 import { formatDateTime } from "../lib/format";
+import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
 
 const AU_STATES = ["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"];
 
@@ -28,6 +29,7 @@ export default function CustomerForm() {
   const [projects, setProjects] = useState([]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -110,12 +112,21 @@ export default function CustomerForm() {
             {isNew ? "New customer" : form.company_name}
           </h1>
           {!isNew && <p className="text-xs text-gray-500 mt-1">Updated {formatDateTime(form.updated_at)}</p>}
+          {!isNew && <LastEmailedLabel at={form.last_email_sent_at} subject={form.last_email_subject}/>}
         </div>
         {!isNew && (
-          <Button variant="outline" onClick={onDelete} data-testid="delete-customer-btn"
-            className="border-red-300 text-red-700 hover:bg-red-50">
-            <Trash2 className="w-4 h-4 mr-2"/> Delete
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => window.open(`/customers/${id}/print`, "_blank")} className="border-[#1F2A33] text-[#1F2A33] font-semibold" data-testid="customer-print-btn">
+              <Printer className="w-4 h-4 mr-2"/> Print
+            </Button>
+            <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold" data-testid="customer-email-btn">
+              <Mail className="w-4 h-4 mr-2"/> Email
+            </Button>
+            <Button variant="outline" onClick={onDelete} data-testid="delete-customer-btn"
+              className="border-red-300 text-red-700 hover:bg-red-50">
+              <Trash2 className="w-4 h-4 mr-2"/> Delete
+            </Button>
+          </div>
         )}
       </div>
 
@@ -178,6 +189,17 @@ export default function CustomerForm() {
 
       {!isNew && (
         <ProjectsCard customerId={id} projects={projects} onChanged={(p) => setProjects(p)} customerSiteAddress={form.site_address} />
+      )}
+
+      {!isNew && (
+        <EmailModal
+          open={emailOpen} onOpenChange={setEmailOpen}
+          defaultRecipient={form.contact_email}
+          defaultSubject={`Hello from Paneltec Group`}
+          defaultBody={`Hi ${form.contact_name || form.company_name},\n\nWe wanted to check in on ${form.company_name} and see how we can help with your next project.\n\nKind regards,\nPaneltec Group`}
+          endpoint={`/customers/${id}/email-sent`}
+          onSent={() => api.get(`/customers/${id}`).then(({ data }) => setForm({ ...form, ...data }))}
+        />
       )}
     </div>
   );
@@ -267,7 +289,7 @@ function ProjectsCard({ customerId, projects, onChanged, customerSiteAddress }) 
       ) : (
         <table className="w-full text-sm">
           <thead className="text-[10px] uppercase tracking-wider text-gray-500 border-b">
-            <tr><th className="text-left py-2">Name</th><th className="text-left">Status</th><th className="text-left">Created</th></tr>
+            <tr><th className="text-left py-2">Name</th><th className="text-left">Status</th><th className="text-left">Created</th><th className="text-right"></th></tr>
           </thead>
           <tbody>
             {projects.map(p => (
@@ -275,6 +297,10 @@ function ProjectsCard({ customerId, projects, onChanged, customerSiteAddress }) 
                 <td className="py-2.5 font-semibold text-[#1F2A33]">{p.project_name}<div className="text-xs text-gray-500 font-normal">{p.description}</div></td>
                 <td><span className="text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{p.status}</span></td>
                 <td className="text-xs text-gray-500">{formatDateTime(p.created_at)}</td>
+                <td className="text-right">
+                  <button type="button" onClick={() => window.open(`/projects/${p.id}/print`, "_blank")} data-testid={`proj-print-${p.id}`}
+                    className="text-[11px] font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33]">Print</button>
+                </td>
               </tr>
             ))}
           </tbody>

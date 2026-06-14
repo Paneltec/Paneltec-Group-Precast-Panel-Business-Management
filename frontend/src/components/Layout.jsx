@@ -37,12 +37,11 @@ const NAV_ITEMS = [
   { to: "/employees", label: "Employees", icon: Wrench, testid: "nav-employees" },
   { to: "/settings/pricing", label: "Pricing", icon: Settings, adminOnly: true, testid: "nav-settings" },
   { to: "/settings/company", label: "Company", icon: Settings, adminOnly: true, testid: "nav-company-settings" },
+  { to: "/settings/integrations", label: "Integrations", icon: Wrench, adminOnly: true, testid: "nav-integrations" },
   { to: "/users", label: "Users", icon: Users, adminOnly: true, testid: "nav-users" },
 ];
 
-const COMING_SOON = [
-  { label: "Integrations", icon: Wrench },
-];
+const COMING_SOON = [];
 
 export default function Layout() {
   const { user, logout, isAdmin } = useAuth();

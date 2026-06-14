@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { Loader2, ArrowLeft, ArrowRight, X, FileText, Save } from "lucide-react";
+import { Loader2, ArrowLeft, ArrowRight, X, FileText, Save, Printer, Mail } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog";
 import { formatAUD, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
+import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
 
 const ORDER = ["scheduled","in_production","ready_for_delivery","delivered","installed","completed"];
 const STATUS_STYLES = {
@@ -31,6 +32,7 @@ export default function JobDetail() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [genOpen, setGenOpen] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
 
   const load = async () => {
     try {
@@ -109,8 +111,15 @@ export default function JobDetail() {
             <Link to={`/quotes/${job.quote_id}`} className="text-[#3A6B8C] hover:text-[#1F2A33]">Quote {job.quote_number}</Link>
             {invoice && <> · <Link to={`/invoices/${invoice.id}`} className="text-[#3A6B8C] hover:text-[#1F2A33]">Invoice {invoice.invoice_number}</Link></>}
           </p>
+          <LastEmailedLabel at={job.last_email_sent_at} subject={job.last_email_subject}/>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => window.open(`/jobs/${id}/print`, "_blank")} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="job-print-btn">
+            <Printer className="w-4 h-4 mr-2"/> Print
+          </Button>
+          <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold h-10" data-testid="job-email-btn">
+            <Mail className="w-4 h-4 mr-2"/> Email
+          </Button>
           {canAdvance && (
             <Button onClick={advance} className="bg-[#3A6B8C] text-white hover:bg-[#2C526B] h-10" data-testid="job-advance-btn">
               Advance to {ORDER[idx + 1]?.replace(/_/g," ")} <ArrowRight className="w-4 h-4 ml-2"/>
@@ -285,6 +294,16 @@ export default function JobDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <EmailModal
+        open={emailOpen} onOpenChange={setEmailOpen}
+        defaultRecipient={customer.contact_email}
+        defaultSubject={`Production update — Job ${job.job_number}`}
+        defaultBody={`Hi ${customer.contact_name || customer.company_name},\n\nQuick update on Job ${job.job_number} (${job.line_items.length} line${job.line_items.length===1?'':'s'}, ${(job.total_weight_tonnes||0).toFixed(2)} t).\n\nCurrent status: ${job.status.replace(/_/g,' ')}\nScheduled production: ${job.scheduled_production_date || '—'}\nScheduled delivery: ${job.scheduled_delivery_date || '—'}\n\nDelivery address: ${customer.site_address?.street || ''}, ${customer.site_address?.suburb || ''} ${customer.site_address?.state || ''} ${customer.site_address?.postcode || ''}.\n\nKind regards,\nPaneltec Group`}
+        attachmentNotice={`Attach a production sheet by clicking Print → Save as PDF.`}
+        endpoint={`/jobs/${id}/email-sent`}
+        onSent={load}
+      />
     </div>
   );
 }
