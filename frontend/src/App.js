@@ -27,6 +27,9 @@ import IntegrationSettings from "./pages/IntegrationSettings";
 import CustomerPrint from "./pages/CustomerPrint";
 import ProjectPrint from "./pages/ProjectPrint";
 import JobPrint from "./pages/JobPrint";
+import Account from "./pages/Account";
+import ForcePasswordChange from "./pages/ForcePasswordChange";
+import Forbidden from "./pages/Forbidden";
 
 function App() {
   return (
@@ -38,31 +41,34 @@ function App() {
             <AuthProvider>
               <Routes>
                 <Route path="/login" element={<Login />} />
-                <Route path="/quotes/:id/print" element={<ProtectedRoute><QuotePrint /></ProtectedRoute>} />
-                <Route path="/invoices/:id/print" element={<ProtectedRoute><InvoicePrint /></ProtectedRoute>} />
-                <Route path="/customers/:id/print" element={<ProtectedRoute><CustomerPrint /></ProtectedRoute>} />
-                <Route path="/projects/:id/print" element={<ProtectedRoute><ProjectPrint /></ProtectedRoute>} />
-                <Route path="/jobs/:id/print" element={<ProtectedRoute><JobPrint /></ProtectedRoute>} />
+                <Route path="/force-password-change" element={<ProtectedRoute><ForcePasswordChange /></ProtectedRoute>} />
+                <Route path="/forbidden" element={<Forbidden />} />
+                <Route path="/quotes/:id/print" element={<ProtectedRoute permission="quotes.view"><QuotePrint /></ProtectedRoute>} />
+                <Route path="/invoices/:id/print" element={<ProtectedRoute permission="invoices.view"><InvoicePrint /></ProtectedRoute>} />
+                <Route path="/customers/:id/print" element={<ProtectedRoute permission="customers.view"><CustomerPrint /></ProtectedRoute>} />
+                <Route path="/projects/:id/print" element={<ProtectedRoute permission="projects.view"><ProjectPrint /></ProtectedRoute>} />
+                <Route path="/jobs/:id/print" element={<ProtectedRoute permission="jobs.view"><JobPrint /></ProtectedRoute>} />
                 <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                   <Route path="/" element={<Dashboard />} />
+                  <Route path="/account" element={<Account />} />
                   <Route path="/calculator" element={<CalculatorPage />} />
-                  <Route path="/customers" element={<CustomersList />} />
-                  <Route path="/customers/new" element={<CustomerForm />} />
-                  <Route path="/customers/:id" element={<CustomerForm />} />
-                  <Route path="/quotes" element={<QuotesList />} />
-                  <Route path="/quotes/new" element={<QuoteEditor />} />
-                  <Route path="/quotes/:id" element={<QuoteDetail />} />
-                  <Route path="/quotes/:id/edit" element={<QuoteEditor />} />
-                  <Route path="/jobs" element={<JobsList />} />
-                  <Route path="/jobs/:id" element={<JobDetail />} />
-                  <Route path="/invoices" element={<InvoicesList />} />
-                  <Route path="/invoices/:id" element={<InvoiceDetail />} />
-                  <Route path="/vehicles" element={<Vehicles />} />
-                  <Route path="/employees" element={<Employees />} />
-                  <Route path="/settings/pricing" element={<ProtectedRoute adminOnly><PricingSettings /></ProtectedRoute>} />
-                  <Route path="/settings/company" element={<ProtectedRoute adminOnly><CompanySettings /></ProtectedRoute>} />
-                  <Route path="/settings/integrations" element={<ProtectedRoute adminOnly><IntegrationSettings /></ProtectedRoute>} />
-                  <Route path="/users" element={<ProtectedRoute adminOnly><UsersPage /></ProtectedRoute>} />
+                  <Route path="/customers" element={<ProtectedRoute permission="customers.view"><CustomersList /></ProtectedRoute>} />
+                  <Route path="/customers/new" element={<ProtectedRoute permission="customers.create"><CustomerForm /></ProtectedRoute>} />
+                  <Route path="/customers/:id" element={<ProtectedRoute permission="customers.view"><CustomerForm /></ProtectedRoute>} />
+                  <Route path="/quotes" element={<ProtectedRoute permission="quotes.view"><QuotesList /></ProtectedRoute>} />
+                  <Route path="/quotes/new" element={<ProtectedRoute permission="quotes.create"><QuoteEditor /></ProtectedRoute>} />
+                  <Route path="/quotes/:id" element={<ProtectedRoute permission="quotes.view"><QuoteDetail /></ProtectedRoute>} />
+                  <Route path="/quotes/:id/edit" element={<ProtectedRoute permission="quotes.edit"><QuoteEditor /></ProtectedRoute>} />
+                  <Route path="/jobs" element={<ProtectedRoute permission="jobs.view"><JobsList /></ProtectedRoute>} />
+                  <Route path="/jobs/:id" element={<ProtectedRoute permission="jobs.view"><JobDetail /></ProtectedRoute>} />
+                  <Route path="/invoices" element={<ProtectedRoute permission="invoices.view"><InvoicesList /></ProtectedRoute>} />
+                  <Route path="/invoices/:id" element={<ProtectedRoute permission="invoices.view"><InvoiceDetail /></ProtectedRoute>} />
+                  <Route path="/vehicles" element={<ProtectedRoute permission="vehicles.view"><Vehicles /></ProtectedRoute>} />
+                  <Route path="/employees" element={<ProtectedRoute permission="employees.view"><Employees /></ProtectedRoute>} />
+                  <Route path="/settings/pricing" element={<ProtectedRoute permission="pricing.view"><PricingSettings /></ProtectedRoute>} />
+                  <Route path="/settings/company" element={<ProtectedRoute permission="company.view"><CompanySettings /></ProtectedRoute>} />
+                  <Route path="/settings/integrations" element={<ProtectedRoute permission="integrations.view"><IntegrationSettings /></ProtectedRoute>} />
+                  <Route path="/users" element={<ProtectedRoute permission="users.view"><UsersPage /></ProtectedRoute>} />
                 </Route>
                 <Route path="*" element={<Login />} />
               </Routes>

@@ -18,6 +18,20 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// If the server returns the password_change_required gate, hard-redirect the SPA.
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    const detail = err?.response?.data?.detail;
+    if (err?.response?.status === 403 && detail && typeof detail === "object" && detail.code === "password_change_required") {
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/force-password-change")) {
+        window.location.assign("/force-password-change");
+      }
+    }
+    return Promise.reject(err);
+  }
+);
+
 export function formatApiErrorDetail(detail) {
   if (detail == null) return "Something went wrong. Please try again.";
   if (typeof detail === "string") return detail;
@@ -27,5 +41,6 @@ export function formatApiErrorDetail(detail) {
       .filter(Boolean)
       .join(" ");
   if (detail && typeof detail.msg === "string") return detail.msg;
+  if (detail && typeof detail.message === "string") return detail.message;
   return String(detail);
 }

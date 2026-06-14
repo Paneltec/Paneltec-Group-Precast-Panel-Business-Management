@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { formatAUD, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
+import { useAuth } from "../contexts/AuthContext";
 
 const STATUS_STYLES = {
   draft:"bg-gray-100 text-gray-700",issued:"bg-blue-100 text-blue-800",
@@ -17,6 +18,7 @@ const STATUS_STYLES = {
 };
 
 export default function InvoiceDetail() {
+  const { hasPerm } = useAuth();
   const { id } = useParams();
   const [inv, setInv] = useState(null);
   const [customer, setCustomer] = useState(null);
@@ -84,19 +86,21 @@ export default function InvoiceDetail() {
           <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold h-10" data-testid="invoice-email-btn">
             <Mail className="w-4 h-4 mr-2"/> Email
           </Button>
-          {inv.status === "draft" && (
+          {inv.status === "draft" && hasPerm("invoices.issue") && (
             <Button onClick={issue} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-10" data-testid="invoice-issue-btn">
               <Send className="w-4 h-4 mr-2"/> Issue
             </Button>
           )}
-          {inv.status === "issued" && (
+          {inv.status === "issued" && hasPerm("invoices.mark_paid") && (
             <Button onClick={() => setPaidOpen(true)} className="bg-green-600 text-white hover:bg-green-700 h-10" data-testid="invoice-mark-paid-btn">
               <Check className="w-4 h-4 mr-2"/> Mark Paid
             </Button>
           )}
-          <Button variant="outline" onClick={pushXero} className="border-[#F5C518] text-[#1F2A33] font-semibold h-10" data-testid="invoice-push-xero-btn">
-            <ExternalLink className="w-4 h-4 mr-2"/> Push to Xero
-          </Button>
+          {hasPerm("invoices.push_xero") && (
+            <Button variant="outline" onClick={pushXero} className="border-[#F5C518] text-[#1F2A33] font-semibold h-10" data-testid="invoice-push-xero-btn">
+              <ExternalLink className="w-4 h-4 mr-2"/> Push to Xero
+            </Button>
+          )}
         </div>
       </div>
 

@@ -1,0 +1,30 @@
+{
+  "summary": "Phase 5 (Granular Permissions + Full User Management) end-to-end verified. Backend Phase 5 pytest: 35/35 passed including seed users, estimator/production 403 gating, accounts preset, permissions catalogue (11 modules / 33 perms / 4 presets), elevated-perm guard on POST+PATCH /api/users, last-admin safety + self-protection, force-password-change flow with structured 403 detail, /users/me self-service (name + password), last_login_at updates per login, deactivated-user 401, super-only reset-password endpoint, Phase 1 calculator regression ($5,623.20 for admin/staff/production), Phase 3 seeded chain Q-2026-0002→J-2026-0001→INV-2026-0001 intact, Phase 4 integrations regression (masked GET, MOCKED test, staff/prod 403). Frontend Playwright smoke (7/7): estimator sidebar hides Pricing/Company/Integrations/Users; direct nav to /settings/pricing renders forbidden-page with 'Required: pricing.view'; /users equally forbidden; /account renders with email+role_label disabled and name editable; admin sees all admin items and /users page renders the full permission grid.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase5_permissions.py",
+    "/app/test_reports/pytest/phase5_results.xml"
+  ],
+  "action_items": [
+    "(Housekeeping) /app/backend/tests/backend_test.py still has Phase 1 TestPricing::test_get_pricing_any_auth expecting staff GET pricing=200; should be admin-only — flagged in iteration_2, still present.",
+    "(Code quality) server.py is now ~1840 lines — recommend splitting before Phase 6.",
+    "(ESLint warning) InvoiceDetail.jsx:40 and JobDetail.jsx:56 missing useEffect dependency 'load' (cosmetic)."
+  ],
+  "critical_code_review_comments": [
+    "Permission model is clean: ALL_PERMISSIONS=33, 11 modules, ELEVATED set with server-side guard via _validate_permissions_payload — rejected on both POST and PATCH /api/users.",
+    "Force-password-change is correctly gated via _get_current_user_raw vs get_current_user: change-password and auth/me bypass the gate (verified), all business endpoints return the structured 403 {code: password_change_required}.",
+    "Last-admin safety + self-protection both verified end-to-end: demoting/deactivating the only super admin returns 400 with clear message; deactivating self also 400.",
+    "Seeded users are re-aligned to current preset on every startup (idempotent migration) — visible in logs as 'Migrated user ...: [permissions, updated_at]' on each reload.",
+    "reset-password returns the temp password in body (intentional, super-only); endpoint correctly 403s for non-super.",
+    "Deactivated users hit 401 'Account deactivated' on login (verified)."
+  ],
+  "updated_files": ["/app/backend/tests/test_phase5_permissions.py (new — 35 tests)"],
+  "success_rate": {"backend": "100% (35/35 Phase 5 + regressions)", "frontend": "100% (7/7 Phase 5 UI gates)"},
+  "test_credentials": "admin@paneltec.com.au / Paneltec2026! (super); staff@paneltec.com.au / Staff2026! (estimator); production@paneltec.com.au / Prod2026! (production). Test users created with @example.com (Pydantic EmailStr rejects @*.test TLD).",
+  "seed_data_creation": "Several TEST_ users created via POST /api/users during the run; all deactivated in fixture teardown (is_active=false). Visible in admin /users grid as 'TEST User'/'Updated Name' rows with active toggle off.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 5 regression lives at /app/backend/tests/test_phase5_permissions.py (35 tests, ~17s). Run: REACT_APP_BACKEND_URL=https://concrete-panel-app.preview.emergentagent.com pytest backend/tests/test_phase5_permissions.py -v. KEY GOTCHAS: (1) /api/quotes,/jobs,/invoices return paginated {items,total,page} — not bare arrays. (2) Calculator schema is panel_type_key/finish_key/concrete_grade/reinforcement_type/openings_m2 (NOT panel_type/finish/etc). (3) Pydantic EmailStr rejects .test TLD — use @example.com for synthetic emails. (4) Created user with must_change_password=true + no perms will still 403 on business endpoints AFTER changing password (Permission required), distinct from the password_change_required code — assert on `detail.code` not just status. Frontend testids verified: forbidden-page, forbidden-required, account-page, account-name, account-email, account-role-label, users-page.",
+  "rca of the issue": "No Phase 5 bugs found. Initial test failures (16/35) were ALL test-side artefacts: (a) @paneltec.test rejected by EmailStr → switched to @example.com; (b) wrong calculator field names → aligned with Phase 1 schema; (c) quotes/jobs/invoices list responses are paginated dicts → handle .items; (d) my force-password-change test user had no permissions so post-change customers GET correctly 403'd → granted customers.view in the test setup. After fixes, 35/35 pass."
+}

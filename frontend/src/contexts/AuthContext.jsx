@@ -25,16 +25,14 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  useEffect(() => {
-    fetchMe();
-  }, [fetchMe]);
+  useEffect(() => { fetchMe(); }, [fetchMe]);
 
   const login = async (email, password) => {
     try {
       const { data } = await api.post("/auth/login", { email, password });
       tokenStore.set(data.access_token);
       setUser(data.user);
-      return { ok: true };
+      return { ok: true, user: data.user };
     } catch (e) {
       return { ok: false, error: formatApiErrorDetail(e.response?.data?.detail) || e.message };
     }
@@ -46,10 +44,23 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
-  const isAdmin = user?.role === "admin";
+  const isSuperAdmin = !!user?.is_super_admin;
+  // legacy alias kept so existing code doesn't break
+  const isAdmin = isSuperAdmin;
+
+  const hasPerm = useCallback((key) => {
+    if (!user) return false;
+    if (user.is_super_admin) return true;
+    if (!key) return true;
+    return !!user.permissions?.[key];
+  }, [user]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, isAdmin, refresh: fetchMe }}>
+    <AuthContext.Provider value={{
+      user, loading, login, logout,
+      isAdmin, isSuperAdmin, hasPerm,
+      refresh: fetchMe, setUser,
+    }}>
       {children}
     </AuthContext.Provider>
   );
@@ -59,4 +70,9 @@ export const useAuth = () => {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
   return ctx;
+};
+
+export const usePermission = (key) => {
+  const { hasPerm } = useAuth();
+  return hasPerm(key);
 };

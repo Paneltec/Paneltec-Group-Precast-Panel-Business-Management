@@ -57,14 +57,25 @@ def verify_password(plain: str, hashed: str) -> bool:
     try: return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
     except Exception: return False
 
-def create_access_token(user_id: str, email: str, role: str) -> str:
-    payload = {"sub": user_id, "email": email, "role": role, "type": "access",
+def create_access_token(user_id: str, email: str) -> str:
+    payload = {"sub": user_id, "email": email, "type": "access",
                "iat": now_utc(), "exp": now_utc() + timedelta(hours=JWT_EXPIRES_HOURS)}
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def user_to_public(u: dict) -> dict:
-    return {"id": u["id"], "email": u["email"], "name": u.get("name", ""),
-            "role": u["role"], "is_active": u.get("is_active", True), "created_at": u.get("created_at")}
+    return {
+        "id": u["id"], "email": u["email"], "name": u.get("name", ""),
+        "is_super_admin": bool(u.get("is_super_admin", False)),
+        "permissions": u.get("permissions", {}) or {},
+        "role_label": u.get("role_label", ""),
+        "is_active": u.get("is_active", True),
+        "must_change_password": bool(u.get("must_change_password", False)),
+        "last_login_at": u.get("last_login_at"),
+        "created_at": u.get("created_at"),
+        "updated_at": u.get("updated_at"),
+        # legacy compat
+        "role": "admin" if u.get("is_super_admin") else "staff",
+    }
 
 def _round2(x: float) -> float: return round(x + 1e-9, 2)
 
@@ -80,9 +91,71 @@ def normalise_abn(raw: Optional[str]) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# Permission catalogue (Phase 5)
+# ---------------------------------------------------------------------------
+PERMISSION_MODULES = [
+    {"key": "customers", "label": "Customers", "permissions": ["customers.view", "customers.create", "customers.edit", "customers.delete"]},
+    {"key": "projects",  "label": "Projects",  "permissions": ["projects.view", "projects.create", "projects.edit", "projects.delete"]},
+    {"key": "quotes",    "label": "Quotes",    "permissions": ["quotes.view", "quotes.create", "quotes.edit", "quotes.send", "quotes.mark_decision", "quotes.revise"]},
+    {"key": "jobs",      "label": "Jobs",      "permissions": ["jobs.view", "jobs.edit", "jobs.transition", "jobs.cancel"]},
+    {"key": "invoices",  "label": "Invoices",  "permissions": ["invoices.view", "invoices.create", "invoices.issue", "invoices.mark_paid", "invoices.push_xero"]},
+    {"key": "vehicles",  "label": "Vehicles",  "permissions": ["vehicles.view"]},
+    {"key": "employees", "label": "Employees", "permissions": ["employees.view"]},
+    {"key": "pricing",   "label": "Pricing",   "permissions": ["pricing.view", "pricing.edit"]},
+    {"key": "company",   "label": "Company",   "permissions": ["company.view", "company.edit"]},
+    {"key": "integrations","label":"Integrations","permissions": ["integrations.view", "integrations.edit"]},
+    {"key": "users",     "label": "Users",     "permissions": ["users.view", "users.manage"]},
+]
+ALL_PERMISSIONS: List[str] = [p for m in PERMISSION_MODULES for p in m["permissions"]]
+# These permissions are reserved for super-admins. Non-super-admins cannot hold them.
+ELEVATED_PERMISSIONS = {"users.manage", "integrations.edit", "pricing.edit", "company.edit"}
+
+PERMISSION_PRESETS = {
+    "estimator": {
+        "label": "Estimator / Sales",
+        "permissions": [
+            "customers.view","customers.create","customers.edit","customers.delete",
+            "projects.view","projects.create","projects.edit","projects.delete",
+            "quotes.view","quotes.create","quotes.edit","quotes.send","quotes.mark_decision","quotes.revise",
+            "jobs.view","invoices.view","vehicles.view","employees.view",
+        ],
+    },
+    "production": {
+        "label": "Production",
+        "permissions": [
+            "customers.view","projects.view","quotes.view",
+            "jobs.view","jobs.edit","jobs.transition","jobs.cancel",
+            "invoices.view","vehicles.view","employees.view",
+        ],
+    },
+    "accounts": {
+        "label": "Accounts",
+        "permissions": [
+            "customers.view","projects.view","quotes.view","jobs.view",
+            "invoices.view","invoices.create","invoices.issue","invoices.mark_paid","invoices.push_xero",
+            "company.view",
+        ],
+    },
+    "readonly": {
+        "label": "Read-only",
+        "permissions": [p for p in ALL_PERMISSIONS if p.endswith(".view")],
+    },
+}
+
+
+def normalise_permissions(perms: Optional[Dict[str, bool]]) -> Dict[str, bool]:
+    """Strip unknown keys, coerce to bool, drop falsy entries."""
+    if not perms: return {}
+    out = {}
+    for k in ALL_PERMISSIONS:
+        if perms.get(k): out[k] = True
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Auth dependencies
 # ---------------------------------------------------------------------------
-async def get_current_user(request: Request, creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme)) -> dict:
+async def _get_current_user_raw(request: Request, creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme)) -> dict:
     token: Optional[str] = None
     if creds and creds.scheme.lower() == "bearer": token = creds.credentials
     if not token:
@@ -98,9 +171,32 @@ async def get_current_user(request: Request, creds: Optional[HTTPAuthorizationCr
         raise HTTPException(status_code=401, detail="User not found or inactive")
     return user
 
-async def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    if user.get("role") != "admin": raise HTTPException(status_code=403, detail="Admin access required")
+async def get_current_user(user: dict = Depends(_get_current_user_raw)) -> dict:
+    """Same as raw, but enforces must_change_password gate. Used by ALL business endpoints."""
+    if user.get("must_change_password"):
+        raise HTTPException(status_code=403, detail={"code": "password_change_required",
+                                                      "message": "You must change your password before continuing."})
     return user
+
+def has_permission(user: dict, perm: str) -> bool:
+    if user.get("is_super_admin"): return True
+    return bool((user.get("permissions") or {}).get(perm))
+
+def require_permission(perm: str):
+    async def _dep(user: dict = Depends(get_current_user)) -> dict:
+        if not has_permission(user, perm):
+            raise HTTPException(status_code=403, detail=f"Permission required: {perm}")
+        return user
+    _dep.__name__ = f"require_permission_{perm.replace('.', '_')}"
+    return _dep
+
+async def require_super_admin(user: dict = Depends(get_current_user)) -> dict:
+    if not user.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    return user
+
+# Legacy alias — maps to super admin (kept so any unmigrated reference still works).
+require_admin = require_super_admin
 
 
 # ---------------------------------------------------------------------------
@@ -114,10 +210,29 @@ class ChangePasswordRequest(BaseModel):
     current_password: str; new_password: str = Field(min_length=8)
 class UserCreate(BaseModel):
     email: EmailStr; password: str = Field(min_length=8); name: str = Field(min_length=1)
-    role: Literal["admin", "staff"] = "staff"
+    role_label: str = ""
+    is_super_admin: bool = False
+    permissions: Dict[str, bool] = Field(default_factory=dict)
+    must_change_password: bool = True
+    # legacy compat — if provided, "admin" → super admin + admin label
+    role: Optional[Literal["admin", "staff"]] = None
 class UserUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    name: Optional[str] = None; role: Optional[Literal["admin","staff"]] = None; is_active: Optional[bool] = None
+    name: Optional[str] = None
+    role_label: Optional[str] = None
+    is_super_admin: Optional[bool] = None
+    permissions: Optional[Dict[str, bool]] = None
+    is_active: Optional[bool] = None
+    must_change_password: Optional[bool] = None
+    email: Optional[EmailStr] = None
+class UserSelfUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Optional[str] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = Field(default=None, min_length=8)
+class ResetPasswordRequest(BaseModel):
+    new_password: str = Field(min_length=8)
+    must_change_password: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -522,21 +637,74 @@ async def seed_database():
     seed_users = [
         {"email": os.environ.get("SEED_ADMIN_EMAIL","admin@paneltec.com.au"),
          "password": os.environ.get("SEED_ADMIN_PASSWORD","Paneltec2026!"),
-         "name": "Paneltec Admin", "role":"admin"},
+         "name": "Paneltec Admin", "is_super_admin": True, "role_label": "Administrator",
+         "permissions": {}},
         {"email": os.environ.get("SEED_STAFF_EMAIL","staff@paneltec.com.au"),
          "password": os.environ.get("SEED_STAFF_PASSWORD","Staff2026!"),
-         "name": "Paneltec Staff", "role":"staff"},
+         "name": "Paneltec Estimator", "is_super_admin": False, "role_label": "Estimator",
+         "permissions": {p: True for p in PERMISSION_PRESETS["estimator"]["permissions"]}},
+        {"email": os.environ.get("SEED_PROD_EMAIL","production@paneltec.com.au"),
+         "password": os.environ.get("SEED_PROD_PASSWORD","Prod2026!"),
+         "name": "Paneltec Production", "is_super_admin": False, "role_label": "Production",
+         "permissions": {p: True for p in PERMISSION_PRESETS["production"]["permissions"]}},
     ]
     for s in seed_users:
         existing = await db.users.find_one({"email": s["email"]})
         if existing is None:
-            await db.users.insert_one({"id": str(uuid.uuid4()), "email": s["email"],
-                "password_hash": hash_password(s["password"]), "name": s["name"], "role": s["role"],
-                "is_active": True, "created_at": now_iso()})
-            logger.info(f"Seeded user: {s['email']}")
-        elif not verify_password(s["password"], existing["password_hash"]):
-            await db.users.update_one({"email": s["email"]},
-                {"$set": {"password_hash": hash_password(s["password"]), "is_active": True}})
+            await db.users.insert_one({
+                "id": str(uuid.uuid4()), "email": s["email"],
+                "password_hash": hash_password(s["password"]), "name": s["name"],
+                "role": "admin" if s["is_super_admin"] else "staff",
+                "is_super_admin": s["is_super_admin"],
+                "role_label": s["role_label"],
+                "permissions": s["permissions"],
+                "must_change_password": False,
+                "last_login_at": None,
+                "is_active": True,
+                "created_at": now_iso(), "updated_at": now_iso(),
+                "created_by_user_id": "system", "updated_by_user_id": "system",
+            })
+            logger.info(f"Seeded user: {s['email']} ({s['role_label']})")
+        else:
+            # Phase 5 migration: backfill new fields on existing docs (idempotent).
+            updates = {}
+            if "is_super_admin" not in existing:
+                updates["is_super_admin"] = (existing.get("role") == "admin")
+            if "permissions" not in existing:
+                updates["permissions"] = {} if updates.get("is_super_admin", existing.get("is_super_admin")) \
+                    else {p: True for p in PERMISSION_PRESETS["estimator"]["permissions"]}
+            if "role_label" not in existing:
+                updates["role_label"] = "Administrator" if existing.get("role") == "admin" else "Estimator"
+            if "must_change_password" not in existing:
+                updates["must_change_password"] = False
+            if "last_login_at" not in existing:
+                updates["last_login_at"] = None
+            # Re-align seeded users' permissions with the CURRENT preset (idempotent reset for seed accounts).
+            updates["permissions"] = {} if s["is_super_admin"] else dict(s["permissions"])
+            if updates:
+                updates["updated_at"] = now_iso()
+                await db.users.update_one({"id": existing["id"]}, {"$set": updates})
+                logger.info(f"Migrated user {s['email']}: {list(updates.keys())}")
+            # also keep seeded password aligned with env (so tests stay green)
+            if not verify_password(s["password"], existing["password_hash"]):
+                await db.users.update_one({"email": s["email"]},
+                    {"$set": {"password_hash": hash_password(s["password"]), "is_active": True,
+                              "must_change_password": False}})
+
+    # Phase 5: migrate any OTHER existing users (e.g. created via the old UI) to the new schema.
+    async for u in db.users.find({"$or": [{"is_super_admin": {"$exists": False}}, {"permissions": {"$exists": False}}]}, {"_id": 0}):
+        updates = {}
+        if "is_super_admin" not in u: updates["is_super_admin"] = (u.get("role") == "admin")
+        if "permissions" not in u:
+            updates["permissions"] = {} if updates.get("is_super_admin", u.get("is_super_admin")) \
+                else {p: True for p in PERMISSION_PRESETS["estimator"]["permissions"]}
+        if "role_label" not in u:
+            updates["role_label"] = "Administrator" if updates.get("is_super_admin", u.get("is_super_admin")) else "Estimator"
+        if "must_change_password" not in u: updates["must_change_password"] = False
+        if "last_login_at" not in u: updates["last_login_at"] = None
+        if updates:
+            updates["updated_at"] = now_iso()
+            await db.users.update_one({"id": u["id"]}, {"$set": updates})
 
     if await db.settings.find_one({"key": "pricing"}) is None:
         await db.settings.insert_one({"key":"pricing", **DEFAULT_PRICING, "updated_at": now_iso()})
@@ -668,82 +836,200 @@ async def _seed_phase3_demo():
 async def auth_login(payload: LoginRequest):
     email = payload.email.lower().strip()
     user = await db.users.find_one({"email": email}, {"_id":0})
-    if not user or not user.get("is_active", True):
+    if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not user.get("is_active", True):
+        raise HTTPException(status_code=401, detail="Account deactivated. Contact administrator.")
     if not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    return LoginResponse(access_token=create_access_token(user["id"], user["email"], user["role"]),
+    await db.users.update_one({"id": user["id"]}, {"$set": {"last_login_at": now_iso()}})
+    user["last_login_at"] = now_iso()
+    return LoginResponse(access_token=create_access_token(user["id"], user["email"]),
                          user=user_to_public(user))
 
 @api_router.post("/auth/logout")
-async def auth_logout(_user: dict = Depends(get_current_user)): return {"ok": True}
+async def auth_logout(_user: dict = Depends(_get_current_user_raw)): return {"ok": True}
 
 @api_router.get("/auth/me")
-async def auth_me(user: dict = Depends(get_current_user)): return user_to_public(user)
+async def auth_me(user: dict = Depends(_get_current_user_raw)): return user_to_public(user)
 
 @api_router.post("/auth/change-password")
-async def auth_change_password(payload: ChangePasswordRequest, user: dict = Depends(get_current_user)):
+async def auth_change_password(payload: ChangePasswordRequest, user: dict = Depends(_get_current_user_raw)):
     if not verify_password(payload.current_password, user["password_hash"]):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
-    await db.users.update_one({"id":user["id"]}, {"$set":{"password_hash":hash_password(payload.new_password)}})
+    await db.users.update_one({"id":user["id"]},
+        {"$set":{"password_hash":hash_password(payload.new_password),
+                 "must_change_password": False, "updated_at": now_iso()}})
     return {"ok": True}
 
+@api_router.get("/permissions/catalogue")
+async def permissions_catalogue(_user: dict = Depends(_get_current_user_raw)):
+    return {
+        "modules": PERMISSION_MODULES,
+        "all_permissions": ALL_PERMISSIONS,
+        "elevated_permissions": sorted(ELEVATED_PERMISSIONS),
+        "presets": [{"key": k, **v} for k, v in PERMISSION_PRESETS.items()],
+    }
+
 
 # ---------------------------------------------------------------------------
-# Users (admin)
+# Users (super admin only for create/update; users.view for list)
 # ---------------------------------------------------------------------------
+async def _count_active_super_admins(exclude_id: Optional[str] = None) -> int:
+    q: Dict[str, Any] = {"is_super_admin": True, "is_active": True}
+    if exclude_id: q["id"] = {"$ne": exclude_id}
+    return await db.users.count_documents(q)
+
+def _validate_permissions_payload(perms: Dict[str, bool], is_super_admin: bool) -> Dict[str, bool]:
+    clean = normalise_permissions(perms)
+    if not is_super_admin:
+        held_elevated = ELEVATED_PERMISSIONS.intersection({k for k, v in clean.items() if v})
+        if held_elevated:
+            raise HTTPException(status_code=400,
+                detail=f"Elevated permissions are reserved for super admins: {', '.join(sorted(held_elevated))}")
+    return clean
+
 @api_router.get("/users")
-async def list_users(_admin: dict = Depends(require_admin)):
-    return await db.users.find({}, {"_id":0,"password_hash":0}).sort("created_at", -1).to_list(500)
+async def list_users(_u: dict = Depends(require_permission("users.view"))):
+    docs = await db.users.find({}, {"_id":0,"password_hash":0}).sort("created_at", -1).to_list(500)
+    return docs
+
+@api_router.patch("/users/me")
+async def update_me(payload: UserSelfUpdate, user: dict = Depends(get_current_user)):
+    updates: Dict[str, Any] = {}
+    if payload.name is not None:
+        updates["name"] = payload.name.strip()
+    if payload.new_password is not None:
+        if not payload.current_password:
+            raise HTTPException(status_code=400, detail="Current password is required to set a new password")
+        if not verify_password(payload.current_password, user["password_hash"]):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        updates["password_hash"] = hash_password(payload.new_password)
+        updates["must_change_password"] = False
+    if not updates: raise HTTPException(status_code=400, detail="No fields to update")
+    updates["updated_at"] = now_iso()
+    updates["updated_by_user_id"] = user["id"]
+    await db.users.update_one({"id": user["id"]}, {"$set": updates})
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id":0, "password_hash":0})
+    return user_to_public(fresh)
 
 @api_router.post("/users", status_code=201)
-async def create_user(payload: UserCreate, _admin: dict = Depends(require_admin)):
+async def create_user(payload: UserCreate, admin: dict = Depends(require_super_admin)):
     email = payload.email.lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=409, detail="User with this email already exists")
-    doc = {"id":str(uuid.uuid4()),"email":email,"password_hash":hash_password(payload.password),
-           "name":payload.name.strip(),"role":payload.role,"is_active":True,"created_at":now_iso()}
+    # Legacy "role" shim: if caller still sends role="admin", treat as super_admin.
+    is_super = bool(payload.is_super_admin) or (payload.role == "admin")
+    perms = _validate_permissions_payload(payload.permissions, is_super)
+    role_label = payload.role_label.strip() or ("Administrator" if is_super else "Staff")
+    doc = {
+        "id": str(uuid.uuid4()), "email": email,
+        "password_hash": hash_password(payload.password),
+        "name": payload.name.strip(),
+        "role": "admin" if is_super else "staff",  # legacy field for one release
+        "is_super_admin": is_super,
+        "role_label": role_label,
+        "permissions": perms,
+        "must_change_password": bool(payload.must_change_password),
+        "last_login_at": None,
+        "is_active": True,
+        "created_at": now_iso(), "updated_at": now_iso(),
+        "created_by_user_id": admin["id"], "updated_by_user_id": admin["id"],
+    }
     await db.users.insert_one(doc)
     return user_to_public(doc)
 
 @api_router.patch("/users/{user_id}")
-async def update_user(user_id: str, payload: UserUpdate, admin: dict = Depends(require_admin)):
-    if user_id == admin["id"] and payload.is_active is False:
-        raise HTTPException(status_code=400, detail="You cannot deactivate yourself")
-    updates = {k:v for k,v in payload.model_dump(exclude_unset=True).items() if v is not None}
+async def update_user(user_id: str, payload: UserUpdate, admin: dict = Depends(require_super_admin)):
+    target = await db.users.find_one({"id": user_id}, {"_id":0})
+    if not target: raise HTTPException(status_code=404, detail="User not found")
+
+    updates: Dict[str, Any] = {}
+    if payload.name is not None: updates["name"] = payload.name.strip()
+    if payload.role_label is not None: updates["role_label"] = payload.role_label.strip()
+    if payload.email is not None:
+        new_email = payload.email.lower().strip()
+        if new_email != target["email"] and await db.users.find_one({"email": new_email, "id": {"$ne": user_id}}):
+            raise HTTPException(status_code=409, detail="Another user already uses this email")
+        updates["email"] = new_email
+
+    new_super = target.get("is_super_admin", False)
+    if payload.is_super_admin is not None:
+        new_super = payload.is_super_admin
+        # last-admin safety: cannot demote the only active super admin
+        if target.get("is_super_admin") and not new_super:
+            if await _count_active_super_admins(exclude_id=user_id) == 0:
+                raise HTTPException(status_code=400, detail="At least one active super admin is required")
+        if user_id == admin["id"] and not new_super:
+            raise HTTPException(status_code=400, detail="You cannot remove your own super admin flag")
+        updates["is_super_admin"] = new_super
+        # keep legacy "role" in sync
+        updates["role"] = "admin" if new_super else "staff"
+
+    if payload.permissions is not None:
+        updates["permissions"] = _validate_permissions_payload(payload.permissions, new_super)
+
+    if payload.must_change_password is not None:
+        updates["must_change_password"] = bool(payload.must_change_password)
+
+    if payload.is_active is not None:
+        new_active = bool(payload.is_active)
+        if user_id == admin["id"] and not new_active:
+            raise HTTPException(status_code=400, detail="You cannot deactivate yourself")
+        if target.get("is_super_admin") and not new_active:
+            if await _count_active_super_admins(exclude_id=user_id) == 0:
+                raise HTTPException(status_code=400, detail="At least one active super admin is required")
+        updates["is_active"] = new_active
+
     if not updates: raise HTTPException(status_code=400, detail="No fields to update")
-    result = await db.users.update_one({"id":user_id}, {"$set":updates})
-    if result.matched_count == 0: raise HTTPException(status_code=404, detail="User not found")
-    return await db.users.find_one({"id":user_id}, {"_id":0,"password_hash":0})
+    updates["updated_at"] = now_iso()
+    updates["updated_by_user_id"] = admin["id"]
+    await db.users.update_one({"id": user_id}, {"$set": updates})
+    fresh = await db.users.find_one({"id": user_id}, {"_id":0, "password_hash":0})
+    return user_to_public(fresh)
+
+@api_router.post("/users/{user_id}/reset-password")
+async def reset_user_password(user_id: str, payload: ResetPasswordRequest,
+                              admin: dict = Depends(require_super_admin)):
+    target = await db.users.find_one({"id": user_id}, {"_id":0, "id":1, "email":1})
+    if not target: raise HTTPException(status_code=404, detail="User not found")
+    await db.users.update_one({"id": user_id}, {"$set": {
+        "password_hash": hash_password(payload.new_password),
+        "must_change_password": bool(payload.must_change_password),
+        "updated_at": now_iso(),
+        "updated_by_user_id": admin["id"],
+    }})
+    return {"ok": True, "email": target["email"], "new_password": payload.new_password,
+            "must_change_password": bool(payload.must_change_password)}
 
 
 # ---------------------------------------------------------------------------
 # Settings — Pricing (admin)
 # ---------------------------------------------------------------------------
 @api_router.get("/settings/pricing")
-async def get_pricing(_admin: dict = Depends(require_admin)):
+async def get_pricing(_u: dict = Depends(require_permission("pricing.view"))):
     doc = await db.settings.find_one({"key":"pricing"}, {"_id":0,"key":0})
     if not doc: raise HTTPException(status_code=404, detail="Pricing not initialized")
     return doc
 
 @api_router.put("/settings/pricing")
-async def update_pricing(payload: PricingSettings, _admin: dict = Depends(require_admin)):
+async def update_pricing(payload: PricingSettings, _u: dict = Depends(require_permission("pricing.edit"))):
     data = payload.model_dump(); data["updated_at"] = now_iso()
     await db.settings.update_one({"key":"pricing"}, {"$set":data}, upsert=True)
     return await db.settings.find_one({"key":"pricing"}, {"_id":0,"key":0})
 
 
 # ---------------------------------------------------------------------------
-# Settings — Company (read by any auth user; write admin only)
+# Settings — Company (company.view to read, company.edit to update)
 # ---------------------------------------------------------------------------
 @api_router.get("/settings/company")
-async def get_company(_user: dict = Depends(get_current_user)):
+async def get_company(_u: dict = Depends(require_permission("company.view"))):
     doc = await db.settings.find_one({"key":"company"}, {"_id":0,"key":0})
     if not doc: raise HTTPException(status_code=404, detail="Company settings not initialized")
     return doc
 
 @api_router.put("/settings/company")
-async def update_company(payload: CompanySettings, _admin: dict = Depends(require_admin)):
+async def update_company(payload: CompanySettings, _u: dict = Depends(require_permission("company.edit"))):
     data = payload.model_dump()
     if data.get("abn"): data["abn"] = normalise_abn(data["abn"])
     data["updated_at"] = now_iso()
@@ -777,7 +1063,7 @@ async def calculator_calculate(payload: CalculateRequest, _user: dict = Depends(
 # Customers
 # ---------------------------------------------------------------------------
 @api_router.get("/customers")
-async def list_customers(_user: dict = Depends(get_current_user), search: Optional[str] = Query(None),
+async def list_customers(_user: dict = Depends(require_permission("customers.view")), search: Optional[str] = Query(None),
                           active: str = Query("true"), page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200)):
     query: Dict[str, Any] = {}
     al = (active or "").lower()
@@ -793,7 +1079,7 @@ async def list_customers(_user: dict = Depends(get_current_user), search: Option
     return {"items":items,"total":total,"page":page,"page_size":page_size}
 
 @api_router.post("/customers", status_code=201)
-async def create_customer(payload: CustomerCreate, _user: dict = Depends(get_current_user)):
+async def create_customer(payload: CustomerCreate, _user: dict = Depends(require_permission("customers.create"))):
     data = payload.model_dump()
     data["abn"] = normalise_abn(data.get("abn"))
     if data["site_same_as_billing"]: data["site_address"] = data["billing_address"]
@@ -803,13 +1089,13 @@ async def create_customer(payload: CustomerCreate, _user: dict = Depends(get_cur
     return doc
 
 @api_router.get("/customers/{cid}")
-async def get_customer(cid: str, _user: dict = Depends(get_current_user)):
+async def get_customer(cid: str, _user: dict = Depends(require_permission("customers.view"))):
     doc = await db.customers.find_one({"id":cid}, {"_id":0})
     if not doc: raise HTTPException(status_code=404, detail="Customer not found")
     return doc
 
 @api_router.patch("/customers/{cid}")
-async def update_customer(cid: str, payload: CustomerUpdate, _user: dict = Depends(get_current_user)):
+async def update_customer(cid: str, payload: CustomerUpdate, _user: dict = Depends(require_permission("customers.edit"))):
     updates = {k:v for k,v in payload.model_dump(exclude_unset=True).items()}
     if "abn" in updates: updates["abn"] = normalise_abn(updates["abn"])
     if updates.get("site_same_as_billing"):
@@ -824,7 +1110,7 @@ async def update_customer(cid: str, payload: CustomerUpdate, _user: dict = Depen
     return await db.customers.find_one({"id":cid}, {"_id":0})
 
 @api_router.delete("/customers/{cid}")
-async def delete_customer(cid: str, _user: dict = Depends(get_current_user)):
+async def delete_customer(cid: str, _user: dict = Depends(require_permission("customers.delete"))):
     linked = (await db.projects.find_one({"customer_id":cid}) is not None or
               await db.quotes.find_one({"customer_id":cid}) is not None)
     if linked:
@@ -835,7 +1121,7 @@ async def delete_customer(cid: str, _user: dict = Depends(get_current_user)):
     return {"ok":True,"soft_deleted":False}
 
 @api_router.get("/customers/{cid}/projects")
-async def list_customer_projects(cid: str, _user: dict = Depends(get_current_user)):
+async def list_customer_projects(cid: str, _user: dict = Depends(require_permission("customers.view"))):
     if not await db.customers.find_one({"id":cid}, {"_id":0,"id":1}):
         raise HTTPException(status_code=404, detail="Customer not found")
     return await db.projects.find({"customer_id":cid}, {"_id":0}).sort("created_at",-1).to_list(500)
@@ -845,7 +1131,7 @@ async def list_customer_projects(cid: str, _user: dict = Depends(get_current_use
 # Projects
 # ---------------------------------------------------------------------------
 @api_router.get("/projects")
-async def list_projects(_user: dict = Depends(get_current_user), customer_id: Optional[str] = None,
+async def list_projects(_user: dict = Depends(require_permission("projects.view")), customer_id: Optional[str] = None,
                          status_filter: Optional[str] = Query(None, alias="status")):
     q: Dict[str, Any] = {}
     if customer_id: q["customer_id"] = customer_id
@@ -853,7 +1139,7 @@ async def list_projects(_user: dict = Depends(get_current_user), customer_id: Op
     return await db.projects.find(q, {"_id":0}).sort("created_at",-1).to_list(500)
 
 @api_router.post("/projects", status_code=201)
-async def create_project(payload: ProjectCreate, _user: dict = Depends(get_current_user)):
+async def create_project(payload: ProjectCreate, _user: dict = Depends(require_permission("projects.create"))):
     cust = await db.customers.find_one({"id":payload.customer_id}, {"_id":0,"site_address":1})
     if not cust: raise HTTPException(status_code=400, detail="Customer not found")
     data = payload.model_dump()
@@ -862,13 +1148,13 @@ async def create_project(payload: ProjectCreate, _user: dict = Depends(get_curre
     await db.projects.insert_one(doc); doc.pop("_id", None); return doc
 
 @api_router.get("/projects/{pid}")
-async def get_project(pid: str, _user: dict = Depends(get_current_user)):
+async def get_project(pid: str, _user: dict = Depends(require_permission("projects.view"))):
     doc = await db.projects.find_one({"id":pid}, {"_id":0})
     if not doc: raise HTTPException(status_code=404, detail="Project not found")
     return doc
 
 @api_router.patch("/projects/{pid}")
-async def update_project(pid: str, payload: ProjectUpdate, _user: dict = Depends(get_current_user)):
+async def update_project(pid: str, payload: ProjectUpdate, _user: dict = Depends(require_permission("projects.edit"))):
     updates = {k:v for k,v in payload.model_dump(exclude_unset=True).items()}
     updates["updated_at"] = now_iso()
     r = await db.projects.update_one({"id":pid}, {"$set":updates})
@@ -897,7 +1183,7 @@ def _public_quote(doc: dict, customer: Optional[dict]) -> dict:
     }
 
 @api_router.get("/quotes")
-async def list_quotes(_user: dict = Depends(get_current_user),
+async def list_quotes(_user: dict = Depends(require_permission("quotes.view")),
                        status_filter: Optional[str] = Query(None, alias="status"),
                        customer_id: Optional[str] = None, search: Optional[str] = Query(None),
                        page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200)):
@@ -915,7 +1201,7 @@ async def list_quotes(_user: dict = Depends(get_current_user),
     return {"items":docs,"total":total,"page":page,"page_size":page_size}
 
 @api_router.post("/quotes", status_code=201)
-async def create_quote(payload: QuoteCreate, user: dict = Depends(get_current_user)):
+async def create_quote(payload: QuoteCreate, user: dict = Depends(require_permission("quotes.create"))):
     cust = await db.customers.find_one({"id":payload.customer_id}, {"_id":0,"id":1})
     if not cust: raise HTTPException(status_code=400, detail="Customer not found")
     if payload.project_id:
@@ -936,11 +1222,11 @@ async def create_quote(payload: QuoteCreate, user: dict = Depends(get_current_us
     await db.quotes.insert_one(doc); doc.pop("_id",None); return doc
 
 @api_router.get("/quotes/{qid}")
-async def get_quote(qid: str, _user: dict = Depends(get_current_user)):
+async def get_quote(qid: str, _user: dict = Depends(require_permission("quotes.view"))):
     return await _get_quote_or_404(qid)
 
 @api_router.patch("/quotes/{qid}")
-async def update_quote(qid: str, payload: QuoteUpdate, _user: dict = Depends(get_current_user)):
+async def update_quote(qid: str, payload: QuoteUpdate, _user: dict = Depends(require_permission("quotes.edit"))):
     quote = await _get_quote_or_404(qid)
     if quote["status"] != "draft":
         raise HTTPException(status_code=400, detail="Only draft quotes can be edited. Use Revise to clone.")
@@ -963,7 +1249,7 @@ async def _require_draft(qid: str) -> dict:
     return q
 
 @api_router.post("/quotes/{qid}/lines", status_code=201)
-async def add_quote_line(qid: str, payload: QuoteLineInput, _user: dict = Depends(get_current_user)):
+async def add_quote_line(qid: str, payload: QuoteLineInput, _user: dict = Depends(require_permission("quotes.edit"))):
     await _require_draft(qid)
     pricing = await db.settings.find_one({"key":"pricing"}, {"_id":0,"key":0})
     line = build_quote_line(payload, pricing)
@@ -974,7 +1260,7 @@ async def add_quote_line(qid: str, payload: QuoteLineInput, _user: dict = Depend
     return {"line":line, "totals":t}
 
 @api_router.patch("/quotes/{qid}/lines/{line_id}")
-async def update_quote_line(qid: str, line_id: str, payload: QuoteLineInput, _user: dict = Depends(get_current_user)):
+async def update_quote_line(qid: str, line_id: str, payload: QuoteLineInput, _user: dict = Depends(require_permission("quotes.edit"))):
     await _require_draft(qid)
     pricing = await db.settings.find_one({"key":"pricing"}, {"_id":0,"key":0})
     new_line = build_quote_line(payload, pricing); new_line["id"] = line_id
@@ -988,7 +1274,7 @@ async def update_quote_line(qid: str, line_id: str, payload: QuoteLineInput, _us
     return {"line":new_line, "totals":t}
 
 @api_router.delete("/quotes/{qid}/lines/{line_id}")
-async def delete_quote_line(qid: str, line_id: str, _user: dict = Depends(get_current_user)):
+async def delete_quote_line(qid: str, line_id: str, _user: dict = Depends(require_permission("quotes.edit"))):
     await _require_draft(qid)
     quote = await db.quotes.find_one({"id":qid}, {"_id":0,"line_items":1})
     new_lines = [l for l in quote.get("line_items",[]) if l["id"] != line_id]
@@ -1022,7 +1308,7 @@ def _email_preview_for_quote(quote: dict, customer: dict, company: dict, magic_u
 
 @api_router.post("/quotes/{qid}/send")
 async def send_quote(qid: str, payload: Optional[SendQuoteOverride] = None,
-                      request: Request = None, _user: dict = Depends(get_current_user)):
+                      request: Request = None, _user: dict = Depends(require_permission("quotes.send"))):
     q = await _get_quote_or_404(qid)
     if not q.get("line_items"):
         raise HTTPException(status_code=400, detail="Cannot send a quote with no line items")
@@ -1046,7 +1332,7 @@ async def send_quote(qid: str, payload: Optional[SendQuoteOverride] = None,
 
 
 @api_router.post("/quotes/{qid}/revise", status_code=201)
-async def revise_quote(qid: str, user: dict = Depends(get_current_user)):
+async def revise_quote(qid: str, user: dict = Depends(require_permission("quotes.revise"))):
     src = await _get_quote_or_404(qid)
     if src["status"] == "draft":
         raise HTTPException(status_code=400, detail="Source is already a draft — edit it directly")
@@ -1104,7 +1390,7 @@ async def _create_job_from_quote(quote_id: str, by_user_id: str) -> Optional[dic
 
 
 @api_router.post("/quotes/{qid}/mark-accepted")
-async def mark_accepted(qid: str, user: dict = Depends(get_current_user)):
+async def mark_accepted(qid: str, user: dict = Depends(require_permission("quotes.mark_decision"))):
     q = await _get_quote_or_404(qid)
     if q["status"] != "accepted":
         await db.quotes.update_one({"id":qid},
@@ -1113,7 +1399,7 @@ async def mark_accepted(qid: str, user: dict = Depends(get_current_user)):
     return await _get_quote_or_404(qid)
 
 @api_router.post("/quotes/{qid}/mark-rejected")
-async def mark_rejected(qid: str, _user: dict = Depends(get_current_user)):
+async def mark_rejected(qid: str, _user: dict = Depends(require_permission("quotes.mark_decision"))):
     await _get_quote_or_404(qid)
     await db.quotes.update_one({"id":qid},
         {"$set":{"status":"rejected","rejected_at":now_iso(),"updated_at":now_iso()}})
@@ -1225,7 +1511,7 @@ async def _transition_job_internal(jid: str, to: str, note: str, by_user_id: str
     return await _get_job_or_404(jid)
 
 @api_router.get("/jobs")
-async def list_jobs(_user: dict = Depends(get_current_user),
+async def list_jobs(_user: dict = Depends(require_permission("jobs.view")),
                      status_filter: Optional[str] = Query(None, alias="status"),
                      customer_id: Optional[str] = None, search: Optional[str] = Query(None),
                      page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200)):
@@ -1242,11 +1528,11 @@ async def list_jobs(_user: dict = Depends(get_current_user),
     return {"items":docs, "total":total, "page":page, "page_size":page_size}
 
 @api_router.get("/jobs/{jid}")
-async def get_job(jid: str, _user: dict = Depends(get_current_user)):
+async def get_job(jid: str, _user: dict = Depends(require_permission("jobs.view"))):
     return await _get_job_or_404(jid)
 
 @api_router.patch("/jobs/{jid}")
-async def update_job(jid: str, payload: JobUpdate, _user: dict = Depends(get_current_user)):
+async def update_job(jid: str, payload: JobUpdate, _user: dict = Depends(require_permission("jobs.edit"))):
     job = await _get_job_or_404(jid)
     if job["status"] == "cancelled":
         raise HTTPException(status_code=400, detail="Cancelled jobs cannot be modified")
@@ -1263,11 +1549,11 @@ async def update_job(jid: str, payload: JobUpdate, _user: dict = Depends(get_cur
     return await _get_job_or_404(jid)
 
 @api_router.post("/jobs/{jid}/transition")
-async def transition_job(jid: str, payload: JobTransition, user: dict = Depends(get_current_user)):
+async def transition_job(jid: str, payload: JobTransition, user: dict = Depends(require_permission("jobs.transition"))):
     return await _transition_job_internal(jid, payload.to, payload.note, user["id"])
 
 @api_router.post("/jobs/{jid}/cancel")
-async def cancel_job(jid: str, payload: JobCancel, user: dict = Depends(get_current_user)):
+async def cancel_job(jid: str, payload: JobCancel, user: dict = Depends(require_permission("jobs.cancel"))):
     job = await _get_job_or_404(jid)
     if job["status"] == "cancelled":
         raise HTTPException(status_code=400, detail="Job is already cancelled")
@@ -1283,12 +1569,12 @@ async def cancel_job(jid: str, payload: JobCancel, user: dict = Depends(get_curr
 # Vehicles + Employees (mocked)
 # ---------------------------------------------------------------------------
 @api_router.get("/vehicles")
-async def list_vehicles(_user: dict = Depends(get_current_user)):
+async def list_vehicles(_user: dict = Depends(require_permission("vehicles.view"))):
     return {"items": MOCK_VEHICLES, "source": "MOCKED_NAVIXY",
             "note": "MOCKED — real fleet integration coming in Phase 4 (Navixy)"}
 
 @api_router.get("/employees")
-async def list_employees(_user: dict = Depends(get_current_user)):
+async def list_employees(_user: dict = Depends(require_permission("employees.view"))):
     return {"items": MOCK_EMPLOYEES, "source": "MOCKED_SIMPRO",
             "note": "MOCKED — real HR integration coming in Phase 4 (Simpro)"}
 
@@ -1328,7 +1614,7 @@ async def _create_invoice_from_job(job: dict, by_user_id: str) -> Optional[dict]
     return doc
 
 @api_router.get("/invoices")
-async def list_invoices(_user: dict = Depends(get_current_user),
+async def list_invoices(_user: dict = Depends(require_permission("invoices.view")),
                          status_filter: Optional[str] = Query(None, alias="status"),
                          customer_id: Optional[str] = None, search: Optional[str] = Query(None),
                          page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200)):
@@ -1345,7 +1631,7 @@ async def list_invoices(_user: dict = Depends(get_current_user),
     return {"items":docs, "total":total, "page":page, "page_size":page_size}
 
 @api_router.post("/invoices", status_code=201)
-async def create_invoice(payload: InvoiceCreate, user: dict = Depends(get_current_user)):
+async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_permission("invoices.create"))):
     job = await db.jobs.find_one({"id":payload.job_id}, {"_id":0})
     if not job: raise HTTPException(status_code=400, detail="Job not found")
     if job["status"] not in ("delivered","installed","completed"):
@@ -1357,11 +1643,11 @@ async def create_invoice(payload: InvoiceCreate, user: dict = Depends(get_curren
     return inv
 
 @api_router.get("/invoices/{iid}")
-async def get_invoice(iid: str, _user: dict = Depends(get_current_user)):
+async def get_invoice(iid: str, _user: dict = Depends(require_permission("invoices.view"))):
     return await _get_invoice_or_404(iid)
 
 @api_router.patch("/invoices/{iid}")
-async def update_invoice(iid: str, payload: InvoiceUpdate, _user: dict = Depends(get_current_user)):
+async def update_invoice(iid: str, payload: InvoiceUpdate, _user: dict = Depends(require_permission("invoices.create"))):
     inv = await _get_invoice_or_404(iid)
     if inv["status"] in ("paid","cancelled"):
         raise HTTPException(status_code=400, detail=f"Invoice is {inv['status']} — cannot edit")
@@ -1371,7 +1657,7 @@ async def update_invoice(iid: str, payload: InvoiceUpdate, _user: dict = Depends
     return await _get_invoice_or_404(iid)
 
 @api_router.post("/invoices/{iid}/issue")
-async def issue_invoice(iid: str, _user: dict = Depends(get_current_user)):
+async def issue_invoice(iid: str, _user: dict = Depends(require_permission("invoices.issue"))):
     inv = await _get_invoice_or_404(iid)
     if inv["status"] != "draft":
         raise HTTPException(status_code=400, detail=f"Cannot issue from status '{inv['status']}'")
@@ -1381,7 +1667,7 @@ async def issue_invoice(iid: str, _user: dict = Depends(get_current_user)):
     return await _get_invoice_or_404(iid)
 
 @api_router.post("/invoices/{iid}/mark-paid")
-async def mark_paid(iid: str, payload: InvoiceMarkPaid, _user: dict = Depends(get_current_user)):
+async def mark_paid(iid: str, payload: InvoiceMarkPaid, _user: dict = Depends(require_permission("invoices.mark_paid"))):
     inv = await _get_invoice_or_404(iid)
     if inv["status"] not in ("issued",):
         raise HTTPException(status_code=400, detail=f"Cannot mark paid from status '{inv['status']}'. Issue first.")
@@ -1392,7 +1678,7 @@ async def mark_paid(iid: str, payload: InvoiceMarkPaid, _user: dict = Depends(ge
     return await _get_invoice_or_404(iid)
 
 @api_router.post("/invoices/{iid}/push-to-xero")
-async def push_to_xero(iid: str, _user: dict = Depends(get_current_user)):
+async def push_to_xero(iid: str, _user: dict = Depends(require_permission("invoices.push_xero"))):
     inv = await _get_invoice_or_404(iid)
     mock_xero_id = f"MOCK-{uuid.uuid4()}"
     await db.invoices.update_one({"id":iid},
@@ -1469,14 +1755,14 @@ async def dashboard_kpis(_user: dict = Depends(get_current_user)):
 # Integration Settings (admin) + email-sent recording
 # ---------------------------------------------------------------------------
 @api_router.get("/settings/integrations")
-async def get_integrations(_admin: dict = Depends(require_admin)):
+async def get_integrations(_u: dict = Depends(require_permission("integrations.view"))):
     doc = await db.settings.find_one({"key":"integrations"}, {"_id":0,"key":0})
     if not doc:
         doc = dict(DEFAULT_INTEGRATIONS)
     return _mask_integrations(doc)
 
 @api_router.put("/settings/integrations")
-async def update_integrations(payload: IntegrationSettings, _admin: dict = Depends(require_admin)):
+async def update_integrations(payload: IntegrationSettings, _u: dict = Depends(require_permission("integrations.edit"))):
     existing = await db.settings.find_one({"key":"integrations"}, {"_id":0,"key":0}) or {}
     incoming = payload.model_dump()
     # Preserve stored secrets if the client returned a masked value
@@ -1493,7 +1779,7 @@ async def update_integrations(payload: IntegrationSettings, _admin: dict = Depen
     return _mask_integrations(saved)
 
 @api_router.post("/settings/integrations/{integration}/test")
-async def test_integration(integration: str, _admin: dict = Depends(require_admin)):
+async def test_integration(integration: str, _u: dict = Depends(require_permission("integrations.edit"))):
     if integration not in ("m365","simpro","navixy","xero"):
         raise HTTPException(status_code=400, detail="Unknown integration")
     return {"status":"MOCKED",

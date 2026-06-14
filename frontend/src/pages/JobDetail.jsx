@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { formatAUD, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
+import { useAuth } from "../contexts/AuthContext";
 
 const ORDER = ["scheduled","in_production","ready_for_delivery","delivered","installed","completed"];
 const STATUS_STYLES = {
@@ -21,6 +22,7 @@ const STATUS_STYLES = {
 };
 
 export default function JobDetail() {
+  const { hasPerm } = useAuth();
   const { id } = useParams();
   const navigate = useNavigate();
   const [job, setJob] = useState(null);
@@ -120,17 +122,17 @@ export default function JobDetail() {
           <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold h-10" data-testid="job-email-btn">
             <Mail className="w-4 h-4 mr-2"/> Email
           </Button>
-          {canAdvance && (
+          {canAdvance && hasPerm("jobs.transition") && (
             <Button onClick={advance} className="bg-[#3A6B8C] text-white hover:bg-[#2C526B] h-10" data-testid="job-advance-btn">
               Advance to {ORDER[idx + 1]?.replace(/_/g," ")} <ArrowRight className="w-4 h-4 ml-2"/>
             </Button>
           )}
-          {canInvoice && (
+          {canInvoice && hasPerm("invoices.create") && (
             <Button onClick={() => setGenOpen(true)} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-10" data-testid="job-generate-invoice-btn">
               <FileText className="w-4 h-4 mr-2"/> Generate Invoice
             </Button>
           )}
-          {job.status !== "cancelled" && job.status !== "completed" && (
+          {job.status !== "cancelled" && job.status !== "completed" && hasPerm("jobs.cancel") && (
             <Button variant="outline" onClick={() => setCancelOpen(true)} className="border-red-300 text-red-700 hover:bg-red-50 h-10" data-testid="job-cancel-btn">
               <X className="w-4 h-4 mr-2"/> Cancel
             </Button>
