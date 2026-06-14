@@ -96,3 +96,27 @@ All 12 spec criteria plus variants verified via `/tmp/test_phase3.py`.
 - Real Stripe / payment links on invoices
 - PDF library (replace browser print)
 - Overdue invoice auto-flagging cron
+
+
+## Phase 4 Part 1 — Live (2026-06-14)
+
+### Implemented
+- **Integration Settings page** (`/settings/integrations`, admin only): 4 cards — Microsoft 365 (Email), Simpro (Customers + Employees), Navixy (Fleet), Xero (Accounting). All credential fields editable inline; `Enabled` switch + `Test Connection` (MOCKED) + `Save` per card; status badge (Not Configured / Configured — Not Wired).
+- **Secret masking**: `GET /api/settings/integrations` masks `client_secret` / `api_key` fields as `••••••••XXXX` (last 4 chars). `PUT` preserves the stored secret when the masked value is resubmitted unchanged.
+- **MOCKED test endpoints**: `POST /api/settings/integrations/{m365|simpro|navixy|xero}/test` returns `{status:"MOCKED", integration, message}` — no real HTTP fan-out to Microsoft / Simpro / Navixy / Xero (verified by source-scan test).
+- **Universal Edit / Email / Print** on Customer, Project (per-row), Job, Invoice, Quote detail pages. Reusable `EmailModal` with MOCKED banner, copy-recipient, copy-content, Mark-as-Sent → POST `/api/{customers|projects|jobs|invoices}/{id}/email-sent` stamps `last_email_sent_at/subject/recipient/by_user_id` and the parent page displays the `📧 Last emailed:` label.
+- **Print routes**: `/customers/:id/print`, `/projects/:id/print`, `/jobs/:id/print` (`/invoices/:id/print` and `/quotes/:id/print` already shipped). All branded, AUD-formatted, GST line where applicable, auto-`window.print()`.
+- **Existing edit flows preserved**: quote line-item editing, customer detail form, job inline edit, invoice issue/mark-paid all unchanged.
+
+### Acceptance — 100% PASS (Phase 4)
+Backend pytest `test_phase4_integrations.py` 15/15 PASS (CRUD, mask preservation, MOCKED test, admin gating, email-sent tracking, no vendor libs imported). Frontend Playwright PASS for admin/staff visibility, 4 cards rendering, M365 mask roundtrip, MOCKED toasts, EmailModal flows, Print buttons.
+
+### Backlog → Phase 4 Part 2 (real wiring)
+- Wire **Microsoft 365 Graph API** for real email send (Mail.Send) — needs Azure AD app keys
+- Wire **Simpro REST API** for customer + employee import — needs Build Name + OAuth keys
+- Wire **Navixy API** for live vehicle feed — needs API key
+- Wire **Xero OAuth2** invoice push — needs OAuth handshake + tenant connection
+- Replace `/api/vehicles` and `/api/employees` mocks with live feeds
+- Replace browser-print with real PDF library (e.g. WeasyPrint) once layouts stabilise
+- Audit log of email-sent events surfaced on a dedicated `Comms` tab
+

@@ -159,8 +159,11 @@ class TestUsers:
 
 # --------------------- Pricing ---------------------
 class TestPricing:
-    def test_get_pricing_any_auth(self, session, staff_headers):
-        r = session.get(f"{API}/settings/pricing", headers=staff_headers)
+    def test_get_pricing_any_auth(self, session, staff_headers, admin_headers):
+        # Per Phase 1 acceptance: staff cannot access /settings/pricing — API returns 403.
+        r_staff = session.get(f"{API}/settings/pricing", headers=staff_headers)
+        assert r_staff.status_code == 403
+        r = session.get(f"{API}/settings/pricing", headers=admin_headers)
         assert r.status_code == 200
         data = r.json()
         assert data["gst_rate"] == 10.0
