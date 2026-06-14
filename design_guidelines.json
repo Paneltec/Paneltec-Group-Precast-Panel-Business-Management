@@ -1,0 +1,107 @@
+{
+  "theme_and_archetype": {
+    "domain": "Industrial/Construction B2B SaaS",
+    "theme": "Light",
+    "archetype": "Archetype 4: Swiss & High-Contrast (Industrial Variant)",
+    "tone": "Professional, industrial, trustworthy, slightly utilitarian. Solid, confident, no-nonsense visual language with safety-yellow as the sharp accent."
+  },
+  "brand": {
+    "name": "Paneltec Group",
+    "tagline": "Precast Panel Business Management"
+  },
+  "colors": {
+    "background": "#F5F6F7",
+    "surface": "#FFFFFF",
+    "primary": {
+      "hex": "#1F2A33",
+      "name": "Charcoal",
+      "usage": "Sidebar background, headings, primary strong text, dark overlays."
+    },
+    "secondary": {
+      "hex": "#3A6B8C",
+      "name": "Steel Blue",
+      "usage": "Table headers, active states, secondary buttons, subtle borders, active icons."
+    },
+    "accent": {
+      "hex": "#F5C518",
+      "name": "Safety Yellow",
+      "usage": "Primary CTAs, Key totals (Big AUD figure), active indicators. Always pair with charcoal text for high contrast."
+    },
+    "text": {
+      "primary": "#1F2A33",
+      "secondary": "#4B5563",
+      "muted": "#9CA3AF",
+      "inverse": "#FFFFFF"
+    }
+  },
+  "typography": {
+    "font_family": "Inter, sans-serif",
+    "strategy": "Swiss Minimalist constraint. Since Inter is required by spec, use tight tracking for headings and wide tracking for uppercase labels to avoid the generic SaaS look.",
+    "h1": "text-3xl md:text-4xl font-black tracking-tighter text-[#1F2A33]",
+    "h2": "text-2xl md:text-3xl font-bold tracking-tight text-[#1F2A33]",
+    "h3": "text-xl font-semibold tracking-tight text-[#1F2A33]",
+    "body": "text-sm text-[#1F2A33]/80 leading-relaxed",
+    "overline_labels": "text-xs font-bold uppercase tracking-[0.2em] text-[#3A6B8C]",
+    "data_values": "font-mono text-base font-medium text-[#1F2A33] tabular-nums"
+  },
+  "layout_and_spacing": {
+    "strategy": "Control Room Grid - high density, clear boundaries.",
+    "sidebar": "w-64 fixed left-0 top-0 h-screen bg-[#1F2A33] text-white flex flex-col",
+    "main_canvas": "ml-64 min-h-screen bg-[#F5F6F7]",
+    "header": "h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8",
+    "content_padding": "p-8",
+    "cards": "bg-white border border-gray-200 rounded p-6 shadow-sm",
+    "calculator_layout": "grid grid-cols-1 xl:grid-cols-12 gap-8. Left inputs block: col-span-7. Right results panel: col-span-5 sticky top-8."
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#F5C518] text-[#1F2A33] font-bold px-6 py-2.5 rounded hover:bg-[#E0B416] transition-colors focus:ring-2 focus:ring-[#1F2A33] focus:ring-offset-2",
+      "secondary": "bg-[#3A6B8C] text-white font-semibold px-6 py-2.5 rounded hover:bg-[#2C526B] transition-colors",
+      "outline": "border border-[#1F2A33] text-[#1F2A33] px-6 py-2.5 rounded hover:bg-gray-50 transition-colors font-semibold"
+    },
+    "inputs": "border border-gray-300 rounded px-4 py-2 text-sm focus:border-[#3A6B8C] focus:ring-1 focus:ring-[#3A6B8C] outline-none w-full",
+    "tables": {
+      "wrapper": "w-full text-sm text-left border border-gray-200 rounded overflow-hidden",
+      "header": "bg-[#3A6B8C] text-white uppercase text-xs tracking-wider",
+      "cell": "px-4 py-3 border-b border-gray-200 bg-white tabular-nums"
+    },
+    "badges": "bg-gray-100 text-gray-500 text-[10px] font-bold px-2 py-0.5 uppercase rounded tracking-wider border border-gray-200"
+  },
+  "visual_enhancers": {
+    "borders": "Rely on sharp 1px solid borders instead of large drop shadows to delineate structure.",
+    "hover_states": "Sidebar links hover with bg-[#3A6B8C]/40 text-white. Tables have a subtle hover:bg-gray-50 on rows.",
+    "interactions": "Keep animations crisp and under 200ms. No bouncy effects; this is professional industrial software."
+  },
+  "media": {
+    "image_urls": [
+      {
+        "category": "login_background",
+        "url": "https://images.unsplash.com/photo-1521459467264-802e2ef3141f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHwxfHxjb25jcmV0ZSUyMHdhbGwlMjB0ZXh0dXJlfGVufDB8fHx8MTc4MTQyNjIzMXww&ixlib=rb-4.1.0&q=85",
+        "description": "Black and white concrete wall texture. Usage: Place as a full viewport background on the login page with a heavy Charcoal (#1F2A33) overlay at 85% opacity to make the white login card pop."
+      },
+      {
+        "category": "dashboard_welcome_accent",
+        "url": "https://images.pexels.com/photos/4170184/pexels-photo-4170184.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Aerial view of an active construction site. Usage: Serve as a subtle background graphic inside the right half of the Dashboard Welcome Card, cleanly faded out to white on its left edge."
+      }
+    ]
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "installation": "yarn add @phosphor-icons/react",
+    "style": "Dense, highly legible, regular weight to match the industrial interface."
+  },
+  "testing": {
+    "attributes": "All interactive and key informational elements MUST include `data-testid` attribute (kebab-case, role-based). Example: `data-testid=\"login-submit-button\"`, `data-testid=\"calc-panel-type-select\"`, `data-testid=\"calc-total-aud\"`."
+  },
+  "instructions_to_main_agent": [
+    "IMPORTANT: Write React components using .js/.jsx file extensions, NOT .tsx. The stack uses JavaScript.",
+    "Install standard Shadcn UI components and override styles (bg, text, ring) to match the brand palette. Use raw HTML/Tailwind where Shadcn components are too restrictive.",
+    "Sidebar structure: Wordmark 'Paneltec Group' at the top. Links: Dashboard, Calculator, Settings (Admin), Users (Admin). Mark Customers, Quotes, Jobs, Invoices as 'Coming soon' (disabled state + badge).",
+    "Precast Panel Calculator: Ensure all currency values are strictly formatted in AUD (e.g., $1,234.56). Create a prominent 'Big Total' block using the accent color (#F5C518) background. GST must be explicitly shown as a distinct line item (10%).",
+    "Results Panel Export: Implement an 'Export/Print' button that triggers `window.print()`. Add `@media print` CSS rules in the main stylesheet to hide the sidebar and header, leaving a clean calculator results view for paper/PDF.",
+    "Pricing Settings (Admin only): Render dense, editable numerical tables for panel types, concrete grades, and finish multipliers. Use `tabular-nums` for precise alignment.",
+    "Login Page: Center a clean white login card over the dark textured background image provided in the media section. Implement JWT auth mechanism handling.",
+    "Do not use placeholder image URLs (like via.placeholder.com). Use the exact URLs from the `media` section."
+  ]
+}
