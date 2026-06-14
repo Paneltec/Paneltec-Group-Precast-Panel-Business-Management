@@ -12,6 +12,7 @@ import {
   DialogTitle,
   DialogTrigger,
   DialogFooter,
+  DialogDescription,
 } from "../components/ui/dialog";
 import {
   Select,
@@ -148,6 +149,7 @@ function CreateUserDialog({ onCreated }) {
     <DialogContent data-testid="create-user-dialog" className="sm:max-w-md">
       <DialogHeader>
         <DialogTitle>Create user</DialogTitle>
+        <DialogDescription>Add a new admin or staff member. They'll log in with email + password.</DialogDescription>
       </DialogHeader>
       <form onSubmit={onSubmit} className="space-y-3">
         <div>
