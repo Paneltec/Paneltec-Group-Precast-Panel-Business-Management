@@ -120,3 +120,38 @@ Backend pytest `test_phase4_integrations.py` 15/15 PASS (CRUD, mask preservation
 - Replace browser-print with real PDF library (e.g. WeasyPrint) once layouts stabilise
 - Audit log of email-sent events surfaced on a dedicated `Comms` tab
 
+
+
+## Phase 5 — Live (2026-06-14)
+
+### Implemented
+- **Granular permissions**: `ALL_PERMISSIONS` = 33 perms across 11 modules (customers/projects/quotes/jobs/invoices/vehicles/employees/pricing/company/integrations/users). New user model: `is_super_admin` (bool), `permissions` (dict), `role_label` (free-text), `must_change_password`, `last_login_at`, `created_by_user_id`, `updated_by_user_id`. Legacy `role` field still written for one release.
+- **`require_permission(key)` dependency** wired onto every business endpoint (32 routes). Super admins bypass; non-supers checked against `permissions[key]`. Elevated set (`users.manage`, `integrations.edit`, `pricing.edit`, `company.edit`) is reserved for super admins — server rejects setting them on a non-super via POST/PATCH `/api/users` with 400.
+- **`GET /api/permissions/catalogue`**: returns `{modules, all_permissions, elevated_permissions, presets}` so the frontend builds the checkbox grid + preset buttons dynamically (Estimator / Production / Accounts / Read-only + Clear-all).
+- **Login flow**: stamps `last_login_at`, returns 401 `"Account deactivated"` for inactive users, returns enriched user payload (`is_super_admin`, `permissions`, `role_label`, `must_change_password`, `last_login_at`).
+- **Force-password-change gate**: `get_current_user` dependency raises 403 `{detail: {code: "password_change_required", message}}` for everything except `/auth/me`, `/auth/logout`, `/auth/change-password`. Frontend axios interceptor catches that code and hard-redirects to `/force-password-change`.
+- **User management UI** (`/users`, `users.view` to read, super-admin-only to write): table with search + Active/Inactive filter, super-admin badge, last-login, active toggle (disabled on self). Create/edit dialog with full permission grid grouped by module, "Select all in module" master, 4 quick presets + Clear-all, super-admin warning checkbox, force-password-change checkbox (default on for new users), inline Reset Password (returns temp pwd once).
+- **Self-service `/account` page**: any logged-in user can update display name and password (current-password verification). Email + role_label read-only. Permission summary chips show what they can do; super admins see a banner instead.
+- **Last-admin safety**: server returns 400 when demoting/deactivating the only active super admin, and 400 when a user tries to deactivate or remove their own super-admin flag.
+- **Seed user added**: `production@paneltec.com.au` / `Prod2026!`, role_label="Production", Production preset, `must_change_password=false`. Now 3 access levels demo-able (Super Admin / Estimator / Production).
+- **Idempotent migration**: on every startup, seeded users are re-aligned with the current preset (so adjusting `PERMISSION_PRESETS` in code propagates immediately). Other existing users get their new fields back-filled if missing.
+- **UI gating**: sidebar items filtered by `hasPerm(item.perm)`. `ProtectedRoute` supports `permission` prop; direct navigation to a forbidden route renders the dedicated 403 page (`/app/frontend/src/pages/Forbidden.jsx`) with the required permission shown. Action buttons (Issue/Mark Paid/Push-Xero on Invoices; Advance/Cancel/Generate Invoice on Jobs) are hidden when the user lacks the corresponding permission.
+- **Print layout fix (bonus)**: all five print routes (`/quotes|invoices|jobs|customers|projects/:id/print`) already mount OUTSIDE the main `<Layout>` route group, so no sidebar/header in print. Strengthened `index.css` `@media print`: `@page { size: A4; margin: 15mm; }`, forces `html, body { width: 100%; margin: 0 }`, resets `.print-container` (and any nested `.max-w-3xl/4xl/5xl`) to full width — verified all five routes render at container_w == doc_w == 100% under print emulation.
+
+### Acceptance — 100% PASS (12/12 Phase 5 criteria)
+Backend pytest `test_phase5_permissions.py` 35/35 PASS in ~17s — covers migration, estimator/production/accounts gating, force-password-change flow, last-admin safety, elevated-perm guard, catalogue, self-service /me, reset-password, last_login_at, deactivated-user login, plus regressions for Phase 1 calculator ($5,623.20), Phase 3 quote→job→invoice chain, Phase 4 integrations.
+Frontend Playwright (7/7) PASS — estimator hides Pricing/Company/Integrations/Users, direct nav renders 403 forbidden-page, /account renders correctly, /users renders the full permission grid + presets for super admin.
+
+### Endpoints added in Phase 5
+- `GET  /api/permissions/catalogue`
+- `PATCH /api/users/me`
+- `POST /api/users/{id}/reset-password`
+- Login response payload now includes `is_super_admin`, `permissions`, `role_label`, `must_change_password`, `last_login_at`.
+
+### Backlog → Phase 6
+- Audit log of permission/role changes (who changed what, when).
+- Granular project-level access controls (currently only module-level).
+- Email-based password reset (today only super-admin can reset).
+- 2FA / TOTP for super admins.
+- Split `server.py` (~1840 lines) into routers + services.
+- Reset stale Phase 1 `TestPricing::test_get_pricing_any_auth` (fixed in iteration 2 but recurred — flagged by testing agent).

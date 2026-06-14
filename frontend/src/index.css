@@ -88,13 +88,50 @@ code, .font-mono, .tabular-nums {
 
 /* Print stylesheet — clean export view */
 @media print {
-  @page { margin: 14mm; }
-  body { background: #fff !important; }
+  @page { size: A4; margin: 15mm; }
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    background: #fff !important;
+    color: #000;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
   .no-print, [data-print="hide"] { display: none !important; }
   .print-only { display: block !important; }
-  aside, header.app-header { display: none !important; }
-  main.app-main { margin-left: 0 !important; padding: 0 !important; }
-  .print-container { box-shadow: none !important; border: none !important; padding: 0 !important; }
-  .results-card { break-inside: avoid; }
+  /* Hide app shell if a print route ever ends up inside Layout */
+  aside, header.app-header, nav.sidebar { display: none !important; }
+  main.app-main { margin: 0 !important; padding: 0 !important; }
+
+  /* Force every print container to flow full A4 width */
+  .print-container,
+  [data-print-page] {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #fff !important;
+  }
+
+  /* Common Tailwind constraints inside our print pages — reset to full width on print */
+  .print-container .max-w-3xl,
+  .print-container .max-w-4xl,
+  .print-container .max-w-5xl,
+  .print-container.max-w-3xl,
+  .print-container.max-w-4xl,
+  .print-container.max-w-5xl,
+  [data-print-page] .max-w-3xl,
+  [data-print-page] .max-w-4xl,
+  [data-print-page] .max-w-5xl {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  .results-card, table, tr, .avoid-break { break-inside: avoid; }
+  a[href]:after { content: ""; } /* no URL appendix */
 }
 .print-only { display: none; }
