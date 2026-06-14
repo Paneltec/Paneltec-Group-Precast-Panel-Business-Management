@@ -33,7 +33,7 @@ const DEFAULTS = {
 };
 
 export default function CalculatorPage() {
-  const [pricing, setPricing] = useState(null);
+  const [options, setOptions] = useState(null);
   const [pricingError, setPricingError] = useState("");
   const [form, setForm] = useState(DEFAULTS);
   const [errors, setErrors] = useState({});
@@ -44,8 +44,8 @@ export default function CalculatorPage() {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get("/settings/pricing");
-        setPricing(data);
+        const { data } = await api.get("/calculator/options");
+        setOptions(data);
         setForm((f) => ({
           ...f,
           panel_type_key: data.panel_types[0]?.key || f.panel_type_key,
@@ -60,16 +60,16 @@ export default function CalculatorPage() {
   }, []);
 
   const selectedPanel = useMemo(
-    () => pricing?.panel_types.find((p) => p.key === form.panel_type_key),
-    [pricing, form.panel_type_key],
+    () => options?.panel_types.find((p) => p.key === form.panel_type_key),
+    [options, form.panel_type_key],
   );
 
   // Auto-adjust thickness when panel changes
   useEffect(() => {
-    if (selectedPanel && pricing?.thickness_options_mm?.includes(selectedPanel.thickness_mm)) {
+    if (selectedPanel && options?.thickness_options_mm?.includes(selectedPanel.thickness_mm)) {
       setForm((f) => ({ ...f, thickness_mm: String(selectedPanel.thickness_mm) }));
     }
-  }, [selectedPanel, pricing]);
+  }, [selectedPanel, options]);
 
   const validate = () => {
     const e = {};
@@ -116,13 +116,13 @@ export default function CalculatorPage() {
   };
 
   const onReset = () => {
-    if (!pricing) return;
+    if (!options) return;
     setForm({
       ...DEFAULTS,
-      panel_type_key: pricing.panel_types[0].key,
-      thickness_mm: String(pricing.panel_types[0].thickness_mm),
-      concrete_grade: pricing.concrete_grades[0],
-      finish_key: pricing.finishes[0].key,
+      panel_type_key: options.panel_types[0].key,
+      thickness_mm: String(options.panel_types[0].thickness_mm),
+      concrete_grade: options.concrete_grades[0],
+      finish_key: options.finishes[0].key,
     });
     setResult(null);
     setErrors({});
@@ -133,16 +133,16 @@ export default function CalculatorPage() {
     return (
       <div className="bg-white border border-red-200 rounded p-6 max-w-xl">
         <div className="flex items-center gap-2 text-red-700 font-semibold">
-          <AlertCircle className="w-4 h-4" /> Could not load pricing
+          <AlertCircle className="w-4 h-4" /> Could not load calculator options
         </div>
         <p className="text-sm text-gray-600 mt-2">{pricingError}</p>
       </div>
     );
   }
-  if (!pricing) {
+  if (!options) {
     return (
       <div className="flex items-center gap-2 text-gray-500 text-sm">
-        <Loader2 className="w-4 h-4 animate-spin" /> Loading pricing…
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading options…
       </div>
     );
   }
@@ -184,7 +184,7 @@ export default function CalculatorPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {pricing.panel_types.map((p) => (
+                  {options.panel_types.map((p) => (
                     <SelectItem key={p.key} value={p.key} data-testid={`opt-panel-${p.key}`}>
                       {p.label}
                     </SelectItem>
@@ -241,7 +241,7 @@ export default function CalculatorPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {pricing.thickness_options_mm.map((t) => (
+                  {options.thickness_options_mm.map((t) => (
                     <SelectItem key={t} value={String(t)} data-testid={`opt-thk-${t}`}>
                       {t} mm
                     </SelectItem>
@@ -259,7 +259,7 @@ export default function CalculatorPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {pricing.concrete_grades.map((g) => (
+                  {options.concrete_grades.map((g) => (
                     <SelectItem key={g} value={g} data-testid={`opt-grade-${g.replace("/", "-")}`}>
                       {g}
                     </SelectItem>
@@ -279,7 +279,7 @@ export default function CalculatorPage() {
                 <SelectContent>
                   {REINFORCEMENT_OPTIONS.map((r) => (
                     <SelectItem key={r.value} value={r.value} data-testid={`opt-rein-${r.value}`}>
-                      {r.label} · {formatNumber(pricing.reinforcement_densities[r.value], 0)} kg/m³
+                      {r.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -295,9 +295,9 @@ export default function CalculatorPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {pricing.finishes.map((f) => (
+                  {options.finishes.map((f) => (
                     <SelectItem key={f.key} value={f.key} data-testid={`opt-finish-${f.key}`}>
-                      {f.label} · ×{f.multiplier.toFixed(2)}
+                      {f.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

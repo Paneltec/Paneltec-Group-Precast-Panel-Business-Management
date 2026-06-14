@@ -367,7 +367,7 @@ async def update_user(user_id: str, payload: UserUpdate, admin: dict = Depends(r
 # Pricing settings
 # ---------------------------------------------------------------------------
 @api_router.get("/settings/pricing")
-async def get_pricing(_user: dict = Depends(get_current_user)):
+async def get_pricing(_admin: dict = Depends(require_admin)):
     doc = await db.settings.find_one({"key": "pricing"}, {"_id": 0, "key": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Pricing not initialized")
@@ -390,6 +390,36 @@ async def update_pricing(payload: PricingSettings, _admin: dict = Depends(requir
 # ---------------------------------------------------------------------------
 # Calculator
 # ---------------------------------------------------------------------------
+REINFORCEMENT_LABELS = [
+    {"key": "light", "label": "Light (mesh)"},
+    {"key": "standard", "label": "Standard (mesh + bars)"},
+    {"key": "heavy", "label": "Heavy (rebar cage)"},
+    {"key": "prestressed", "label": "Prestressed tendons"},
+]
+
+
+@api_router.get("/calculator/options")
+async def calculator_options(_user: dict = Depends(get_current_user)):
+    """Public dropdown metadata for any authenticated user.
+
+    Intentionally OMITS pricing values (material/manufacturing/transport/finish
+    multipliers/reinforcement densities) so staff cannot derive admin pricing.
+    """
+    pricing = await db.settings.find_one({"key": "pricing"}, {"_id": 0, "key": 0})
+    if not pricing:
+        raise HTTPException(status_code=500, detail="Pricing not initialized")
+    return {
+        "panel_types": [
+            {"key": p["key"], "label": p["label"], "thickness_mm": p["thickness_mm"]}
+            for p in pricing["panel_types"]
+        ],
+        "thickness_options_mm": pricing["thickness_options_mm"],
+        "concrete_grades": pricing["concrete_grades"],
+        "finishes": [{"key": f["key"], "label": f["label"]} for f in pricing["finishes"]],
+        "reinforcement_types": REINFORCEMENT_LABELS,
+    }
+
+
 def _round2(x: float) -> float:
     return round(x + 1e-9, 2)
 
