@@ -31,15 +31,17 @@ const NAV_ITEMS = [
   { to: "/calculator", label: "Calculator", icon: Calculator, testid: "nav-calculator" },
   { to: "/customers", label: "Customers", icon: UserSquare2, testid: "nav-customers" },
   { to: "/quotes", label: "Quotes", icon: FileText, testid: "nav-quotes" },
+  { to: "/jobs", label: "Jobs", icon: Briefcase, testid: "nav-jobs" },
+  { to: "/invoices", label: "Invoices", icon: Receipt, testid: "nav-invoices" },
+  { to: "/vehicles", label: "Vehicles", icon: Truck, testid: "nav-vehicles" },
+  { to: "/employees", label: "Employees", icon: Wrench, testid: "nav-employees" },
   { to: "/settings/pricing", label: "Pricing", icon: Settings, adminOnly: true, testid: "nav-settings" },
+  { to: "/settings/company", label: "Company", icon: Settings, adminOnly: true, testid: "nav-company-settings" },
   { to: "/users", label: "Users", icon: Users, adminOnly: true, testid: "nav-users" },
 ];
 
 const COMING_SOON = [
-  { label: "Jobs", icon: Briefcase },
-  { label: "Invoices", icon: Receipt },
-  { label: "Vehicles", icon: Truck },
-  { label: "Employees", icon: Wrench },
+  { label: "Integrations", icon: Wrench },
 ];
 
 export default function Layout() {
@@ -96,7 +98,7 @@ export default function Layout() {
             ))}
           </ul>
 
-          <div className="px-3 mt-7 mb-2 overline text-white/40">Coming Phase 3+</div>
+          <div className="px-3 mt-7 mb-2 overline text-white/40">Coming Phase 4</div>
           <ul className="space-y-1">
             {COMING_SOON.map((c) => (
               <li key={c.label}>

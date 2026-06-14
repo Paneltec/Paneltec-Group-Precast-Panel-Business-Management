@@ -20,6 +20,7 @@ const STATUS_STYLES = {
 export default function QuoteDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const navigate = useNavigate();
   const [quote, setQuote] = useState(null);
   const [customer, setCustomer] = useState(null);
   const [project, setProject] = useState(null);
@@ -46,13 +47,23 @@ export default function QuoteDetail() {
 
   const onSend = async () => {
     try {
-      const { data } = await api.post(`/quotes/${id}/send`);
+      const { data } = await api.post(`/quotes/${id}/send`, {});
       setMagicUrl(`${window.location.origin}/q/${data.magic_link_token}`);
+      setEmailPreview(data.email_preview || null);
       setSendOpen(true);
       await load();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     }
+  };
+
+  const onRevise = async () => {
+    if (!window.confirm("Create a new draft revision of this quote? The original stays unchanged.")) return;
+    try {
+      const { data } = await api.post(`/quotes/${id}/revise`);
+      toast.success(`Revision ${data.quote_number} created`);
+      navigate(`/quotes/${data.id}/edit`);
+    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
   };
 
   const onMark = async (kind) => {
@@ -107,6 +118,9 @@ export default function QuoteDetail() {
           )}
           {quote.status === "sent" && (
             <>
+              <Button variant="outline" onClick={onRevise} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="quote-revise-btn">
+                Revise
+              </Button>
               <Button variant="outline" onClick={() => onMark("accepted")} className="border-green-600 text-green-700 hover:bg-green-50 font-semibold h-10" data-testid="quote-mark-accepted">
                 <Check className="w-4 h-4 mr-2"/> Mark accepted
               </Button>
@@ -114,6 +128,11 @@ export default function QuoteDetail() {
                 <X className="w-4 h-4 mr-2"/> Mark rejected
               </Button>
             </>
+          )}
+          {(quote.status === "accepted" || quote.status === "rejected" || quote.status === "expired") && (
+            <Button variant="outline" onClick={onRevise} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="quote-revise-btn">
+              Revise as new draft
+            </Button>
           )}
         </div>
       </div>
@@ -129,6 +148,38 @@ export default function QuoteDetail() {
             <a href={publicUrl} target="_blank" rel="noreferrer" className="inline-flex items-center text-xs font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33] px-3"><ExternalLink className="w-3.5 h-3.5 mr-1"/> Open</a>
           </div>
         </div>
+      )}
+
+      {/* Customer engagement (view tracking) */}
+      {quote.magic_link_token && (
+        <section className="bg-white border border-gray-200 rounded p-4" data-testid="engagement-card">
+          <div className="overline mb-2">Customer engagement</div>
+          {!quote.first_viewed_at ? (
+            <div className="text-sm text-gray-500">Not yet viewed.</div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+              <div><div className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">First viewed</div>
+                <div className="text-[#1F2A33] font-semibold mt-0.5" data-testid="engagement-first">{formatDateTime(quote.first_viewed_at)}</div></div>
+              <div><div className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">Last viewed</div>
+                <div className="text-[#1F2A33] font-semibold mt-0.5" data-testid="engagement-last">{formatDateTime(quote.last_viewed_at)}</div></div>
+              <div><div className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">Total views</div>
+                <div className="text-[#1F2A33] font-black text-xl tabular-nums mt-0.5" data-testid="engagement-count">{quote.view_count || 0}</div></div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Revision lineage */}
+      {(quote.revised_from_quote_id || quote.revised_to_quote_id) && (
+        <section className="bg-white border border-gray-200 rounded p-4" data-testid="revision-lineage">
+          <div className="overline mb-2">Revision lineage</div>
+          {quote.revised_from_quote_id && (
+            <div className="text-sm">Revision of <Link to={`/quotes/${quote.revised_from_quote_id}`} className="font-bold text-[#3A6B8C] hover:text-[#1F2A33]" data-testid="revised-from-link">earlier quote</Link></div>
+          )}
+          {quote.revised_to_quote_id && (
+            <div className="text-sm">Superseded by <Link to={`/quotes/${quote.revised_to_quote_id}`} className="font-bold text-[#3A6B8C] hover:text-[#1F2A33]" data-testid="revised-to-link">new revision</Link></div>
+          )}
+        </section>
       )}
 
       <section className="bg-white border border-gray-200 rounded p-6">
@@ -195,22 +246,33 @@ export default function QuoteDetail() {
       </div>
 
       <Dialog open={sendOpen} onOpenChange={setSendOpen}>
-        <DialogContent data-testid="send-confirm-dialog">
+        <DialogContent data-testid="send-confirm-dialog" className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Quote sent</DialogTitle>
+            <DialogTitle>Email ready to send</DialogTitle>
             <DialogDescription>
-              <span className="block mt-2 text-amber-700 text-xs font-bold uppercase tracking-wider">
-                Email via M365 — MOCKED, will send automatically in Phase 4
+              <span className="block mt-2 mb-1 bg-[#F5C518]/30 border border-[#F5C518] text-[#1F2A33] text-xs font-bold uppercase tracking-wider px-2 py-1.5 rounded">
+                📧 MOCKED · Email will send automatically via Microsoft 365 in Phase 4. For now, copy &amp; send manually from your inbox.
               </span>
-              Share this magic link with the customer. They can accept or reject without logging in.
             </DialogDescription>
           </DialogHeader>
-          <div className="bg-gray-50 border border-gray-200 rounded p-3">
-            <code className="text-xs break-all text-[#1F2A33]">{magicUrl}</code>
-          </div>
-          <DialogFooter>
-            <Button onClick={copy} variant="outline" data-testid="send-copy-link">
-              <Copy className="w-4 h-4 mr-2"/>{copied ? "Copied!" : "Copy link"}
+          {emailPreview && (
+            <div className="space-y-3 text-sm">
+              <div><label className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">To</label><div className="font-mono text-xs bg-gray-50 border rounded px-2 py-1.5 mt-1">{emailPreview.to}</div></div>
+              <div><label className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">Subject</label><div className="font-semibold bg-gray-50 border rounded px-2 py-1.5 mt-1">{emailPreview.subject}</div></div>
+              <div><label className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">Body</label>
+                <textarea readOnly value={emailPreview.body} rows={10}
+                  className="w-full mt-1 bg-gray-50 border rounded px-2 py-1.5 font-mono text-xs whitespace-pre-wrap" data-testid="send-email-body"/>
+              </div>
+              <div><label className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">Magic link</label>
+                <code className="block bg-gray-50 border rounded px-2 py-1.5 mt-1 text-xs break-all">{magicUrl}</code></div>
+            </div>
+          )}
+          <DialogFooter className="flex-wrap gap-2">
+            <Button variant="outline" onClick={async () => { await navigator.clipboard.writeText(magicUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); }} data-testid="send-copy-link">
+              <Copy className="w-4 h-4 mr-2"/>{copied ? "Copied!" : "Copy magic link"}
+            </Button>
+            <Button variant="outline" onClick={async () => { await navigator.clipboard.writeText(`Subject: ${emailPreview?.subject}\n\n${emailPreview?.body}`); toast.success("Email content copied"); }} data-testid="send-copy-email">
+              <Copy className="w-4 h-4 mr-2"/> Copy email content
             </Button>
             <Button onClick={() => setSendOpen(false)} className="bg-[#1F2A33] text-white hover:bg-[#3A6B8C]">Done</Button>
           </DialogFooter>
