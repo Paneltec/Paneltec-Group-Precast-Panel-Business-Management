@@ -9,6 +9,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
+import { FileSearch } from "lucide-react";
 
 // Sidebar items — each gated by a permission OR superAdminOnly.
 const NAV_ITEMS = [
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { to: "/settings/company", label: "Company", icon: Building2, perm: "company.view", testid: "nav-company-settings" },
   { to: "/settings/integrations", label: "Integrations", icon: Plug, perm: "integrations.view", testid: "nav-integrations" },
   { to: "/users", label: "Users", icon: Users, perm: "users.view", testid: "nav-users" },
+  { to: "/admin/audit", label: "Audit Trail", icon: FileSearch, perm: "audit.view", testid: "nav-audit" },
 ];
 
 export default function Layout() {

@@ -30,6 +30,7 @@ import JobPrint from "./pages/JobPrint";
 import Account from "./pages/Account";
 import ForcePasswordChange from "./pages/ForcePasswordChange";
 import Forbidden from "./pages/Forbidden";
+import Audit from "./pages/Audit";
 
 function App() {
   return (
@@ -69,6 +70,7 @@ function App() {
                   <Route path="/settings/company" element={<ProtectedRoute permission="company.view"><CompanySettings /></ProtectedRoute>} />
                   <Route path="/settings/integrations" element={<ProtectedRoute permission="integrations.view"><IntegrationSettings /></ProtectedRoute>} />
                   <Route path="/users" element={<ProtectedRoute permission="users.view"><UsersPage /></ProtectedRoute>} />
+                  <Route path="/admin/audit" element={<ProtectedRoute permission="audit.view"><Audit /></ProtectedRoute>} />
                 </Route>
                 <Route path="*" element={<Login />} />
               </Routes>

@@ -13,7 +13,7 @@ from typing import List, Optional, Literal, Any, Dict
 
 import bcrypt
 import jwt
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Query
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Query, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -98,19 +98,20 @@ def normalise_abn(raw: Optional[str]) -> Optional[str]:
 PERMISSION_MODULES = [
     {"key": "customers", "label": "Customers", "permissions": ["customers.view", "customers.create", "customers.edit", "customers.delete"]},
     {"key": "projects",  "label": "Projects",  "permissions": ["projects.view", "projects.create", "projects.edit", "projects.delete"]},
-    {"key": "quotes",    "label": "Quotes",    "permissions": ["quotes.view", "quotes.create", "quotes.edit", "quotes.send", "quotes.mark_decision", "quotes.revise"]},
-    {"key": "jobs",      "label": "Jobs",      "permissions": ["jobs.view", "jobs.edit", "jobs.transition", "jobs.cancel"]},
-    {"key": "invoices",  "label": "Invoices",  "permissions": ["invoices.view", "invoices.create", "invoices.issue", "invoices.mark_paid", "invoices.push_xero"]},
-    {"key": "vehicles",  "label": "Vehicles",  "permissions": ["vehicles.view"]},
-    {"key": "employees", "label": "Employees", "permissions": ["employees.view"]},
+    {"key": "quotes",    "label": "Quotes",    "permissions": ["quotes.view", "quotes.create", "quotes.edit", "quotes.send", "quotes.mark_decision", "quotes.revise", "quotes.delete"]},
+    {"key": "jobs",      "label": "Jobs",      "permissions": ["jobs.view", "jobs.edit", "jobs.transition", "jobs.cancel", "jobs.delete"]},
+    {"key": "invoices",  "label": "Invoices",  "permissions": ["invoices.view", "invoices.create", "invoices.issue", "invoices.mark_paid", "invoices.push_xero", "invoices.delete"]},
+    {"key": "vehicles",  "label": "Vehicles",  "permissions": ["vehicles.view", "vehicles.create", "vehicles.edit", "vehicles.delete"]},
+    {"key": "employees", "label": "Employees", "permissions": ["employees.view", "employees.create", "employees.edit", "employees.delete"]},
     {"key": "pricing",   "label": "Pricing",   "permissions": ["pricing.view", "pricing.edit"]},
     {"key": "company",   "label": "Company",   "permissions": ["company.view", "company.edit"]},
     {"key": "integrations","label":"Integrations","permissions": ["integrations.view", "integrations.edit"]},
     {"key": "users",     "label": "Users",     "permissions": ["users.view", "users.manage"]},
+    {"key": "audit",     "label": "Audit",     "permissions": ["audit.view"]},
 ]
 ALL_PERMISSIONS: List[str] = [p for m in PERMISSION_MODULES for p in m["permissions"]]
 # These permissions are reserved for super-admins. Non-super-admins cannot hold them.
-ELEVATED_PERMISSIONS = {"users.manage", "integrations.edit", "pricing.edit", "company.edit"}
+ELEVATED_PERMISSIONS = {"users.manage", "integrations.edit", "pricing.edit", "company.edit", "audit.view"}
 
 PERMISSION_PRESETS = {
     "estimator": {
@@ -119,14 +120,14 @@ PERMISSION_PRESETS = {
             "customers.view","customers.create","customers.edit","customers.delete",
             "projects.view","projects.create","projects.edit","projects.delete",
             "quotes.view","quotes.create","quotes.edit","quotes.send","quotes.mark_decision","quotes.revise",
-            "jobs.view","invoices.view","vehicles.view","employees.view",
+            "jobs.view","invoices.view","vehicles.view","employees.view","customers.delete","projects.delete","quotes.delete",
         ],
     },
     "production": {
         "label": "Production",
         "permissions": [
             "customers.view","projects.view","quotes.view",
-            "jobs.view","jobs.edit","jobs.transition","jobs.cancel",
+            "jobs.view","jobs.edit","jobs.transition","jobs.cancel","jobs.delete",
             "invoices.view","vehicles.view","employees.view",
         ],
     },
@@ -134,7 +135,7 @@ PERMISSION_PRESETS = {
         "label": "Accounts",
         "permissions": [
             "customers.view","projects.view","quotes.view","jobs.view",
-            "invoices.view","invoices.create","invoices.issue","invoices.mark_paid","invoices.push_xero",
+            "invoices.view","invoices.create","invoices.issue","invoices.mark_paid","invoices.push_xero","invoices.delete",
             "company.view",
         ],
     },
@@ -726,6 +727,42 @@ async def seed_database():
         await _seed_phase3_demo()
 
 
+
+    # Phase 6: seed vehicles + employees if empty, preserving previous MOCK ids
+    if await db.vehicles.count_documents({}) == 0:
+        mocks = [
+            {"id":"v-001","vehicle_code":"V-001","make_model":"Kenworth K200 Prime Mover","rego":"BX12-AC","capacity_tonnes":42.0,"status":"available","notes":""},
+            {"id":"v-002","vehicle_code":"V-002","make_model":"Volvo FH16 Tilt-tray","rego":"BX84-RT","capacity_tonnes":36.0,"status":"on_delivery","notes":""},
+            {"id":"v-003","vehicle_code":"V-003","make_model":"Mercedes Actros Crane Truck","rego":"BX02-MK","capacity_tonnes":28.0,"status":"maintenance","notes":""},
+            {"id":"v-004","vehicle_code":"V-004","make_model":"Hino 700 Series Flatbed","rego":"BX55-HQ","capacity_tonnes":24.0,"status":"available","notes":""},
+            {"id":"v-005","vehicle_code":"V-005","make_model":"Scania R620 B-Double","rego":"BX91-SC","capacity_tonnes":48.0,"status":"available","notes":""},
+        ]
+        for v in mocks: v.update({"source":"MOCKED_NAVIXY","is_active":True,"deleted_at":None,
+            "deleted_by_user_id":None,"created_at":now_iso(),"updated_at":now_iso(),
+            "created_by_user_id":"system","updated_by_user_id":"system"})
+        await db.vehicles.insert_many(mocks)
+    if await db.employees.count_documents({}) == 0:
+        mocks = [
+            {"id":"e-001","name":"Mark Henderson","role":"Production Manager","email":"mark.h@paneltec.com.au","phone":"0411 222 333"},
+            {"id":"e-002","name":"Sarah Chen","role":"Foreman","email":"sarah.c@paneltec.com.au","phone":"0412 333 444"},
+            {"id":"e-003","name":"Daniel O'Brien","role":"Crane Operator","email":"daniel.o@paneltec.com.au","phone":"0413 444 555"},
+            {"id":"e-004","name":"Priya Patel","role":"Estimator","email":"priya.p@paneltec.com.au","phone":"0414 555 666"},
+            {"id":"e-005","name":"Liam Walsh","role":"Driver","email":"liam.w@paneltec.com.au","phone":"0415 666 777"},
+            {"id":"e-006","name":"Aisha Mohamed","role":"Driver","email":"aisha.m@paneltec.com.au","phone":"0416 777 888"},
+        ]
+        for e in mocks: e.update({"notes":"","source":"MOCKED_SIMPRO","is_active":True,"deleted_at":None,
+            "deleted_by_user_id":None,"created_at":now_iso(),"updated_at":now_iso(),
+            "created_by_user_id":"system","updated_by_user_id":"system"})
+        await db.employees.insert_many(mocks)
+    # Phase 6: audit indexes
+    try:
+        await db.audit_events.create_index([("timestamp",-1)])
+        await db.audit_events.create_index([("actor_user_id",1)])
+        await db.audit_events.create_index([("entity_type",1),("entity_id",1)])
+        await db.audit_events.create_index([("action",1)])
+    except Exception as _e:
+        logger.warning(f"audit index creation skipped: {_e}")
+
 async def _seed_phase2():
     admin = await db.users.find_one({"role":"admin"}, {"_id":0, "id":1})
     admin_id = admin["id"] if admin else "system"
@@ -834,19 +871,387 @@ async def _seed_phase3_demo():
 # ---------------------------------------------------------------------------
 # Auth endpoints
 # ---------------------------------------------------------------------------
+
+
+# ===========================================================================
+# Phase 6 — Audit trail + soft-delete helpers
+# ===========================================================================
+AUDIT_ACTIONS = {"created","updated","soft_deleted","hard_deleted","restored","status_changed",
+    "login_success","login_failed","password_changed","password_reset","permission_changed",
+    "quote_sent","quote_viewed","quote_accepted","quote_rejected","quote_revised",
+    "invoice_issued","invoice_paid","invoice_pushed_xero","email_sent","settings_changed"}
+AUDIT_ENTITY_TYPES = {"customer","project","quote","job","invoice","vehicle","employee",
+    "user","pricing_settings","company_settings","integration_settings","system"}
+AUDIT_SECRET_KEYS = {"client_secret","api_key","password","password_hash"}
+
+async def record_audit(actor: Optional[dict], action: str, entity_type: str,
+                        entity_id: Optional[str], entity_label: str,
+                        changes: Optional[dict] = None, metadata: Optional[dict] = None):
+    try:
+        # redact secret fields recursively (1-level shallow + nested sections)
+        def _redact(obj):
+            if not isinstance(obj, dict): return obj
+            out = {}
+            for k, v in obj.items():
+                if k in AUDIT_SECRET_KEYS:
+                    out[k] = {"from":"<redacted>","to":"<redacted>"} if isinstance(v, dict) else "<redacted>"
+                elif isinstance(v, dict):
+                    # nested diff form {from, to}
+                    if set(v.keys()) == {"from","to"}:
+                        if k in AUDIT_SECRET_KEYS:
+                            out[k] = {"from":"<redacted>","to":"<redacted>"}
+                        else: out[k] = v
+                    else:
+                        out[k] = _redact(v)
+                else: out[k] = v
+            return out
+        actor_email = (actor or {}).get("email", "system")
+        actor_name  = (actor or {}).get("name", "System")
+        await db.audit_events.insert_one({
+            "id": str(uuid.uuid4()), "timestamp": now_iso(),
+            "actor_user_id": (actor or {}).get("id"),
+            "actor_email": actor_email, "actor_name": actor_name,
+            "action": action, "entity_type": entity_type,
+            "entity_id": entity_id, "entity_label": entity_label,
+            "changes": _redact(changes) if changes else None,
+            "metadata": metadata or {},
+        })
+    except Exception as e:
+        logger.error(f"record_audit failed: {e}")
+
+def shallow_diff(before: dict, after: dict, keys: Optional[List[str]] = None) -> dict:
+    out = {}
+    keys = keys or list(set((before or {}).keys()) | set((after or {}).keys()))
+    for k in keys:
+        a, b = (before or {}).get(k), (after or {}).get(k)
+        if a != b: out[k] = {"from": a, "to": b}
+    return out
+
+# Soft-delete helpers for non-user entities (consistent shape).
+async def soft_delete_doc(coll, doc_id: str, actor: dict, label_field: str,
+                           entity_type: str) -> dict:
+    doc = await coll.find_one({"id": doc_id}, {"_id":0})
+    if not doc: raise HTTPException(status_code=404, detail=f"{entity_type} not found")
+    if doc.get("deleted_at"): raise HTTPException(status_code=400, detail=f"{entity_type} already deleted")
+    await coll.update_one({"id": doc_id}, {"$set": {"deleted_at": now_iso(),
+        "deleted_by_user_id": actor["id"], "updated_at": now_iso(), "updated_by_user_id": actor["id"]}})
+    await record_audit(actor, "soft_deleted", entity_type, doc_id, str(doc.get(label_field, doc_id)))
+    return {"soft_deleted": True}
+
+async def restore_doc(coll, doc_id: str, actor: dict, label_field: str, entity_type: str) -> dict:
+    doc = await coll.find_one({"id": doc_id}, {"_id":0})
+    if not doc: raise HTTPException(status_code=404, detail=f"{entity_type} not found")
+    if not doc.get("deleted_at"): raise HTTPException(status_code=400, detail=f"{entity_type} is not deleted")
+    await coll.update_one({"id": doc_id}, {"$set": {"deleted_at": None, "deleted_by_user_id": None,
+        "updated_at": now_iso(), "updated_by_user_id": actor["id"]}})
+    fresh = await coll.find_one({"id": doc_id}, {"_id":0})
+    await record_audit(actor, "restored", entity_type, doc_id, str(fresh.get(label_field, doc_id)))
+    return fresh
+
+def status_filter_q(status: str, *, has_is_active: bool = False) -> Dict[str, Any]:
+    s = (status or "active").lower()
+    if s == "active":
+        q = {"deleted_at": {"$in": [None]}}
+        if has_is_active: q["is_active"] = True
+        return q
+    if s == "inactive":
+        if not has_is_active: raise HTTPException(status_code=400, detail="No inactive state for this entity")
+        return {"is_active": False, "deleted_at": {"$in": [None]}}
+    if s == "deleted": return {"deleted_at": {"$ne": None}}
+    if s == "all":     return {}
+    raise HTTPException(status_code=400, detail="status must be one of active|inactive|deleted|all")
+
+# Reference counters per entity
+async def refs_customer(cid: str) -> Dict[str,int]:
+    return {
+        "projects":  await db.projects.count_documents({"customer_id": cid}),
+        "quotes":    await db.quotes.count_documents({"customer_id": cid}),
+        "jobs":      await db.jobs.count_documents({"customer_id": cid}),
+        "invoices":  await db.invoices.count_documents({"customer_id": cid}),
+    }
+async def refs_project(pid: str) -> Dict[str,int]:
+    return {
+        "quotes":   await db.quotes.count_documents({"project_id": pid}),
+        "jobs":     await db.jobs.count_documents({"project_id": pid}),
+        "invoices": await db.invoices.count_documents({"project_id": pid}),
+    }
+async def refs_quote(qid: str) -> Dict[str,int]:
+    return {
+        "jobs":           await db.jobs.count_documents({"quote_id": qid}),
+        "revised_from":   await db.quotes.count_documents({"revised_from_quote_id": qid}),
+    }
+async def refs_job(jid: str) -> Dict[str,int]:
+    return {"invoices": await db.invoices.count_documents({"job_id": jid})}
+async def refs_invoice(iid: str) -> Dict[str,int]:
+    inv = await db.invoices.find_one({"id": iid}, {"_id":0})
+    if not inv: return {}
+    blockers = {}
+    status = inv.get("status","draft")
+    if status not in ("draft","cancelled"): blockers["status_not_draft_or_cancelled"] = 1
+    if (inv.get("paid_amount") or 0) > 0:  blockers["has_payment"] = 1
+    if inv.get("xero_push_status") == "MOCKED_PUSHED": blockers["pushed_to_xero"] = 1
+    return blockers
+async def refs_vehicle(vid: str) -> Dict[str,int]:
+    return {"job_assignments": await db.jobs.count_documents({"assigned_vehicle_id": vid})}
+async def refs_employee(eid: str) -> Dict[str,int]:
+    return {"job_assignments": await db.jobs.count_documents({"assigned_employee_ids": eid})}
+
+REF_FN = {"customer": refs_customer, "project": refs_project, "quote": refs_quote,
+          "job": refs_job, "invoice": refs_invoice, "vehicle": refs_vehicle, "employee": refs_employee}
+
+async def hard_delete_with_refs(coll, doc_id: str, actor: dict, entity_type: str,
+                                  label_field: str) -> dict:
+    doc = await coll.find_one({"id": doc_id}, {"_id":0})
+    if not doc: raise HTTPException(status_code=404, detail=f"{entity_type} not found")
+    refs = await REF_FN[entity_type](doc_id)
+    if sum(refs.values()) > 0:
+        raise HTTPException(status_code=400, detail={
+            "message": f"Cannot permanently delete — {entity_type} has historical references",
+            "references": refs, "suggestion": "Use soft delete instead"})
+    await coll.delete_one({"id": doc_id})
+    await record_audit(actor, "hard_deleted", entity_type, doc_id, str(doc.get(label_field, doc_id)))
+    return {"permanently_deleted": True}
+
+
+# ===========================================================================
+# Universal references + delete + restore endpoints (5 business entities)
+# ===========================================================================
+async def _generic_references(entity_type, eid, label_field, coll, _admin):
+    doc = await coll.find_one({"id": eid}, {"_id":0})
+    if not doc: raise HTTPException(status_code=404, detail=f"{entity_type} not found")
+    refs = await REF_FN[entity_type](eid)
+    return {"entity_id": eid, "entity_label": str(doc.get(label_field, eid)),
+            "references": refs, "total": sum(refs.values())}
+
+@api_router.get("/customers/{cid}/references")
+async def customer_refs(cid: str, admin: dict = Depends(require_super_admin)):
+    return await _generic_references("customer", cid, "company_name", db.customers, admin)
+@api_router.get("/projects/{pid}/references")
+async def project_refs(pid: str, admin: dict = Depends(require_super_admin)):
+    return await _generic_references("project", pid, "project_name", db.projects, admin)
+@api_router.get("/quotes/{qid}/references")
+async def quote_refs(qid: str, admin: dict = Depends(require_super_admin)):
+    return await _generic_references("quote", qid, "quote_number", db.quotes, admin)
+@api_router.get("/jobs/{jid}/references")
+async def job_refs(jid: str, admin: dict = Depends(require_super_admin)):
+    return await _generic_references("job", jid, "job_number", db.jobs, admin)
+@api_router.get("/invoices/{iid}/references")
+async def invoice_refs(iid: str, admin: dict = Depends(require_super_admin)):
+    return await _generic_references("invoice", iid, "invoice_number", db.invoices, admin)
+
+@api_router.delete("/quotes/{qid}")
+async def del_quote(qid: str, permanent: bool = Query(False), actor: dict = Depends(require_permission("quotes.delete"))):
+    if permanent:
+        if not actor.get("is_super_admin"): raise HTTPException(status_code=403, detail="Super admin required for permanent delete")
+        return await hard_delete_with_refs(db.quotes, qid, actor, "quote", "quote_number")
+    return await soft_delete_doc(db.quotes, qid, actor, "quote_number", "quote")
+
+@api_router.post("/quotes/{qid}/restore")
+async def rest_quote(qid: str, actor: dict = Depends(require_permission("quotes.delete"))):
+    return await restore_doc(db.quotes, qid, actor, "quote_number", "quote")
+
+@api_router.delete("/jobs/{jid}")
+async def del_job(jid: str, permanent: bool = Query(False), actor: dict = Depends(require_permission("jobs.delete"))):
+    if permanent:
+        if not actor.get("is_super_admin"): raise HTTPException(status_code=403, detail="Super admin required for permanent delete")
+        return await hard_delete_with_refs(db.jobs, jid, actor, "job", "job_number")
+    return await soft_delete_doc(db.jobs, jid, actor, "job_number", "job")
+
+@api_router.post("/jobs/{jid}/restore")
+async def rest_job(jid: str, actor: dict = Depends(require_permission("jobs.delete"))):
+    return await restore_doc(db.jobs, jid, actor, "job_number", "job")
+
+@api_router.delete("/invoices/{iid}")
+async def del_invoice(iid: str, permanent: bool = Query(False), actor: dict = Depends(require_permission("invoices.delete"))):
+    if permanent:
+        if not actor.get("is_super_admin"): raise HTTPException(status_code=403, detail="Super admin required for permanent delete")
+        return await hard_delete_with_refs(db.invoices, iid, actor, "invoice", "invoice_number")
+    return await soft_delete_doc(db.invoices, iid, actor, "invoice_number", "invoice")
+
+@api_router.post("/invoices/{iid}/restore")
+async def rest_invoice(iid: str, actor: dict = Depends(require_permission("invoices.delete"))):
+    return await restore_doc(db.invoices, iid, actor, "invoice_number", "invoice")
+
+@api_router.post("/customers/{cid}/restore")
+async def rest_customer(cid: str, actor: dict = Depends(require_permission("customers.delete"))):
+    return await restore_doc(db.customers, cid, actor, "company_name", "customer")
+
+@api_router.post("/projects/{pid}/restore")
+async def rest_project(pid: str, actor: dict = Depends(require_permission("projects.delete"))):
+    return await restore_doc(db.projects, pid, actor, "project_name", "project")
+
+
+# ===========================================================================
+# Vehicles + Employees CRUD (DB-backed, Phase 6)
+# ===========================================================================
+class VehicleIn(BaseModel):
+    make_model: str = Field(min_length=1); rego: str = ""
+    capacity_tonnes: float = 0.0; status: str = "available"; notes: str = ""
+class EmployeeIn(BaseModel):
+    name: str = Field(min_length=1); role: str = ""; email: str = ""; phone: str = ""; notes: str = ""
+
+async def _next_vehicle_code() -> str:
+    count = await db.vehicles.count_documents({})
+    return f"V-{count+1:03d}"
+
+@api_router.post("/vehicles", status_code=201)
+async def create_vehicle(payload: VehicleIn, actor: dict = Depends(require_permission("vehicles.create"))):
+    doc = {**payload.model_dump(), "id": str(uuid.uuid4()),
+        "vehicle_code": await _next_vehicle_code(), "source": "MANUAL",
+        "is_active": True, "deleted_at": None, "deleted_by_user_id": None,
+        "created_at": now_iso(), "updated_at": now_iso(),
+        "created_by_user_id": actor["id"], "updated_by_user_id": actor["id"]}
+    await db.vehicles.insert_one(doc); doc.pop("_id", None)
+    await record_audit(actor, "created", "vehicle", doc["id"], doc["vehicle_code"])
+    return doc
+
+@api_router.get("/vehicles/{vid}")
+async def get_vehicle(vid: str, _u: dict = Depends(require_permission("vehicles.view"))):
+    v = await db.vehicles.find_one({"id": vid}, {"_id":0})
+    if not v: raise HTTPException(status_code=404, detail="Vehicle not found")
+    return v
+
+@api_router.patch("/vehicles/{vid}")
+async def update_vehicle(vid: str, payload: VehicleIn, actor: dict = Depends(require_permission("vehicles.edit"))):
+    cur = await db.vehicles.find_one({"id": vid}, {"_id":0})
+    if not cur: raise HTTPException(status_code=404, detail="Vehicle not found")
+    data = payload.model_dump()
+    diff = shallow_diff(cur, data, list(data.keys()))
+    data["updated_at"] = now_iso(); data["updated_by_user_id"] = actor["id"]
+    await db.vehicles.update_one({"id": vid}, {"$set": data})
+    if diff: await record_audit(actor, "updated", "vehicle", vid, cur.get("vehicle_code", vid), changes=diff)
+    return await db.vehicles.find_one({"id": vid}, {"_id":0})
+
+@api_router.delete("/vehicles/{vid}")
+async def del_vehicle(vid: str, permanent: bool = Query(False), actor: dict = Depends(require_permission("vehicles.delete"))):
+    if permanent:
+        if not actor.get("is_super_admin"): raise HTTPException(status_code=403, detail="Super admin required for permanent delete")
+        return await hard_delete_with_refs(db.vehicles, vid, actor, "vehicle", "vehicle_code")
+    return await soft_delete_doc(db.vehicles, vid, actor, "vehicle_code", "vehicle")
+
+@api_router.post("/vehicles/{vid}/restore")
+async def rest_vehicle(vid: str, actor: dict = Depends(require_permission("vehicles.delete"))):
+    return await restore_doc(db.vehicles, vid, actor, "vehicle_code", "vehicle")
+
+@api_router.get("/vehicles/{vid}/references")
+async def vehicle_refs_ep(vid: str, admin: dict = Depends(require_super_admin)):
+    return await _generic_references("vehicle", vid, "vehicle_code", db.vehicles, admin)
+
+@api_router.post("/employees", status_code=201)
+async def create_employee(payload: EmployeeIn, actor: dict = Depends(require_permission("employees.create"))):
+    doc = {**payload.model_dump(), "id": str(uuid.uuid4()), "source": "MANUAL",
+        "is_active": True, "deleted_at": None, "deleted_by_user_id": None,
+        "created_at": now_iso(), "updated_at": now_iso(),
+        "created_by_user_id": actor["id"], "updated_by_user_id": actor["id"]}
+    await db.employees.insert_one(doc); doc.pop("_id", None)
+    await record_audit(actor, "created", "employee", doc["id"], doc["name"])
+    return doc
+
+@api_router.get("/employees/{eid}")
+async def get_employee(eid: str, _u: dict = Depends(require_permission("employees.view"))):
+    e = await db.employees.find_one({"id": eid}, {"_id":0})
+    if not e: raise HTTPException(status_code=404, detail="Employee not found")
+    return e
+
+@api_router.patch("/employees/{eid}")
+async def update_employee(eid: str, payload: EmployeeIn, actor: dict = Depends(require_permission("employees.edit"))):
+    cur = await db.employees.find_one({"id": eid}, {"_id":0})
+    if not cur: raise HTTPException(status_code=404, detail="Employee not found")
+    data = payload.model_dump()
+    diff = shallow_diff(cur, data, list(data.keys()))
+    data["updated_at"] = now_iso(); data["updated_by_user_id"] = actor["id"]
+    await db.employees.update_one({"id": eid}, {"$set": data})
+    if diff: await record_audit(actor, "updated", "employee", eid, cur.get("name", eid), changes=diff)
+    return await db.employees.find_one({"id": eid}, {"_id":0})
+
+@api_router.delete("/employees/{eid}")
+async def del_employee(eid: str, permanent: bool = Query(False), actor: dict = Depends(require_permission("employees.delete"))):
+    if permanent:
+        if not actor.get("is_super_admin"): raise HTTPException(status_code=403, detail="Super admin required for permanent delete")
+        return await hard_delete_with_refs(db.employees, eid, actor, "employee", "name")
+    return await soft_delete_doc(db.employees, eid, actor, "name", "employee")
+
+@api_router.post("/employees/{eid}/restore")
+async def rest_employee(eid: str, actor: dict = Depends(require_permission("employees.delete"))):
+    return await restore_doc(db.employees, eid, actor, "name", "employee")
+
+@api_router.get("/employees/{eid}/references")
+async def employee_refs_ep(eid: str, admin: dict = Depends(require_super_admin)):
+    return await _generic_references("employee", eid, "name", db.employees, admin)
+
+
+# ===========================================================================
+# Audit endpoints
+# ===========================================================================
+@api_router.get("/audit")
+async def list_audit(_u: dict = Depends(require_permission("audit.view")),
+                      date_from: Optional[str] = None, date_to: Optional[str] = None,
+                      actor: Optional[str] = None, action: Optional[str] = None,
+                      entity_type: Optional[str] = None, search: Optional[str] = None,
+                      page: int = Query(1, ge=1), per_page: int = Query(50, ge=1, le=200)):
+    q: Dict[str, Any] = {}
+    if date_from: q.setdefault("timestamp", {})["$gte"] = date_from
+    if date_to:   q.setdefault("timestamp", {})["$lte"] = date_to
+    if actor:        q["actor_user_id"] = {"$in": actor.split(",")}
+    if action:       q["action"]        = {"$in": action.split(",")}
+    if entity_type:  q["entity_type"]   = {"$in": entity_type.split(",")}
+    if search:
+        rx = {"$regex": re.escape(search), "$options": "i"}
+        q["$or"] = [{"entity_label": rx},{"actor_email": rx},{"actor_name": rx}]
+    total = await db.audit_events.count_documents(q)
+    skip = (page-1)*per_page
+    items = await db.audit_events.find(q, {"_id":0}).sort("timestamp",-1).skip(skip).limit(per_page).to_list(per_page)
+    return {"items": items, "total": total, "page": page, "per_page": per_page}
+
+@api_router.get("/audit/export.csv")
+async def export_audit(_u: dict = Depends(require_permission("audit.view")),
+                        date_from: Optional[str] = None, date_to: Optional[str] = None,
+                        actor: Optional[str] = None, action: Optional[str] = None,
+                        entity_type: Optional[str] = None, search: Optional[str] = None):
+    import csv, io, json as _json
+    q: Dict[str, Any] = {}
+    if date_from: q.setdefault("timestamp", {})["$gte"] = date_from
+    if date_to:   q.setdefault("timestamp", {})["$lte"] = date_to
+    if actor:        q["actor_user_id"] = {"$in": actor.split(",")}
+    if action:       q["action"]        = {"$in": action.split(",")}
+    if entity_type:  q["entity_type"]   = {"$in": entity_type.split(",")}
+    if search:
+        rx = {"$regex": re.escape(search), "$options": "i"}
+        q["$or"] = [{"entity_label": rx},{"actor_email": rx},{"actor_name": rx}]
+    items = await db.audit_events.find(q, {"_id":0}).sort("timestamp",-1).limit(10000).to_list(10000)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["timestamp","actor_email","actor_name","action","entity_type","entity_id","entity_label","changes_json","metadata_json"])
+    for e in items:
+        w.writerow([e["timestamp"], e["actor_email"], e["actor_name"], e["action"],
+                    e["entity_type"], e.get("entity_id",""), e.get("entity_label",""),
+                    _json.dumps(e.get("changes") or {}, default=str),
+                    _json.dumps(e.get("metadata") or {}, default=str)])
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                     headers={"Content-Disposition": "attachment; filename=audit.csv"})
+
+@api_router.get("/audit/{event_id}")
+async def get_audit(event_id: str, _u: dict = Depends(require_permission("audit.view"))):
+    e = await db.audit_events.find_one({"id": event_id}, {"_id":0})
+    if not e: raise HTTPException(status_code=404, detail="Audit event not found")
+    return e
+
 @api_router.post("/auth/login", response_model=LoginResponse)
 async def auth_login(payload: LoginRequest):
     email = payload.email.lower().strip()
     user = await db.users.find_one({"email": email}, {"_id":0})
     if not user or user.get("deleted_at"):
-        # generic 401 for missing or soft-deleted so we don't leak existence
+        await record_audit(None, "login_failed", "user", None, email, metadata={"reason":"not_found_or_deleted"})
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.get("is_active", True):
+        await record_audit(None, "login_failed", "user", user["id"], email, metadata={"reason":"deactivated"})
         raise HTTPException(status_code=401, detail="Account deactivated. Contact administrator.")
     if not verify_password(payload.password, user["password_hash"]):
+        await record_audit(None, "login_failed", "user", user["id"], email, metadata={"reason":"wrong_password"})
         raise HTTPException(status_code=401, detail="Invalid email or password")
     await db.users.update_one({"id": user["id"]}, {"$set": {"last_login_at": now_iso()}})
     user["last_login_at"] = now_iso()
+    await record_audit(user, "login_success", "user", user["id"], user["email"])
     return LoginResponse(access_token=create_access_token(user["id"], user["email"]),
                          user=user_to_public(user))
 
@@ -863,6 +1268,7 @@ async def auth_change_password(payload: ChangePasswordRequest, user: dict = Depe
     await db.users.update_one({"id":user["id"]},
         {"$set":{"password_hash":hash_password(payload.new_password),
                  "must_change_password": False, "updated_at": now_iso()}})
+    await record_audit(user, "password_changed", "user", user["id"], user["email"])
     return {"ok": True}
 
 @api_router.get("/permissions/catalogue")
@@ -915,7 +1321,7 @@ async def list_users(_u: dict = Depends(require_permission("users.view")), statu
     if s == "active":      q = {"is_active": True, "deleted_at": {"$in": [None]}}
     elif s == "inactive":  q = {"is_active": False, "deleted_at": {"$in": [None]}}
     elif s == "deleted":   q = {"deleted_at": {"$ne": None}}
-    elif s == "all":       q = {}
+    elif s == "all":       q = dict(_status_q)
     else: raise HTTPException(status_code=400, detail="status must be one of active|inactive|deleted|all")
     docs = await db.users.find(q, {"_id":0,"password_hash":0}).sort("created_at", -1).to_list(500)
     return docs
@@ -971,6 +1377,7 @@ async def create_user(payload: UserCreate, admin: dict = Depends(require_super_a
         "created_by_user_id": admin["id"], "updated_by_user_id": admin["id"],
     }
     await db.users.insert_one(doc)
+    await record_audit(admin, "created", "user", doc["id"], doc["email"])
     return user_to_public(doc)
 
 @api_router.patch("/users/{user_id}")
@@ -1020,6 +1427,13 @@ async def update_user(user_id: str, payload: UserUpdate, admin: dict = Depends(r
     updates["updated_by_user_id"] = admin["id"]
     await db.users.update_one({"id": user_id}, {"$set": updates})
     fresh = await db.users.find_one({"id": user_id}, {"_id":0, "password_hash":0})
+    perm_keys = ("permissions","is_super_admin","role_label")
+    perm_diff = shallow_diff(target, updates, [k for k in perm_keys if k in updates])
+    if perm_diff:
+        await record_audit(admin, "permission_changed", "user", user_id, target["email"], changes=perm_diff)
+    other_diff = shallow_diff(target, updates, [k for k in updates if k not in perm_keys and k not in ("updated_at","updated_by_user_id")])
+    if other_diff:
+        await record_audit(admin, "updated", "user", user_id, target["email"], changes=other_diff)
     return user_to_public(fresh)
 
 @api_router.post("/users/{user_id}/reset-password")
@@ -1033,6 +1447,7 @@ async def reset_user_password(user_id: str, payload: ResetPasswordRequest,
         "updated_at": now_iso(),
         "updated_by_user_id": admin["id"],
     }})
+    await record_audit(admin, "password_reset", "user", user_id, target["email"])
     return {"ok": True, "email": target["email"], "new_password": payload.new_password,
             "must_change_password": bool(payload.must_change_password)}
 
@@ -1065,7 +1480,8 @@ async def delete_user(user_id: str, permanent: bool = Query(False),
                 "suggestion": "Use soft delete instead",
             })
         await db.users.delete_one({"id": user_id})
-        return {"permanently_deleted": True, "email": target["email"]}
+        await record_audit(actor, "hard_deleted", "user", user_id, target["email"])
+    return {"permanently_deleted": True, "email": target["email"]}
 
     # Soft delete
     if target.get("deleted_at"):
@@ -1077,6 +1493,7 @@ async def delete_user(user_id: str, permanent: bool = Query(False),
         "updated_at": now_iso(),
         "updated_by_user_id": actor["id"],
     }})
+    await record_audit(actor, "soft_deleted", "user", user_id, target["email"])
     return {"soft_deleted": True, "email": target["email"]}
 
 @api_router.post("/users/{user_id}/restore")
@@ -1110,9 +1527,12 @@ async def get_pricing(_u: dict = Depends(require_permission("pricing.view"))):
     return doc
 
 @api_router.put("/settings/pricing")
-async def update_pricing(payload: PricingSettings, _u: dict = Depends(require_permission("pricing.edit"))):
+async def update_pricing(payload: PricingSettings, actor: dict = Depends(require_permission("pricing.edit"))):
+    before = await db.settings.find_one({"key":"pricing"}, {"_id":0,"key":0}) or {}
     data = payload.model_dump(); data["updated_at"] = now_iso()
     await db.settings.update_one({"key":"pricing"}, {"$set":data}, upsert=True)
+    diff = shallow_diff(before, data)
+    if diff: await record_audit(actor, "settings_changed", "pricing_settings", "pricing", "Pricing", changes=diff)
     return await db.settings.find_one({"key":"pricing"}, {"_id":0,"key":0})
 
 
@@ -1126,11 +1546,14 @@ async def get_company(_u: dict = Depends(require_permission("company.view"))):
     return doc
 
 @api_router.put("/settings/company")
-async def update_company(payload: CompanySettings, _u: dict = Depends(require_permission("company.edit"))):
+async def update_company(payload: CompanySettings, actor: dict = Depends(require_permission("company.edit"))):
     data = payload.model_dump()
     if data.get("abn"): data["abn"] = normalise_abn(data["abn"])
+    before = await db.settings.find_one({"key":"company"}, {"_id":0,"key":0}) or {}
     data["updated_at"] = now_iso()
     await db.settings.update_one({"key":"company"}, {"$set":data}, upsert=True)
+    diff = shallow_diff(before, data)
+    if diff: await record_audit(actor, "settings_changed", "company_settings", "company", "Company", changes=diff)
     return await db.settings.find_one({"key":"company"}, {"_id":0,"key":0})
 
 
@@ -1161,7 +1584,8 @@ async def calculator_calculate(payload: CalculateRequest, _user: dict = Depends(
 # ---------------------------------------------------------------------------
 @api_router.get("/customers")
 async def list_customers(_user: dict = Depends(require_permission("customers.view")), search: Optional[str] = Query(None),
-                          active: str = Query("true"), page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200)):
+                          active: str = Query("true"), status: str = Query("active"), page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200)):
+    _status_q = status_filter_q(status, has_is_active=True)
     query: Dict[str, Any] = {}
     al = (active or "").lower()
     if al == "true": query["active"] = True
@@ -1207,15 +1631,11 @@ async def update_customer(cid: str, payload: CustomerUpdate, _user: dict = Depen
     return await db.customers.find_one({"id":cid}, {"_id":0})
 
 @api_router.delete("/customers/{cid}")
-async def delete_customer(cid: str, _user: dict = Depends(require_permission("customers.delete"))):
-    linked = (await db.projects.find_one({"customer_id":cid}) is not None or
-              await db.quotes.find_one({"customer_id":cid}) is not None)
-    if linked:
-        await db.customers.update_one({"id":cid}, {"$set":{"active":False,"updated_at":now_iso()}})
-        return {"ok":True,"soft_deleted":True,"reason":"Customer has linked projects or quotes"}
-    r = await db.customers.delete_one({"id":cid})
-    if r.deleted_count == 0: raise HTTPException(status_code=404, detail="Customer not found")
-    return {"ok":True,"soft_deleted":False}
+async def delete_customer(cid: str, permanent: bool = Query(False), actor: dict = Depends(require_permission("customers.delete"))):
+    if permanent:
+        if not actor.get("is_super_admin"): raise HTTPException(status_code=403, detail="Super admin required for permanent delete")
+        return await hard_delete_with_refs(db.customers, cid, actor, "customer", "company_name")
+    return await soft_delete_doc(db.customers, cid, actor, "company_name", "customer")
 
 @api_router.get("/customers/{cid}/projects")
 async def list_customer_projects(cid: str, _user: dict = Depends(require_permission("customers.view"))):
@@ -1251,6 +1671,14 @@ async def get_project(pid: str, _user: dict = Depends(require_permission("projec
     return doc
 
 @api_router.patch("/projects/{pid}")
+
+@api_router.delete("/projects/{pid}")
+async def delete_project(pid: str, permanent: bool = Query(False), actor: dict = Depends(require_permission("projects.delete"))):
+    if permanent:
+        if not actor.get("is_super_admin"): raise HTTPException(status_code=403, detail="Super admin required for permanent delete")
+        return await hard_delete_with_refs(db.projects, pid, actor, "project", "project_name")
+    return await soft_delete_doc(db.projects, pid, actor, "project_name", "project")
+
 async def update_project(pid: str, payload: ProjectUpdate, _user: dict = Depends(require_permission("projects.edit"))):
     updates = {k:v for k,v in payload.model_dump(exclude_unset=True).items()}
     updates["updated_at"] = now_iso()
@@ -1414,6 +1842,7 @@ async def send_quote(qid: str, payload: Optional[SendQuoteOverride] = None,
     await db.quotes.update_one({"id":qid},
         {"$set":{"status":"sent","magic_link_token":token,"sent_at":sent_at,
                  "last_send_attempt_at":now_iso(),"updated_at":now_iso()}})
+    await record_audit(_user, "quote_sent", "quote", qid, q.get("quote_number", qid))
     customer = await db.customers.find_one({"id":q["customer_id"]}, {"_id":0})
     company = await db.settings.find_one({"key":"company"}, {"_id":0,"key":0}) or {}
     q2 = await db.quotes.find_one({"id":qid}, {"_id":0})
@@ -1455,6 +1884,7 @@ async def revise_quote(qid: str, user: dict = Depends(require_permission("quotes
     await db.quotes.insert_one(doc)
     await db.quotes.update_one({"id":src["id"]}, {"$set":{"revised_to_quote_id":new_id, "updated_at":now_iso()}})
     doc.pop("_id", None)
+    await record_audit(user, "quote_revised", "quote", new_id, new_number, metadata={"revised_from": src["quote_number"]})
     return doc
 
 
@@ -1492,6 +1922,7 @@ async def mark_accepted(qid: str, user: dict = Depends(require_permission("quote
     if q["status"] != "accepted":
         await db.quotes.update_one({"id":qid},
             {"$set":{"status":"accepted","accepted_at":now_iso(),"updated_at":now_iso()}})
+        await record_audit(user, "quote_accepted", "quote", qid, q.get("quote_number", qid))
     await _create_job_from_quote(qid, user["id"])
     return await _get_quote_or_404(qid)
 
@@ -1500,7 +1931,9 @@ async def mark_rejected(qid: str, _user: dict = Depends(require_permission("quot
     await _get_quote_or_404(qid)
     await db.quotes.update_one({"id":qid},
         {"$set":{"status":"rejected","rejected_at":now_iso(),"updated_at":now_iso()}})
-    return await _get_quote_or_404(qid)
+    q2 = await _get_quote_or_404(qid)
+    await record_audit(_user, "quote_rejected", "quote", qid, q2.get("quote_number", qid))
+    return q2
 
 
 # ---------------------------------------------------------------------------
@@ -1647,7 +2080,10 @@ async def update_job(jid: str, payload: JobUpdate, _user: dict = Depends(require
 
 @api_router.post("/jobs/{jid}/transition")
 async def transition_job(jid: str, payload: JobTransition, user: dict = Depends(require_permission("jobs.transition"))):
-    return await _transition_job_internal(jid, payload.to, payload.note, user["id"])
+    before = await _get_job_or_404(jid)
+    result = await _transition_job_internal(jid, payload.to, payload.note, user["id"])
+    await record_audit(user, "status_changed", "job", jid, before.get("job_number", jid), changes={"status":{"from":before["status"],"to":payload.to}}, metadata={"note": payload.note or ""})
+    return result
 
 @api_router.post("/jobs/{jid}/cancel")
 async def cancel_job(jid: str, payload: JobCancel, user: dict = Depends(require_permission("jobs.cancel"))):
@@ -1659,21 +2095,21 @@ async def cancel_job(jid: str, payload: JobCancel, user: dict = Depends(require_
     await db.jobs.update_one({"id":jid},
         {"$set":{"status":"cancelled","cancellation_reason":payload.reason,"updated_at":now_iso()},
          "$push":{"status_history":history_entry}})
+    await record_audit(user, "status_changed", "job", jid, job.get("job_number", jid), changes={"status":{"from":job["status"],"to":"cancelled"}}, metadata={"reason": payload.reason})
     return await _get_job_or_404(jid)
 
 
-# ---------------------------------------------------------------------------
-# Vehicles + Employees (mocked)
-# ---------------------------------------------------------------------------
+# Vehicles + Employees endpoints moved to Phase 6 CRUD block above.
+
 @api_router.get("/vehicles")
-async def list_vehicles(_user: dict = Depends(require_permission("vehicles.view"))):
-    return {"items": MOCK_VEHICLES, "source": "MOCKED_NAVIXY",
-            "note": "MOCKED — real fleet integration coming in Phase 4 (Navixy)"}
+async def list_vehicles(_u: dict = Depends(require_permission("vehicles.view")), status: str = Query("active")):
+    q = status_filter_q(status, has_is_active=True)
+    return await db.vehicles.find(q, {"_id":0}).sort("vehicle_code", 1).to_list(500)
 
 @api_router.get("/employees")
-async def list_employees(_user: dict = Depends(require_permission("employees.view"))):
-    return {"items": MOCK_EMPLOYEES, "source": "MOCKED_SIMPRO",
-            "note": "MOCKED — real HR integration coming in Phase 4 (Simpro)"}
+async def list_employees(_u: dict = Depends(require_permission("employees.view")), status: str = Query("active")):
+    q = status_filter_q(status, has_is_active=True)
+    return await db.employees.find(q, {"_id":0}).sort("name", 1).to_list(500)
 
 
 # ---------------------------------------------------------------------------
@@ -1761,6 +2197,7 @@ async def issue_invoice(iid: str, _user: dict = Depends(require_permission("invo
     upd = {"status":"issued", "updated_at":now_iso()}
     if not inv.get("issue_date"): upd["issue_date"] = now_utc().date().isoformat()
     await db.invoices.update_one({"id":iid}, {"$set":upd})
+    await record_audit(_user, "invoice_issued", "invoice", iid, inv.get("invoice_number", iid))
     return await _get_invoice_or_404(iid)
 
 @api_router.post("/invoices/{iid}/mark-paid")
@@ -1772,6 +2209,7 @@ async def mark_paid(iid: str, payload: InvoiceMarkPaid, _user: dict = Depends(re
         {"$set":{"status":"paid","paid_at":payload.paid_at or now_iso(),
                  "paid_amount":payload.paid_amount,"payment_reference":payload.payment_reference,
                  "updated_at":now_iso()}})
+    await record_audit(_user, "invoice_paid", "invoice", iid, inv.get("invoice_number", iid), metadata={"paid_amount": payload.paid_amount, "payment_reference": payload.payment_reference})
     return await _get_invoice_or_404(iid)
 
 @api_router.post("/invoices/{iid}/push-to-xero")
@@ -1780,6 +2218,7 @@ async def push_to_xero(iid: str, _user: dict = Depends(require_permission("invoi
     mock_xero_id = f"MOCK-{uuid.uuid4()}"
     await db.invoices.update_one({"id":iid},
         {"$set":{"xero_push_status":"MOCKED_PUSHED","xero_invoice_id":mock_xero_id,"updated_at":now_iso()}})
+    await record_audit(_user, "invoice_pushed_xero", "invoice", iid, inv.get("invoice_number", iid), metadata={"xero_invoice_id": mock_xero_id})
     return {"status":"MOCKED_PUSHED","xero_invoice_id":mock_xero_id,
             "note":"MOCKED — real Xero push coming in Phase 4. Invoice unchanged in Xero."}
 
@@ -1859,7 +2298,7 @@ async def get_integrations(_u: dict = Depends(require_permission("integrations.v
     return _mask_integrations(doc)
 
 @api_router.put("/settings/integrations")
-async def update_integrations(payload: IntegrationSettings, _u: dict = Depends(require_permission("integrations.edit"))):
+async def update_integrations(payload: IntegrationSettings, actor: dict = Depends(require_permission("integrations.edit"))):
     existing = await db.settings.find_one({"key":"integrations"}, {"_id":0,"key":0}) or {}
     incoming = payload.model_dump()
     # Preserve stored secrets if the client returned a masked value
@@ -1873,6 +2312,12 @@ async def update_integrations(payload: IntegrationSettings, _u: dict = Depends(r
     incoming["updated_at"] = now_iso()
     await db.settings.update_one({"key":"integrations"}, {"$set": incoming}, upsert=True)
     saved = await db.settings.find_one({"key":"integrations"}, {"_id":0,"key":0})
+    # build per-section diff; secrets auto-redacted by record_audit
+    diff = {}
+    for k in ("m365","simpro","navixy","xero"):
+        sec_diff = shallow_diff(existing.get(k,{}) or {}, incoming.get(k,{}) or {})
+        if sec_diff: diff[k] = sec_diff
+    if diff: await record_audit(actor, "settings_changed", "integration_settings", "integrations", "Integrations", changes=diff)
     return _mask_integrations(saved)
 
 @api_router.post("/settings/integrations/{integration}/test")
