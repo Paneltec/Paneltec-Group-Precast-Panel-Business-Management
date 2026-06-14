@@ -93,7 +93,7 @@ export function VehicleForm() {
   const isNew = !id || id === "new";
   const navigate = useNavigate();
   const { hasPerm } = useAuth();
-  const [form, setForm] = useState({ make_model:"", rego:"", capacity_tonnes:0, status:"available", notes:"" });
+  const [form, setForm] = useState({ vehicle_code:"", make_model:"", rego:"", capacity_tonnes:0, status:"available", notes:"" });
   const [loading, setLoading] = useState(!isNew);
   const [busy, setBusy] = useState(false);
 
@@ -106,7 +106,7 @@ export function VehicleForm() {
   const save = async (e) => {
     e.preventDefault(); setBusy(true);
     try {
-      const payload = { make_model: form.make_model, rego: form.rego, capacity_tonnes: parseFloat(form.capacity_tonnes)||0, status: form.status, notes: form.notes };
+      const payload = { vehicle_code: form.vehicle_code, make_model: form.make_model, rego: form.rego, capacity_tonnes: parseFloat(form.capacity_tonnes)||0, status: form.status, notes: form.notes };
       if (isNew) await api.post("/vehicles", payload);
       else await api.patch(`/vehicles/${id}`, payload);
       toast.success(isNew ? "Vehicle created" : "Vehicle updated");
@@ -138,6 +138,7 @@ export function VehicleForm() {
       </div>
       <form onSubmit={save} className="space-y-3 bg-white border border-gray-200 rounded p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div><Label>Vehicle Code *</Label><Input value={form.vehicle_code} required placeholder="e.g. V-006" onChange={(e)=>setForm({...form, vehicle_code:e.target.value})} data-testid="veh-code"/></div>
           <div><Label>Make / Model</Label><Input value={form.make_model} required onChange={(e)=>setForm({...form, make_model:e.target.value})} data-testid="veh-make-model"/></div>
           <div><Label>Rego</Label><Input value={form.rego} onChange={(e)=>setForm({...form, rego:e.target.value})} data-testid="veh-rego"/></div>
           <div><Label>Capacity (tonnes)</Label><Input type="number" step="0.1" value={form.capacity_tonnes} onChange={(e)=>setForm({...form, capacity_tonnes:e.target.value})} data-testid="veh-capacity"/></div>

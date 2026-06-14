@@ -1087,6 +1087,7 @@ async def rest_project(pid: str, actor: dict = Depends(require_permission("proje
 class VehicleIn(BaseModel):
     make_model: str = Field(min_length=1); rego: str = ""
     capacity_tonnes: float = 0.0; status: str = "available"; notes: str = ""
+    vehicle_code: Optional[str] = None
 class EmployeeIn(BaseModel):
     name: str = Field(min_length=1); role: str = ""; email: str = ""; phone: str = ""; notes: str = ""
 
@@ -1096,8 +1097,15 @@ async def _next_vehicle_code() -> str:
 
 @api_router.post("/vehicles", status_code=201)
 async def create_vehicle(payload: VehicleIn, actor: dict = Depends(require_permission("vehicles.create"))):
-    doc = {**payload.model_dump(), "id": str(uuid.uuid4()),
-        "vehicle_code": await _next_vehicle_code(), "source": "MANUAL",
+    code = (payload.vehicle_code or "").strip()
+    if code:
+        if await db.vehicles.find_one({"vehicle_code": code}):
+            raise HTTPException(status_code=400, detail=f"vehicle_code '{code}' already exists")
+    else:
+        code = await _next_vehicle_code()
+    body = payload.model_dump(); body.pop("vehicle_code", None)
+    doc = {**body, "id": str(uuid.uuid4()),
+        "vehicle_code": code, "source": "MANUAL",
         "is_active": True, "deleted_at": None, "deleted_by_user_id": None,
         "created_at": now_iso(), "updated_at": now_iso(),
         "created_by_user_id": actor["id"], "updated_by_user_id": actor["id"]}
