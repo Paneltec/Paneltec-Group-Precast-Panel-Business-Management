@@ -230,6 +230,7 @@ class CalculateRequest(BaseModel):
 # Customer / Project / Quote models
 # ---------------------------------------------------------------------------
 class Address(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     street: str = ""
     suburb: str = ""
     state: str = ""
@@ -251,6 +252,7 @@ class Address(BaseModel):
 
 
 class CustomerCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     company_name: str = Field(min_length=1)
     abn: Optional[str] = None
     contact_name: str = ""
@@ -881,13 +883,20 @@ def _strip_customer(doc: dict) -> dict:
 async def list_customers(
     _user: dict = Depends(get_current_user),
     search: Optional[str] = Query(None),
-    active: Optional[bool] = Query(None),
+    active: str = Query("true", description="'true' (default, active only), 'false' (inactive only), or 'all'"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=200),
 ):
     query: Dict[str, Any] = {}
-    if active is not None:
-        query["active"] = active
+    active_l = (active or "").lower()
+    if active_l == "true":
+        query["active"] = True
+    elif active_l == "false":
+        query["active"] = False
+    elif active_l == "all":
+        pass
+    else:
+        raise HTTPException(status_code=400, detail="active must be 'true', 'false', or 'all'")
     if search:
         rx = re.compile(re.escape(search), re.IGNORECASE)
         query["$or"] = [

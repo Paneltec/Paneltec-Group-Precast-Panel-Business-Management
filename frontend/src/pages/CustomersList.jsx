@@ -5,6 +5,7 @@ import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { formatDateTime } from "../lib/format";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "../components/ui/tooltip";
@@ -12,19 +13,20 @@ import {
 export default function CustomersList() {
   const [data, setData] = useState(null);
   const [search, setSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState("true");
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
   const load = async () => {
     try {
-      const { data } = await api.get("/customers", { params: { search: search || undefined, page, page_size: 25 } });
+      const { data } = await api.get("/customers", { params: { search: search || undefined, active: activeFilter, page, page_size: 25 } });
       setData(data);
     } catch (e) {
       setError(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, activeFilter]);
 
   const onSearchSubmit = (e) => { e.preventDefault(); setPage(1); load(); };
 
@@ -57,14 +59,22 @@ export default function CustomersList() {
         </div>
       </div>
 
-      <form onSubmit={onSearchSubmit} className="flex gap-2 max-w-md">
-        <div className="relative flex-1">
+      <form onSubmit={onSearchSubmit} className="flex flex-wrap gap-2 items-center">
+        <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="Search company, contact, ABN…" className="pl-9 h-10"
             data-testid="customers-search-input" />
         </div>
         <Button type="submit" variant="outline" data-testid="customers-search-btn">Search</Button>
+        <Select value={activeFilter} onValueChange={(v) => { setActiveFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-44 h-10" data-testid="customers-active-filter"><SelectValue/></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="true">Active only</SelectItem>
+            <SelectItem value="false">Inactive only</SelectItem>
+            <SelectItem value="all">Show all</SelectItem>
+          </SelectContent>
+        </Select>
       </form>
 
       {error && <div className="text-sm text-red-700">{error}</div>}
