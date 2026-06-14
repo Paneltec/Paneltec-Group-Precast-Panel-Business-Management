@@ -10,6 +10,7 @@ import { formatAUD, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
 import { useAuth } from "../contexts/AuthContext";
+import { openPrintPopup } from "../lib/print";
 
 const STATUS_STYLES = {
   draft:"bg-gray-100 text-gray-700",issued:"bg-blue-100 text-blue-800",
@@ -80,7 +81,7 @@ export default function InvoiceDetail() {
           <LastEmailedLabel at={inv.last_email_sent_at} subject={inv.last_email_subject}/>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => window.open(`/invoices/${id}/print`, "_blank")} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="invoice-print-btn">
+          <Button variant="outline" onClick={() => openPrintPopup(`/invoices/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="invoice-print-btn">
             <Printer className="w-4 h-4 mr-2"/> Print
           </Button>
           <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold h-10" data-testid="invoice-email-btn">

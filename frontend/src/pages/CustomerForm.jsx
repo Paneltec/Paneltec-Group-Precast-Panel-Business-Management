@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { toast, Toaster } from "sonner";
 import { formatDateTime } from "../lib/format";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
+import { openPrintPopup } from "../lib/print";
 
 const AU_STATES = ["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"];
 
@@ -116,7 +117,7 @@ export default function CustomerForm() {
         </div>
         {!isNew && (
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => window.open(`/customers/${id}/print`, "_blank")} className="border-[#1F2A33] text-[#1F2A33] font-semibold" data-testid="customer-print-btn">
+            <Button variant="outline" onClick={() => openPrintPopup(`/customers/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold" data-testid="customer-print-btn">
               <Printer className="w-4 h-4 mr-2"/> Print
             </Button>
             <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold" data-testid="customer-email-btn">
@@ -298,7 +299,7 @@ function ProjectsCard({ customerId, projects, onChanged, customerSiteAddress }) 
                 <td><span className="text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{p.status}</span></td>
                 <td className="text-xs text-gray-500">{formatDateTime(p.created_at)}</td>
                 <td className="text-right">
-                  <button type="button" onClick={() => window.open(`/projects/${p.id}/print`, "_blank")} data-testid={`proj-print-${p.id}`}
+                  <button type="button" onClick={() => openPrintPopup(`/projects/${p.id}/print`)} data-testid={`proj-print-${p.id}`}
                     className="text-[11px] font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33]">Print</button>
                 </td>
               </tr>

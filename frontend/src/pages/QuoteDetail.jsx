@@ -5,6 +5,7 @@ import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { formatAUD, formatNumber, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
+import { openPrintPopup } from "../lib/print";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "../components/ui/dialog";
@@ -103,7 +104,7 @@ export default function QuoteDetail() {
             {project && <> · {project.project_name}</>} · Valid until {quote.valid_until}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => window.open(`/quotes/${id}/print`, "_blank")} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="quote-print-btn">
+          <Button variant="outline" onClick={() => openPrintPopup(`/quotes/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="quote-print-btn">
             <Printer className="w-4 h-4 mr-2"/> Print
           </Button>
           {quote.status === "draft" && (

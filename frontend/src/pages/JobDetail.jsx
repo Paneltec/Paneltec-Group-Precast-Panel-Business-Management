@@ -12,6 +12,7 @@ import { formatAUD, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
 import { useAuth } from "../contexts/AuthContext";
+import { openPrintPopup } from "../lib/print";
 
 const ORDER = ["scheduled","in_production","ready_for_delivery","delivered","installed","completed"];
 const STATUS_STYLES = {
@@ -116,7 +117,7 @@ export default function JobDetail() {
           <LastEmailedLabel at={job.last_email_sent_at} subject={job.last_email_subject}/>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => window.open(`/jobs/${id}/print`, "_blank")} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="job-print-btn">
+          <Button variant="outline" onClick={() => openPrintPopup(`/jobs/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="job-print-btn">
             <Printer className="w-4 h-4 mr-2"/> Print
           </Button>
           <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold h-10" data-testid="job-email-btn">
