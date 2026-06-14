@@ -8,43 +8,51 @@ import Dashboard from "./pages/Dashboard";
 import CalculatorPage from "./pages/Calculator";
 import PricingSettings from "./pages/PricingSettings";
 import UsersPage from "./pages/Users";
+import CustomersList from "./pages/CustomersList";
+import CustomerForm from "./pages/CustomerForm";
+import QuotesList from "./pages/QuotesList";
+import QuoteEditor from "./pages/QuoteEditor";
+import QuoteDetail from "./pages/QuoteDetail";
+import QuotePrint from "./pages/QuotePrint";
+import PublicQuote from "./pages/PublicQuote";
 
 function App() {
   return (
     <div className="App">
       <BrowserRouter>
-        <AuthProvider>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route
-              element={
-                <ProtectedRoute>
-                  <Layout />
-                </ProtectedRoute>
-              }
-            >
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/calculator" element={<CalculatorPage />} />
-              <Route
-                path="/settings/pricing"
-                element={
-                  <ProtectedRoute adminOnly>
-                    <PricingSettings />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/users"
-                element={
-                  <ProtectedRoute adminOnly>
-                    <UsersPage />
-                  </ProtectedRoute>
-                }
-              />
-            </Route>
-            <Route path="*" element={<Login />} />
-          </Routes>
-        </AuthProvider>
+        <Routes>
+          {/* PUBLIC magic-link route — NO auth */}
+          <Route path="/q/:token" element={<PublicQuote />} />
+
+          <Route path="*" element={
+            <AuthProvider>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/quotes/:id/print" element={
+                  <ProtectedRoute><QuotePrint /></ProtectedRoute>
+                } />
+                <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/calculator" element={<CalculatorPage />} />
+                  <Route path="/customers" element={<CustomersList />} />
+                  <Route path="/customers/new" element={<CustomerForm />} />
+                  <Route path="/customers/:id" element={<CustomerForm />} />
+                  <Route path="/quotes" element={<QuotesList />} />
+                  <Route path="/quotes/new" element={<QuoteEditor />} />
+                  <Route path="/quotes/:id" element={<QuoteDetail />} />
+                  <Route path="/quotes/:id/edit" element={<QuoteEditor />} />
+                  <Route path="/settings/pricing" element={
+                    <ProtectedRoute adminOnly><PricingSettings /></ProtectedRoute>
+                  } />
+                  <Route path="/users" element={
+                    <ProtectedRoute adminOnly><UsersPage /></ProtectedRoute>
+                  } />
+                </Route>
+                <Route path="*" element={<Login />} />
+              </Routes>
+            </AuthProvider>
+          } />
+        </Routes>
       </BrowserRouter>
     </div>
   );

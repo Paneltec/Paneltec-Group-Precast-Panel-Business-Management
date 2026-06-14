@@ -53,3 +53,20 @@ Build a FARM-stack (FastAPI + React + MongoDB) web app for **Paneltec Group**, a
 1. Phase 2: Customer model + CRUD endpoints + UI.
 2. Phase 2: Quote model that snapshots a calculator result + line items + PDF export.
 3. Wire real KPIs once Customers/Quotes land.
+
+## Phase 2 — Live (2026-06-14)
+### Implemented
+- **Customers**: full CRUD with AU validation (ABN 11 digits, state from {NSW/VIC/QLD/WA/SA/TAS/ACT/NT}, 4-digit postcode), billing + site addresses, soft-delete when linked records exist, search + pagination, Simpro import button (mocked, Phase 4).
+- **Projects**: belong to customer, status lifecycle (planning → quoted → won/lost → completed), inline list on customer detail.
+- **Quotes**: Q-YYYY-#### sequence (per calendar year), draft → sent → accepted/rejected/expired, snapshot line items frozen at creation (pricing changes do NOT affect existing quotes), totals re-aggregated from lines, customer + optional project picker.
+- **Magic link approvals**: public route `/q/:token`, sanitized read-only view (no internal_notes), Accept/Reject endpoints record IP + UA, single-decision (409 on retry), auto-expire on past `valid_until`.
+- **Print view**: `/quotes/:id/print` with branded header, line items, totals, GST line.
+- **Dashboard**: real KPIs (drafts/sent/accepted counts, customers active, quoted/accepted this month AUD, recent quotes table).
+- **Email sending**: STUBBED — `send` endpoint returns `email_status: "MOCKED"` and a copyable magic link; will integrate M365 in Phase 4.
+
+### Acceptance — 14/14 PASS
+All 10 spec criteria plus variants verified by curl harness (`/tmp/test_phase2.py`): ABN validation, soft-delete, line totals math, Q-2026-#### sequence, send→token, public no-auth GET, accept→409 on retry, expired state, frozen snapshot, staff send, dashboard KPIs.
+
+### Backlog (Phase 3+)
+- P0 (Phase 3): Jobs/production scheduling, materials issue
+- P1 (Phase 4): Invoices, Xero export, Fleet, M365 email sending, Simpro import wire-up, real PDF library
