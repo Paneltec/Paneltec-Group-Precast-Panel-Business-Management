@@ -411,7 +411,7 @@ DEFAULT_PRICING = {
 
 DEFAULT_COMPANY = {
     "business_name": "Paneltec Group Pty Ltd",
-    "abn": "", "acn": "",
+    "abn": "00 000 000 000", "acn": "",
     "address_street": "Unit 4, Industrial Park",
     "address_suburb": "Smithfield", "address_state": "NSW", "address_postcode": "2164",
     "phone": "1300 PANELTEC", "email": "accounts@paneltec.com.au", "website": "www.paneltec.com.au",

@@ -41,7 +41,13 @@ export default function InvoicePrint() {
               {company.address_suburb} {company.address_state} {company.address_postcode}<br/>
               {company.phone} · {company.email}
             </div>
-            {company.abn && <div className="mt-1 text-xs text-gray-600">ABN: {company.abn}</div>}
+            {company.abn ? (
+              <div className="mt-1 text-xs text-gray-600">ABN: {company.abn}</div>
+            ) : (
+              <div className="mt-1 text-xs text-red-600 font-bold" data-testid="abn-missing">
+                ABN: [Set in Company Settings]
+              </div>
+            )}
           </div>
           <div className="text-right">
             <div className="text-2xl font-black uppercase tracking-wider text-[#1F2A33]">TAX INVOICE</div>

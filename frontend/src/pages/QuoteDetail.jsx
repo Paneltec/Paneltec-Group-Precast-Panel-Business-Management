@@ -20,13 +20,13 @@ const STATUS_STYLES = {
 export default function QuoteDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const navigate = useNavigate();
   const [quote, setQuote] = useState(null);
   const [customer, setCustomer] = useState(null);
   const [project, setProject] = useState(null);
   const [error, setError] = useState("");
   const [sendOpen, setSendOpen] = useState(false);
   const [magicUrl, setMagicUrl] = useState("");
+  const [emailPreview, setEmailPreview] = useState(null);
   const [copied, setCopied] = useState(false);
 
   const load = async () => {
