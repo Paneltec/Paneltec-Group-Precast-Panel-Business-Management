@@ -177,3 +177,41 @@ Backend curl 16/16 (incl. setup): soft delete + restore + login block + self-pro
 - `POST /api/users/{id}/restore` (super-admin restores supers; `users.manage` for regulars)
 - `GET /api/users/{id}/references` (super-admin)
 - `GET /api/users?status=active|inactive|deleted|all` extended
+
+
+
+## Phase 6 Pass 4 — List Page Delete UI + Bulk Xero Push (2026-06-14)
+
+### Implemented
+- **DeleteRowActions wired into 4 list pages**: CustomersList, QuotesList, JobsList, InvoicesList. Each row has a Trash icon (active view, gated by `<entity>.delete` permission), and in the Deleted view a Restore button + Permanently button (super-admin only).
+- **Lifecycle filter** (`?lifecycle=active|deleted|all`, default `active`) on Quotes, Jobs, Invoices (`data-testid="lifecycle-filter"`).
+- **4-state status filter** on Customers (`active|inactive|deleted|all`, default `active`, `data-testid="status-filter"`).
+- **`(DELETED)` badge** rendered next to the identifier on every list page when `deleted_at` is set; the row is shown at `opacity-60`.
+- **Projects sub-list (CustomerForm)**: each project row now has DeleteRowActions wired (`entity="projects"`). Soft delete refetches the list automatically.
+- **Bulk Xero Push UI on InvoicesList** (requires `invoices.push_xero` perm):
+  - Header checkbox (select-all, with indeterminate state) + per-row checkbox (hidden on soft-deleted rows).
+  - Sticky bottom action bar (`data-testid="bulk-xero-action-bar"`) showing live selection count + Clear button + "Push to Xero" CTA.
+  - Confirmation modal: warns when any selected invoice has `xero_push_status="MOCKED_PUSHED"`, lists prior-push timestamps per invoice, exposes a "Force re-push" toggle. Without Force, prior-pushed invoices are SKIPPED; with Force, they are pushed again.
+  - Result modal: 3 summary cards (Pushed / Skipped / Errored) plus a per-invoice list with status icons and mock Xero IDs.
+
+### Self-tested (7/7 PASS via Playwright/screenshot)
+1. Lifecycle filter dropdown present on all 4 list pages.
+2. 4-state status filter on Customers.
+3. Trash icons gated by permission — staff (estimator) sees delete on Quotes (15 rows) but not on Jobs/Invoices.
+4. Soft-delete dialog confirms → row disappears from Active → reappears in Deleted with DELETED badge.
+5. Restore dialog returns row to Active view.
+6. Permanently delete shows refs (when present) and disables Confirm button until identifier is typed; hidden from non-super-admins.
+7. Bulk Xero: no-force push of 3 already-pushed invoices → 0 pushed, 3 skipped; force push of the same 3 → 3 pushed with new mock IDs. Clear button removes the action bar.
+
+### Files touched
+- `/app/frontend/src/pages/CustomersList.jsx` (4-state filter + DeleteRowActions + Actions col)
+- `/app/frontend/src/pages/QuotesList.jsx` (lifecycle filter + DeleteRowActions + Actions col)
+- `/app/frontend/src/pages/JobsList.jsx` (lifecycle filter + DeleteRowActions + Actions col)
+- `/app/frontend/src/pages/InvoicesList.jsx` (lifecycle filter + DeleteRowActions + Bulk Xero UI: checkboxes, sticky bar, confirm + result modals)
+- `/app/frontend/src/pages/CustomerForm.jsx` (DeleteRowActions per project row)
+
+### Deferred to Phase 6 Pass 5
+- Polished audit drawer (right-side drawer) + date-range filter.
+- Recent Activity widget on super-admin dashboard.
+- `(deleted)` / "Unknown user" badges on detail pages (created_by, status_history references).
+- Standalone `/projects` page (still accessed via CustomerForm projects sub-list).

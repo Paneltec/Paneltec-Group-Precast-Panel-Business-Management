@@ -6,27 +6,37 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { formatDateTime } from "../lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import {
-  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
-} from "../components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+import DeleteRowActions from "../components/DeleteRowActions";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function CustomersList() {
   const [data, setData] = useState(null);
   const [search, setSearch] = useState("");
-  const [activeFilter, setActiveFilter] = useState("true");
+  const [statusFilter, setStatusFilter] = useState("active");
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const navigate = useNavigate();
+  const { hasPerm, isSuperAdmin } = useAuth();
+  const canDelete = hasPerm("customers.delete");
 
   const load = async () => {
     try {
-      const { data } = await api.get("/customers", { params: { search: search || undefined, active: activeFilter, page, page_size: 25 } });
+      const { data } = await api.get("/customers", {
+        params: {
+          search: search || undefined,
+          status: statusFilter,
+          active: "true",
+          page,
+          page_size: 25,
+        },
+      });
       setData(data);
     } catch (e) {
       setError(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, activeFilter]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, statusFilter]);
 
   const onSearchSubmit = (e) => { e.preventDefault(); setPage(1); load(); };
 
@@ -67,12 +77,13 @@ export default function CustomersList() {
             data-testid="customers-search-input" />
         </div>
         <Button type="submit" variant="outline" data-testid="customers-search-btn">Search</Button>
-        <Select value={activeFilter} onValueChange={(v) => { setActiveFilter(v); setPage(1); }}>
-          <SelectTrigger className="w-44 h-10" data-testid="customers-active-filter"><SelectValue/></SelectTrigger>
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-44 h-10" data-testid="status-filter"><SelectValue/></SelectTrigger>
           <SelectContent>
-            <SelectItem value="true">Active only</SelectItem>
-            <SelectItem value="false">Inactive only</SelectItem>
-            <SelectItem value="all">Show all</SelectItem>
+            <SelectItem value="active" data-testid="status-filter-active">Active</SelectItem>
+            <SelectItem value="inactive" data-testid="status-filter-inactive">Inactive</SelectItem>
+            <SelectItem value="deleted" data-testid="status-filter-deleted">Deleted</SelectItem>
+            <SelectItem value="all" data-testid="status-filter-all">All</SelectItem>
           </SelectContent>
         </Select>
       </form>
@@ -83,7 +94,7 @@ export default function CustomersList() {
         {!data ? (
           <div className="p-6 flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
         ) : data.items.length === 0 ? (
-          <div className="p-8 text-center text-sm text-gray-500">No customers yet.</div>
+          <div className="p-8 text-center text-sm text-gray-500" data-testid="customers-empty">No customers match this filter.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -95,26 +106,41 @@ export default function CustomersList() {
                   <th className="px-4 py-3 text-left">State</th>
                   <th className="px-4 py-3 text-left">Created</th>
                   <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody data-testid="customers-table-body">
-                {data.items.map((c) => (
-                  <tr key={c.id} className="border-t border-gray-200 hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <Link to={`/customers/${c.id}`} className="font-semibold text-[#1F2A33] hover:text-[#3A6B8C]"
-                        data-testid={`customer-link-${c.id}`}>{c.company_name}</Link>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700 tabular-nums">{c.abn || "—"}</td>
-                    <td className="px-4 py-3 text-gray-700">{c.contact_name}<div className="text-xs text-gray-500">{c.contact_email}</div></td>
-                    <td className="px-4 py-3 text-gray-700">{c.billing_address?.state || "—"}</td>
-                    <td className="px-4 py-3 text-xs text-gray-500">{formatDateTime(c.created_at)}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${c.active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-500"}`}>
-                        {c.active ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {data.items.map((c) => {
+                  const isDeleted = !!c.deleted_at;
+                  return (
+                    <tr key={c.id} className={`border-t border-gray-200 hover:bg-gray-50 ${isDeleted ? "opacity-60" : ""}`}
+                        data-testid={`customer-row-${c.id}`}>
+                      <td className="px-4 py-3">
+                        <Link to={`/customers/${c.id}`} className="font-semibold text-[#1F2A33] hover:text-[#3A6B8C]"
+                          data-testid={`customer-link-${c.id}`}>{c.company_name}</Link>
+                        {isDeleted && (
+                          <span className="ml-2 text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-800 px-1.5 py-0.5 rounded"
+                                data-testid={`deleted-badge-${c.id}`}>deleted</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 tabular-nums">{c.abn || "—"}</td>
+                      <td className="px-4 py-3 text-gray-700">{c.contact_name}<div className="text-xs text-gray-500">{c.contact_email}</div></td>
+                      <td className="px-4 py-3 text-gray-700">{c.billing_address?.state || "—"}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500">{formatDateTime(c.created_at)}</td>
+                      <td className="px-4 py-3">
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${c.active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-500"}`}>
+                          {c.active ? "Active" : "Inactive"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <DeleteRowActions entity="customers" row={c}
+                          label={(r) => r.company_name}
+                          canDelete={canDelete} isSuperAdmin={isSuperAdmin}
+                          onChanged={load} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             {data.total > data.page_size && (

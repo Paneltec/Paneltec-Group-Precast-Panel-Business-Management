@@ -12,6 +12,8 @@ import { toast, Toaster } from "sonner";
 import { formatDateTime } from "../lib/format";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
 import { openPrintPopup } from "../lib/print";
+import DeleteRowActions from "../components/DeleteRowActions";
+import { useAuth } from "../contexts/AuthContext";
 
 const AU_STATES = ["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"];
 
@@ -189,7 +191,7 @@ export default function CustomerForm() {
       </form>
 
       {!isNew && (
-        <ProjectsCard customerId={id} projects={projects} onChanged={(p) => setProjects(p)} customerSiteAddress={form.site_address} />
+        <ProjectsCard customerId={id} projects={projects} onChanged={(p) => setProjects(p)} customerSiteAddress={form.site_address} reloadProjects={async () => { try { const { data } = await api.get(`/customers/${id}/projects`); setProjects(data); } catch (_) {} }} />
       )}
 
       {!isNew && (
@@ -245,11 +247,13 @@ function AddressFields({ value, prefix, onChange }) {
   );
 }
 
-function ProjectsCard({ customerId, projects, onChanged, customerSiteAddress }) {
+function ProjectsCard({ customerId, projects, onChanged, customerSiteAddress, reloadProjects }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const { hasPerm, isSuperAdmin } = useAuth();
+  const canDelete = hasPerm("projects.delete");
 
   const add = async (e) => {
     e.preventDefault();
@@ -301,6 +305,12 @@ function ProjectsCard({ customerId, projects, onChanged, customerSiteAddress }) 
                 <td className="text-right">
                   <button type="button" onClick={() => openPrintPopup(`/projects/${p.id}/print`)} data-testid={`proj-print-${p.id}`}
                     className="text-[11px] font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33]">Print</button>
+                  <span className="inline-block ml-2 align-middle">
+                    <DeleteRowActions entity="projects" row={p}
+                      label={(r) => r.project_name}
+                      canDelete={canDelete} isSuperAdmin={isSuperAdmin}
+                      onChanged={reloadProjects} />
+                  </span>
                 </td>
               </tr>
             ))}

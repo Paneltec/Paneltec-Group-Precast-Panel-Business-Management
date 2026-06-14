@@ -6,6 +6,8 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { formatAUD, formatDateTime } from "../lib/format";
+import DeleteRowActions from "../components/DeleteRowActions";
+import { useAuth } from "../contexts/AuthContext";
 
 const STATUS_STYLES = {
   scheduled: "bg-gray-100 text-gray-700",
@@ -21,19 +23,22 @@ export default function JobsList() {
   const [data, setData] = useState(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [lifecycleFilter, setLifecycleFilter] = useState("active");
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
+  const { hasPerm, isSuperAdmin } = useAuth();
+  const canDelete = hasPerm("jobs.delete");
 
   const load = async () => {
     try {
-      const params = { page, page_size: 25 };
+      const params = { page, page_size: 25, lifecycle: lifecycleFilter };
       if (search) params.search = search;
       if (statusFilter && statusFilter !== "all") params.status = statusFilter;
       const { data } = await api.get("/jobs", { params });
       setData(data);
     } catch (e) { setError(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, statusFilter]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, statusFilter, lifecycleFilter]);
 
   return (
     <div className="max-w-6xl space-y-6" data-testid="jobs-page">
@@ -60,13 +65,21 @@ export default function JobsList() {
             {Object.keys(STATUS_STYLES).map(s => <SelectItem key={s} value={s}>{s.replace(/_/g," ")}</SelectItem>)}
           </SelectContent>
         </Select>
+        <Select value={lifecycleFilter} onValueChange={(v) => { setLifecycleFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-40 h-10" data-testid="lifecycle-filter"><SelectValue/></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="active" data-testid="lifecycle-filter-active">Active</SelectItem>
+            <SelectItem value="deleted" data-testid="lifecycle-filter-deleted">Deleted</SelectItem>
+            <SelectItem value="all" data-testid="lifecycle-filter-all">All</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {error && <div className="text-sm text-red-700">{error}</div>}
 
       <section className="bg-white border border-gray-200 rounded overflow-hidden">
         {!data ? <div className="p-6 flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin"/> Loading…</div> :
-         data.items.length === 0 ? <div className="p-8 text-center text-sm text-gray-500">No jobs yet. Accept a quote to auto-create one.</div> : (
+         data.items.length === 0 ? <div className="p-8 text-center text-sm text-gray-500" data-testid="jobs-empty">No jobs match this filter.</div> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider">
@@ -77,19 +90,36 @@ export default function JobsList() {
                   <th className="px-4 py-3 text-left">Status</th>
                   <th className="px-4 py-3 text-right">Total</th>
                   <th className="px-4 py-3 text-right">Created</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody data-testid="jobs-table-body">
-                {data.items.map(j => (
-                  <tr key={j.id} className="border-t border-gray-200 hover:bg-gray-50">
-                    <td className="px-4 py-3"><Link to={`/jobs/${j.id}`} className="font-semibold text-[#1F2A33] hover:text-[#3A6B8C] tabular-nums" data-testid={`job-link-${j.job_number}`}>{j.job_number}</Link></td>
-                    <td className="px-4 py-3 text-xs text-gray-500 tabular-nums">{j.quote_number}</td>
-                    <td className="px-4 py-3 text-gray-700">{j.customer_company_name}</td>
-                    <td className="px-4 py-3"><span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${STATUS_STYLES[j.status]}`}>{j.status.replace(/_/g," ")}</span></td>
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums">{formatAUD(j.total)}</td>
-                    <td className="px-4 py-3 text-right text-xs text-gray-500">{formatDateTime(j.created_from_quote_at)}</td>
-                  </tr>
-                ))}
+                {data.items.map(j => {
+                  const isDeleted = !!j.deleted_at;
+                  return (
+                    <tr key={j.id} className={`border-t border-gray-200 hover:bg-gray-50 ${isDeleted ? "opacity-60" : ""}`}
+                        data-testid={`job-row-${j.id}`}>
+                      <td className="px-4 py-3">
+                        <Link to={`/jobs/${j.id}`} className="font-semibold text-[#1F2A33] hover:text-[#3A6B8C] tabular-nums" data-testid={`job-link-${j.job_number}`}>{j.job_number}</Link>
+                        {isDeleted && (
+                          <span className="ml-2 text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-800 px-1.5 py-0.5 rounded"
+                                data-testid={`deleted-badge-${j.id}`}>deleted</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500 tabular-nums">{j.quote_number}</td>
+                      <td className="px-4 py-3 text-gray-700">{j.customer_company_name}</td>
+                      <td className="px-4 py-3"><span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${STATUS_STYLES[j.status]}`}>{j.status.replace(/_/g," ")}</span></td>
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums">{formatAUD(j.total)}</td>
+                      <td className="px-4 py-3 text-right text-xs text-gray-500">{formatDateTime(j.created_from_quote_at)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <DeleteRowActions entity="jobs" row={j}
+                          label={(r) => r.job_number}
+                          canDelete={canDelete} isSuperAdmin={isSuperAdmin}
+                          onChanged={load} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

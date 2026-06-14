@@ -5,9 +5,9 @@ import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { formatAUD, formatDateTime } from "../lib/format";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "../components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import DeleteRowActions from "../components/DeleteRowActions";
+import { useAuth } from "../contexts/AuthContext";
 
 const STATUS_STYLES = {
   draft: "bg-gray-100 text-gray-700",
@@ -21,13 +21,16 @@ export default function QuotesList() {
   const [data, setData] = useState(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [lifecycleFilter, setLifecycleFilter] = useState("active");
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const navigate = useNavigate();
+  const { hasPerm, isSuperAdmin } = useAuth();
+  const canDelete = hasPerm("quotes.delete");
 
   const load = async () => {
     try {
-      const params = { page, page_size: 25 };
+      const params = { page, page_size: 25, lifecycle: lifecycleFilter };
       if (search) params.search = search;
       if (statusFilter && statusFilter !== "all") params.status = statusFilter;
       const { data } = await api.get("/quotes", { params });
@@ -36,7 +39,7 @@ export default function QuotesList() {
       setError(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, statusFilter]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, statusFilter, lifecycleFilter]);
 
   return (
     <div className="max-w-6xl space-y-6" data-testid="quotes-page">
@@ -72,6 +75,14 @@ export default function QuotesList() {
             <SelectItem value="expired">Expired</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={lifecycleFilter} onValueChange={(v) => { setLifecycleFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-40 h-10" data-testid="lifecycle-filter"><SelectValue/></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="active" data-testid="lifecycle-filter-active">Active</SelectItem>
+            <SelectItem value="deleted" data-testid="lifecycle-filter-deleted">Deleted</SelectItem>
+            <SelectItem value="all" data-testid="lifecycle-filter-all">All</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {error && <div className="text-sm text-red-700">{error}</div>}
@@ -80,7 +91,7 @@ export default function QuotesList() {
         {!data ? (
           <div className="p-6 flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin"/> Loading…</div>
         ) : data.items.length === 0 ? (
-          <div className="p-8 text-center text-sm text-gray-500">No quotes match your filter.</div>
+          <div className="p-8 text-center text-sm text-gray-500" data-testid="quotes-empty">No quotes match your filter.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -93,25 +104,40 @@ export default function QuotesList() {
                   <th className="px-4 py-3 text-right">Lines</th>
                   <th className="px-4 py-3 text-right">Total</th>
                   <th className="px-4 py-3 text-right">Created</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody data-testid="quotes-table-body">
-                {data.items.map((q) => (
-                  <tr key={q.id} className="border-t border-gray-200 hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <Link to={`/quotes/${q.id}`} className="font-semibold text-[#1F2A33] hover:text-[#3A6B8C] tabular-nums"
-                        data-testid={`quote-link-${q.quote_number}`}>{q.quote_number}</Link>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">{q.customer_company_name}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${STATUS_STYLES[q.status] || "bg-gray-100"}`}>{q.status}</span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700 tabular-nums">{q.valid_until}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{q.line_items?.length || 0}</td>
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums">{formatAUD(q.total)}</td>
-                    <td className="px-4 py-3 text-right text-xs text-gray-500">{formatDateTime(q.created_at)}</td>
-                  </tr>
-                ))}
+                {data.items.map((q) => {
+                  const isDeleted = !!q.deleted_at;
+                  return (
+                    <tr key={q.id} className={`border-t border-gray-200 hover:bg-gray-50 ${isDeleted ? "opacity-60" : ""}`}
+                        data-testid={`quote-row-${q.id}`}>
+                      <td className="px-4 py-3">
+                        <Link to={`/quotes/${q.id}`} className="font-semibold text-[#1F2A33] hover:text-[#3A6B8C] tabular-nums"
+                          data-testid={`quote-link-${q.quote_number}`}>{q.quote_number}</Link>
+                        {isDeleted && (
+                          <span className="ml-2 text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-800 px-1.5 py-0.5 rounded"
+                                data-testid={`deleted-badge-${q.id}`}>deleted</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">{q.customer_company_name}</td>
+                      <td className="px-4 py-3">
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${STATUS_STYLES[q.status] || "bg-gray-100"}`}>{q.status}</span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 tabular-nums">{q.valid_until}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{q.line_items?.length || 0}</td>
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums">{formatAUD(q.total)}</td>
+                      <td className="px-4 py-3 text-right text-xs text-gray-500">{formatDateTime(q.created_at)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <DeleteRowActions entity="quotes" row={q}
+                          label={(r) => r.quote_number}
+                          canDelete={canDelete} isSuperAdmin={isSuperAdmin}
+                          onChanged={load} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             {data.total > data.page_size && (
