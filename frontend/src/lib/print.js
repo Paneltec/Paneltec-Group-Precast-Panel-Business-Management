@@ -2,7 +2,7 @@
 // Reuses the same window name ("PaneltecPrint") so subsequent clicks
 // replace the previous popup instead of stacking new ones.
 // Falls back to a new tab if the popup is blocked (window.open returns null).
-export function openPrintPopup(url) {
+function _openDockedPopup(url, windowName) {
   try {
     const screen = window.screen || {};
     const availW = screen.availWidth || window.innerWidth || 1280;
@@ -16,14 +16,19 @@ export function openPrintPopup(url) {
       "menubar=no", "toolbar=no", "location=no", "status=no",
       "scrollbars=yes", "resizable=yes",
     ].join(",");
-    const popup = window.open(url, "PaneltecPrint", features);
+    const popup = window.open(url, windowName, features);
     if (popup) {
-      try { popup.focus(); } catch (_) { /* cross-origin focus quirks */ }
+      try { popup.focus(); } catch (_) {}
       return popup;
     }
-  } catch (_) {
-    // fall through
-  }
-  // Fallback: blocked or threw — open in a new tab
+  } catch (_) {}
   return window.open(url, "_blank");
+}
+
+export function openPrintPopup(url) {
+  return _openDockedPopup(url, "PaneltecPrint");
+}
+
+export function openCustomerPreviewPopup(url) {
+  return _openDockedPopup(url, "PaneltecCustomerPreview");
 }

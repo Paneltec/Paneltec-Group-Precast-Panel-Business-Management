@@ -1427,11 +1427,20 @@ async def update_user(user_id: str, payload: UserUpdate, admin: dict = Depends(r
     updates["updated_by_user_id"] = admin["id"]
     await db.users.update_one({"id": user_id}, {"$set": updates})
     fresh = await db.users.find_one({"id": user_id}, {"_id":0, "password_hash":0})
-    perm_keys = ("permissions","is_super_admin","role_label")
-    perm_diff = shallow_diff(target, updates, [k for k in perm_keys if k in updates])
+    perm_diff = {}
+    if "permissions" in updates:
+        before_perms = set(k for k, v in (target.get("permissions") or {}).items() if v)
+        after_perms  = set(k for k, v in (updates.get("permissions") or {}).items() if v)
+        added   = sorted(after_perms - before_perms)
+        removed = sorted(before_perms - after_perms)
+        if added or removed:
+            perm_diff["permissions"] = {"added": added, "removed": removed}
+    for sk in ("is_super_admin","role_label"):
+        if sk in updates and (target.get(sk) != updates.get(sk)):
+            perm_diff[sk] = {"from": target.get(sk), "to": updates.get(sk)}
     if perm_diff:
         await record_audit(admin, "permission_changed", "user", user_id, target["email"], changes=perm_diff)
-    other_diff = shallow_diff(target, updates, [k for k in updates if k not in perm_keys and k not in ("updated_at","updated_by_user_id")])
+    other_diff = shallow_diff(target, updates, [k for k in updates if k not in ("permissions","is_super_admin","role_label","updated_at","updated_by_user_id")])
     if other_diff:
         await record_audit(admin, "updated", "user", user_id, target["email"], changes=other_diff)
     return user_to_public(fresh)
@@ -1585,13 +1594,19 @@ async def calculator_calculate(payload: CalculateRequest, _user: dict = Depends(
 @api_router.get("/customers")
 async def list_customers(_user: dict = Depends(require_permission("customers.view")), search: Optional[str] = Query(None),
                           active: str = Query("true"), status: str = Query("active"), page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200)):
-    _status_q = status_filter_q(status, has_is_active=True)
-    query: Dict[str, Any] = {}
+    s = (status or "active").lower()
     al = (active or "").lower()
-    if al == "true": query["active"] = True
-    elif al == "false": query["active"] = False
-    elif al == "all": pass
-    else: raise HTTPException(status_code=400, detail="active must be 'true', 'false', or 'all'")
+    query: Dict[str, Any] = {}
+    if s == "active":      query["deleted_at"] = {"$in": [None]}
+    elif s == "inactive":  query["deleted_at"] = {"$in": [None]}; query["active"] = False
+    elif s == "deleted":   query["deleted_at"] = {"$ne": None}
+    elif s == "all":       pass
+    else: raise HTTPException(status_code=400, detail="status must be one of active|inactive|deleted|all")
+    if s == "active":
+        if al == "true": query["active"] = True
+        elif al == "false": query["active"] = False
+        elif al == "all": pass
+        else: raise HTTPException(status_code=400, detail="active must be 'true', 'false', or 'all'")
     if search:
         rx = re.compile(re.escape(search), re.IGNORECASE)
         query["$or"] = [{"company_name":rx},{"contact_name":rx},{"abn":rx},{"contact_email":rx}]
@@ -1641,7 +1656,7 @@ async def delete_customer(cid: str, permanent: bool = Query(False), actor: dict 
 async def list_customer_projects(cid: str, _user: dict = Depends(require_permission("customers.view"))):
     if not await db.customers.find_one({"id":cid}, {"_id":0,"id":1}):
         raise HTTPException(status_code=404, detail="Customer not found")
-    return await db.projects.find({"customer_id":cid}, {"_id":0}).sort("created_at",-1).to_list(500)
+    return await db.projects.find({"customer_id":cid, "deleted_at": {"$in":[None]}}, {"_id":0}).sort("created_at",-1).to_list(500)
 
 
 # ---------------------------------------------------------------------------
@@ -1649,8 +1664,13 @@ async def list_customer_projects(cid: str, _user: dict = Depends(require_permiss
 # ---------------------------------------------------------------------------
 @api_router.get("/projects")
 async def list_projects(_user: dict = Depends(require_permission("projects.view")), customer_id: Optional[str] = None,
-                         status_filter: Optional[str] = Query(None, alias="status")):
+                         status_filter: Optional[str] = Query(None, alias="status"),
+                         lifecycle: str = Query("active")):
+    s = (lifecycle or "active").lower()
+    if s not in ("active","deleted","all"): raise HTTPException(status_code=400, detail="lifecycle must be one of active|deleted|all")
     q: Dict[str, Any] = {}
+    if s == "active": q["deleted_at"] = {"$in":[None]}
+    elif s == "deleted": q["deleted_at"] = {"$ne": None}
     if customer_id: q["customer_id"] = customer_id
     if status_filter: q["status"] = status_filter
     return await db.projects.find(q, {"_id":0}).sort("created_at",-1).to_list(500)
@@ -1711,8 +1731,13 @@ def _public_quote(doc: dict, customer: Optional[dict]) -> dict:
 async def list_quotes(_user: dict = Depends(require_permission("quotes.view")),
                        status_filter: Optional[str] = Query(None, alias="status"),
                        customer_id: Optional[str] = None, search: Optional[str] = Query(None),
+                       lifecycle: str = Query("active"),
                        page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200)):
+    s = (lifecycle or "active").lower()
+    if s not in ("active","deleted","all"): raise HTTPException(status_code=400, detail="lifecycle must be one of active|deleted|all")
     q: Dict[str, Any] = {}
+    if s == "active": q["deleted_at"] = {"$in":[None]}
+    elif s == "deleted": q["deleted_at"] = {"$ne": None}
     if status_filter: q["status"] = status_filter
     if customer_id: q["customer_id"] = customer_id
     if search:
@@ -2044,8 +2069,13 @@ async def _transition_job_internal(jid: str, to: str, note: str, by_user_id: str
 async def list_jobs(_user: dict = Depends(require_permission("jobs.view")),
                      status_filter: Optional[str] = Query(None, alias="status"),
                      customer_id: Optional[str] = None, search: Optional[str] = Query(None),
-                     page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200)):
+                     page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200),
+                    lifecycle: str = Query("active")):
     q: Dict[str, Any] = {}
+    s = (lifecycle or "active").lower()
+    if s not in ("active","deleted","all"): raise HTTPException(status_code=400, detail="lifecycle must be one of active|deleted|all")
+    if s == "active": q["deleted_at"] = {"$in":[None]}
+    elif s == "deleted": q["deleted_at"] = {"$ne": None}
     if status_filter: q["status"] = status_filter
     if customer_id: q["customer_id"] = customer_id
     if search: q["job_number"] = re.compile(re.escape(search), re.IGNORECASE)
@@ -2150,8 +2180,13 @@ async def _create_invoice_from_job(job: dict, by_user_id: str) -> Optional[dict]
 async def list_invoices(_user: dict = Depends(require_permission("invoices.view")),
                          status_filter: Optional[str] = Query(None, alias="status"),
                          customer_id: Optional[str] = None, search: Optional[str] = Query(None),
-                         page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200)):
+                         page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200),
+                       lifecycle: str = Query("active")):
     q: Dict[str, Any] = {}
+    s = (lifecycle or "active").lower()
+    if s not in ("active","deleted","all"): raise HTTPException(status_code=400, detail="lifecycle must be one of active|deleted|all")
+    if s == "active": q["deleted_at"] = {"$in":[None]}
+    elif s == "deleted": q["deleted_at"] = {"$ne": None}
     if status_filter: q["status"] = status_filter
     if customer_id: q["customer_id"] = customer_id
     if search: q["invoice_number"] = re.compile(re.escape(search), re.IGNORECASE)
@@ -2230,10 +2265,10 @@ async def push_to_xero(iid: str, _user: dict = Depends(require_permission("invoi
 async def dashboard_kpis(_user: dict = Depends(get_current_user)):
     now = now_utc()
     start_of_month = datetime(now.year, now.month, 1, tzinfo=timezone.utc).isoformat()
-    quotes_draft = await db.quotes.count_documents({"status":"draft"})
-    quotes_sent = await db.quotes.count_documents({"status":"sent"})
-    quotes_accepted = await db.quotes.count_documents({"status":"accepted"})
-    customers_active = await db.customers.count_documents({"active":True})
+    quotes_draft = await db.quotes.count_documents({"status":"draft", "deleted_at": {"$in": [None]}})
+    quotes_sent = await db.quotes.count_documents({"status":"sent", "deleted_at": {"$in": [None]}})
+    quotes_accepted = await db.quotes.count_documents({"status":"accepted", "deleted_at": {"$in": [None]}})
+    customers_active = await db.customers.count_documents({"active":True, "deleted_at": {"$in": [None]}})
 
     quoted_this_month = 0.0
     async for d in db.quotes.aggregate([{"$match":{"created_at":{"$gte":start_of_month}}},
@@ -2247,13 +2282,13 @@ async def dashboard_kpis(_user: dict = Depends(get_current_user)):
     # Jobs
     jobs_by_status: Dict[str, int] = {}
     for s in JOB_STATUS_ORDER + ["cancelled"]:
-        jobs_by_status[s] = await db.jobs.count_documents({"status":s})
+        jobs_by_status[s] = await db.jobs.count_documents({"status":s, "deleted_at": {"$in": [None]}})
     jobs_active = sum(jobs_by_status[s] for s in JOB_STATUS_ORDER if s != "completed")
 
     # Invoices
-    invoices_draft = await db.invoices.count_documents({"status":"draft"})
-    invoices_issued = await db.invoices.count_documents({"status":"issued"})
-    invoices_paid = await db.invoices.count_documents({"status":"paid"})
+    invoices_draft = await db.invoices.count_documents({"status":"draft", "deleted_at": {"$in": [None]}})
+    invoices_issued = await db.invoices.count_documents({"status":"issued", "deleted_at": {"$in": [None]}})
+    invoices_paid = await db.invoices.count_documents({"status":"paid", "deleted_at": {"$in": [None]}})
 
     outstanding = 0.0
     async for d in db.invoices.aggregate([{"$match":{"status":{"$in":["issued","overdue"]}}},

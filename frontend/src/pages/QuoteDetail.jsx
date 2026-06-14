@@ -5,7 +5,7 @@ import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { formatAUD, formatNumber, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
-import { openPrintPopup } from "../lib/print";
+import { openPrintPopup, openCustomerPreviewPopup } from "../lib/print";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "../components/ui/dialog";
@@ -146,7 +146,7 @@ export default function QuoteDetail() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={async () => { await navigator.clipboard.writeText(publicUrl); toast.success("Link copied"); }} data-testid="copy-magic-link"><Copy className="w-3.5 h-3.5 mr-1"/> Copy</Button>
-            <a href={publicUrl} target="_blank" rel="noreferrer" className="inline-flex items-center text-xs font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33] px-3"><ExternalLink className="w-3.5 h-3.5 mr-1"/> Open</a>
+            <button onClick={() => openCustomerPreviewPopup(publicUrl)} className="inline-flex items-center text-xs font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33] px-3" data-testid="preview-public-quote"><ExternalLink className="w-3.5 h-3.5 mr-1"/> Preview</button>
           </div>
         </div>
       )}

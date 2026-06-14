@@ -57,6 +57,58 @@ export default function PublicQuote() {
   const status = STATUS_COPY[quote.status] || STATUS_COPY.sent;
   const canDecide = quote.status === "sent";
 
+  // Terminal states (accepted / rejected) get a centred narrow thank-you card
+  if (quote.status === "accepted" || quote.status === "rejected") {
+    const isAccepted = quote.status === "accepted";
+    return (
+      <div className="min-h-screen bg-[#F5F6F7] flex items-center justify-center px-4 py-10" data-testid="public-quote-page">
+        <div className="w-full max-w-[480px] bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+          <header className="bg-[#1F2A33] text-white py-5 px-6 flex items-center justify-between">
+            <div>
+              <div className="brand-wordmark text-xl text-white leading-none">Paneltec</div>
+              <div className="brand-wordmark text-xl text-[#F5C518] leading-none">Group</div>
+            </div>
+            <div className="text-right text-[10px] uppercase tracking-[0.22em] text-white/60">
+              Quote · {quote.quote_number}
+            </div>
+          </header>
+          <div className="p-8 text-center" data-testid="public-quote-status">
+            <div className={`inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 ${
+              isAccepted ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+            }`}>
+              {isAccepted ? (
+                <svg className="w-9 h-9" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/>
+                </svg>
+              ) : (
+                <svg className="w-9 h-9" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              )}
+            </div>
+            <h1 className="text-2xl font-black tracking-tight text-[#1F2A33] mb-1">
+              {isAccepted ? "Accepted — thank you!" : "Quote declined"}
+            </h1>
+            <p className="text-sm text-gray-500 mb-3">
+              {isAccepted
+                ? "We've received your acceptance and our team will be in touch shortly."
+                : "We've recorded your decision. Reach out if you'd like to discuss alternatives."}
+            </p>
+            <div className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold mt-4">
+              {isAccepted ? "Accepted on" : "Declined on"}
+            </div>
+            <div className="text-sm text-[#1F2A33] font-semibold">
+              {formatDateTime(isAccepted ? quote.accepted_at : quote.rejected_at)}
+            </div>
+            <div className="mt-6 text-[10px] uppercase tracking-[0.18em] text-gray-400">
+              Paneltec Group · Precast Panel Business Management
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F5F6F7]" data-testid="public-quote-page">
       <header className="bg-[#1F2A33] text-white py-6 px-4">
