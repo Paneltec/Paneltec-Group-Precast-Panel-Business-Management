@@ -26,6 +26,7 @@ export default function EmailModal({
   attachmentNotice = null,
   endpoint, onSent,
   testid = "email-modal",
+  previousSend = null,  // { at, by, recipient, subject } from entity.last_email_*
 }) {
   const [recipient, setRecipient] = useState(defaultRecipient);
   const [subject, setSubject] = useState(defaultSubject);
@@ -67,6 +68,13 @@ export default function EmailModal({
             <span className="block mt-2 mb-1 bg-[#F5C518]/30 border border-[#F5C518] text-[#1F2A33] text-xs font-bold uppercase tracking-wider px-2 py-1.5 rounded">
               📧 MOCKED — Email will send via Microsoft 365 in Phase 4 Part 2. For now, copy the content below and send from your own inbox.
             </span>
+            {previousSend?.at && (
+              <span className="block mt-2 bg-amber-50 border border-amber-300 text-amber-900 text-xs px-3 py-2 rounded" data-testid="email-previously-sent-banner">
+                ⚠️ This was last emailed on <strong>{new Date(previousSend.at).toLocaleString("en-AU")}</strong>
+                {previousSend.recipient && <> to <strong>{previousSend.recipient}</strong></>}
+                {previousSend.subject && <> with subject "<em>{previousSend.subject}</em>"</>}.
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm">

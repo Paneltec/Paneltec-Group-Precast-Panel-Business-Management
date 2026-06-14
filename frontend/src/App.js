@@ -21,8 +21,8 @@ import JobDetail from "./pages/JobDetail";
 import InvoicesList from "./pages/InvoicesList";
 import InvoiceDetail from "./pages/InvoiceDetail";
 import InvoicePrint from "./pages/InvoicePrint";
-import Vehicles from "./pages/Vehicles";
-import Employees from "./pages/Employees";
+import Vehicles, { VehicleForm } from "./pages/Vehicles";
+import Employees, { EmployeeForm } from "./pages/Employees";
 import IntegrationSettings from "./pages/IntegrationSettings";
 import CustomerPrint from "./pages/CustomerPrint";
 import ProjectPrint from "./pages/ProjectPrint";
@@ -65,7 +65,11 @@ function App() {
                   <Route path="/invoices" element={<ProtectedRoute permission="invoices.view"><InvoicesList /></ProtectedRoute>} />
                   <Route path="/invoices/:id" element={<ProtectedRoute permission="invoices.view"><InvoiceDetail /></ProtectedRoute>} />
                   <Route path="/vehicles" element={<ProtectedRoute permission="vehicles.view"><Vehicles /></ProtectedRoute>} />
+                  <Route path="/vehicles/new" element={<ProtectedRoute permission="vehicles.create"><VehicleForm /></ProtectedRoute>} />
+                  <Route path="/vehicles/:id" element={<ProtectedRoute permission="vehicles.view"><VehicleForm /></ProtectedRoute>} />
                   <Route path="/employees" element={<ProtectedRoute permission="employees.view"><Employees /></ProtectedRoute>} />
+                  <Route path="/employees/new" element={<ProtectedRoute permission="employees.create"><EmployeeForm /></ProtectedRoute>} />
+                  <Route path="/employees/:id" element={<ProtectedRoute permission="employees.view"><EmployeeForm /></ProtectedRoute>} />
                   <Route path="/settings/pricing" element={<ProtectedRoute permission="pricing.view"><PricingSettings /></ProtectedRoute>} />
                   <Route path="/settings/company" element={<ProtectedRoute permission="company.view"><CompanySettings /></ProtectedRoute>} />
                   <Route path="/settings/integrations" element={<ProtectedRoute permission="integrations.view"><IntegrationSettings /></ProtectedRoute>} />

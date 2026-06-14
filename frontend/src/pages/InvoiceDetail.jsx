@@ -51,6 +51,10 @@ export default function InvoiceDetail() {
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
   };
   const pushXero = async () => {
+    if (inv?.xero_push_status === "MOCKED_PUSHED") {
+      const at = inv.last_xero_push_at || inv.xero_pushed_at || "previously";
+      if (!window.confirm(`⚠️ This invoice was already pushed to Xero on ${new Date(at).toLocaleString("en-AU")}.\nPushing again will create a duplicate in Xero. Continue?`)) return;
+    }
     try {
       const { data } = await api.post(`/invoices/${id}/push-to-xero`);
       await load();
@@ -181,6 +185,7 @@ export default function InvoiceDetail() {
         defaultBody={`Hi ${customer.contact_name || customer.company_name},\n\nPlease find Tax Invoice ${inv.invoice_number} for Job ${inv.job_number}.\n\nAmount due: AUD $${(inv.total||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})} (inc GST)\nDue date: ${inv.due_date}\n\nPayment instructions are on the printable invoice attached.\n\nKind regards,\nPaneltec Group Accounts Team`}
         attachmentNotice={`Print the invoice (Print button → Save as PDF) and attach to this email.`}
         endpoint={`/invoices/${id}/email-sent`}
+        previousSend={inv.last_email_sent_at ? { at: inv.last_email_sent_at, recipient: inv.last_email_recipient, subject: inv.last_email_subject } : null}
         onSent={load}
       />
     </div>

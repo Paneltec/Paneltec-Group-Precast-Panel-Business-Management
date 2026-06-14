@@ -2252,10 +2252,45 @@ async def push_to_xero(iid: str, _user: dict = Depends(require_permission("invoi
     inv = await _get_invoice_or_404(iid)
     mock_xero_id = f"MOCK-{uuid.uuid4()}"
     await db.invoices.update_one({"id":iid},
-        {"$set":{"xero_push_status":"MOCKED_PUSHED","xero_invoice_id":mock_xero_id,"updated_at":now_iso()}})
+        {"$set":{"xero_push_status":"MOCKED_PUSHED","xero_invoice_id":mock_xero_id,
+                 "last_xero_push_at": now_iso(), "last_xero_push_by_user_id": _user["id"],
+                 "updated_at":now_iso()}})
     await record_audit(_user, "invoice_pushed_xero", "invoice", iid, inv.get("invoice_number", iid), metadata={"xero_invoice_id": mock_xero_id})
     return {"status":"MOCKED_PUSHED","xero_invoice_id":mock_xero_id,
             "note":"MOCKED — real Xero push coming in Phase 4. Invoice unchanged in Xero."}
+
+class BatchPushRequest(BaseModel):
+    invoice_ids: List[str]
+    force: bool = False
+
+@api_router.post("/invoices/batch-push-xero")
+async def batch_push_xero(payload: BatchPushRequest, user: dict = Depends(require_permission("invoices.push_xero"))):
+    results = []
+    for iid in payload.invoice_ids:
+        inv = await db.invoices.find_one({"id": iid}, {"_id":0})
+        if not inv:
+            results.append({"invoice_id": iid, "status":"ERROR","message":"Not found"}); continue
+        if inv.get("deleted_at"):
+            results.append({"invoice_id": iid, "invoice_number": inv.get("invoice_number"),
+                            "status":"SKIPPED","message":"Soft-deleted"}); continue
+        if inv.get("xero_push_status") == "MOCKED_PUSHED" and not payload.force:
+            results.append({"invoice_id": iid, "invoice_number": inv.get("invoice_number"),
+                            "status":"SKIPPED",
+                            "message":f"Already pushed on {inv.get('last_xero_push_at') or inv.get('xero_pushed_at') or 'unknown'}"})
+            continue
+        mock_xero_id = f"MOCK-{uuid.uuid4()}"
+        await db.invoices.update_one({"id": iid},
+            {"$set":{"xero_push_status":"MOCKED_PUSHED","xero_invoice_id":mock_xero_id,
+                     "last_xero_push_at": now_iso(), "last_xero_push_by_user_id": user["id"],
+                     "updated_at": now_iso()}})
+        await record_audit(user, "invoice_pushed_xero", "invoice", iid, inv.get("invoice_number", iid),
+                            metadata={"xero_invoice_id": mock_xero_id, "batch": True})
+        results.append({"invoice_id": iid, "invoice_number": inv.get("invoice_number"),
+                        "status":"MOCKED_PUSHED", "xero_invoice_id": mock_xero_id})
+    summary = {"pushed": sum(1 for r in results if r["status"]=="MOCKED_PUSHED"),
+               "skipped": sum(1 for r in results if r["status"]=="SKIPPED"),
+               "errored": sum(1 for r in results if r["status"]=="ERROR")}
+    return {"results": results, "summary": summary}
 
 
 # ---------------------------------------------------------------------------
