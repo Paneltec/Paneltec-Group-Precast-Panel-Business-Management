@@ -1,3 +1,14 @@
+/*
+ * Help.jsx — In-app User Manual viewer.
+ *
+ * DEV REMINDER ▸ Every new phase MUST update src/content/user-manual.md
+ *   1. Add/edit content for the new feature
+ *   2. Append a change-log entry in §16
+ *   3. Bump the "App version" / "Manual last updated" line in §16
+ *   4. Bump APP_VERSION below
+ * The markdown file is end-user facing — DO NOT add HTML comments or internal notes there.
+ * (HTML comments are also defensively stripped before render — see stripHtmlComments.)
+ */
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Search, Printer, BookOpen,
@@ -9,7 +20,11 @@ import { Button } from "../components/ui/button";
 import { openPrintPopup } from "../lib/print";
 import manualMd from "../content/user-manual.md";
 
-const APP_VERSION = "v1.0 · Phase 7";
+const APP_VERSION = "v1.0 · Phase 8";
+
+// Strip any HTML comments before rendering — the markdown file is end-user facing
+// but a stray `<!-- ... -->` here would render as literal text via react-markdown.
+const stripHtmlComments = (md) => md.replace(/<!--[\s\S]*?-->/g, "");
 
 const ICON_MAP = {
   welcome:             { icon: Home,               color: "#F5C518" },
@@ -89,7 +104,7 @@ export default function Help() {
 
   useEffect(() => {
     // react-markdown receives raw text, but Webpack's default md loader returns a URL; fetch it.
-    fetch(manualMd).then((r) => r.text()).then(setMd).catch(() => setMd("# Could not load manual."));
+    fetch(manualMd).then((r) => r.text()).then((t) => setMd(stripHtmlComments(t))).catch(() => setMd("# Could not load manual."));
   }, []);
 
   const toc = useMemo(() => buildToc(md), [md]);
@@ -181,6 +196,27 @@ export default function Help() {
 
   return (
     <div className="max-w-7xl" data-testid="help-page">
+      <style>{`
+        .manual-cover-wrap {
+          width: 100%;
+          margin-bottom: 24px;
+          background: #1F2A33;
+          border-radius: 8px;
+          overflow: hidden;
+          aspect-ratio: 3 / 2;
+          max-height: 360px;
+        }
+        .manual-cover-wrap img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          display: block;
+        }
+        @supports not (aspect-ratio: 3 / 2) {
+          .manual-cover-wrap { padding-top: 66.6%; position: relative; height: 0; }
+          .manual-cover-wrap img { position: absolute; inset: 0; }
+        }
+      `}</style>
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-6">
         <div>
           <div className="overline">Help &amp; Documentation</div>
@@ -230,8 +266,9 @@ export default function Help() {
 
         <article ref={contentRef} className="lg:col-span-9 bg-white border border-gray-200 rounded p-6 lg:p-10 prose-paneltec"
                  data-testid="help-content">
-          <img src="/manual/cover.png" alt="Paneltec Group — User Manual" data-testid="help-cover"
-               className="w-full mb-6 rounded" style={{maxHeight:"280px", objectFit:"cover"}}/>
+          <div className="manual-cover-wrap" data-testid="help-cover-wrap">
+            <img src="/manual/cover.png" alt="Paneltec Group — User Manual" data-testid="help-cover"/>
+          </div>
           {md ? <ReactMarkdown components={renderers}>{md}</ReactMarkdown>
               : <p className="text-sm text-gray-400">Loading manual…</p>}
         </article>

@@ -1,5 +1,3 @@
-<!-- Update this file with every phase. Last updated: 2026-06-15 (Phase 7). -->
-
 # Paneltec Group — User Manual
 
 ## 1. Welcome to Paneltec Group
@@ -362,9 +360,69 @@ It was soft-deleted. Switch the list filter to **Deleted** or **All** to find it
 
 ---
 
+## 17. Reports & Data Export
+
+Where to find it: **Reports** in the sidebar (the green chart icon). Available to every user who has any of the report `*.view` permissions; the Data Export and Power BI Integration tabs are super-admin only.
+
+### 17.1 Reports landing page
+A card grid of all 7 reports. Each card shows live KPI previews so you can sanity-check the numbers at a glance before drilling into a full dashboard.
+
+### 17.2 The 7 reports
+- **Customers** — top 10 by quoted value, new customers per month, full customer activity table.
+- **Quotes** — pipeline funnel (draft → sent → accepted → rejected), 6-month win-rate trend, stacked value-by-month.
+- **Jobs** — by status doughnut, completions per month, cycle-time histogram.
+- **Invoices** — aging buckets ($), issued vs paid by month, average days-to-pay trend.
+- **Vehicles** — assignments per vehicle, status distribution.
+- **Employees** — assignments per employee, role distribution.
+- **Pricing & Margin** — *INTERNAL, requires `pricing.view_costs`*: avg margin % by panel type, by finish, 6-month margin trend. Margin colour-coded green ≥30, amber 15-30, red <15.
+
+### 17.3 Date filtering
+Every report has a `From` and `To` date picker (defaults to the last 90 days). Changing dates refreshes the KPIs, charts, and table.
+
+### 17.4 CSV export per report
+Click "Export CSV" on any report detail page to download the filtered table data. The CSV columns match the on-screen table.
+
+### 17.5 Data Export tab (super admin only)
+Raw, flattened CSV dumps of any entity module — customers, projects, quotes, jobs, invoices, vehicles, employees, audit events. Use this for ad-hoc analysis, GDPR exports, or moving data into another system.
+
+- Pick a module from the dropdown
+- Set a date range or tick "All time"
+- Tick "Include soft-deleted" to also export records that were deleted (audit module ignores this)
+- Click **Download CSV** — the file streams directly to your browser
+- **Hard cap of 100,000 rows** per request — if you hit it the response includes the `X-Export-Capped: true` header and the CSV ends with a marker row. Narrow your date range to get more.
+
+### 17.6 Power BI Integration (super admin only)
+Long-lived API tokens let Power BI Desktop, Excel Power Query, Tableau, and similar BI tools pull data directly. The on-screen guide gives copy-pastable instructions for each tool; the gist is:
+
+1. Generate a token (next section)
+2. In your BI tool, add a Web data source pointing at `<APP_URL>/api/reporting/v1/<entity>`
+3. Add a request header **X-BI-Token** = your raw token
+4. Iterate pages with `?page=N&per_page=1000`
+
+Available endpoints (all read-only, all paginated, max 1000 rows/page):
+`/api/reporting/v1/customers`, `/api/reporting/v1/quotes`, `/api/reporting/v1/jobs`, `/api/reporting/v1/invoices`, `/api/reporting/v1/vehicles`, `/api/reporting/v1/employees`.
+
+### 17.7 API token management (super admin)
+The same tab lists every BI token ever created — active and revoked — for full audit history.
+
+- **Generate** — give it a memorable name like "Power BI - Sales Dashboard". The raw token is shown **once** in a modal with a Copy button. Save it immediately into your BI tool's credentials — it will never be displayed again, only the prefix.
+- **Revoke** — instantly disables the token. Any BI tool still using it will start getting 401 errors. Revoked tokens stay in the list (greyed out, struck through, with a red REVOKED badge) for audit purposes.
+- **Cap** — maximum 20 active tokens at any time. Revoke unused ones to free a slot.
+- **Rotation** — best practice is rotate every 90 days. If a token leaks, revoke immediately.
+
+Every generation and revoke is recorded in the audit trail (`bi_api_token` entity type) so you always know who created or killed what and when.
+
+### 17.8 What's filtered out — privacy guarantee
+The reporting endpoints recursively scrub every key whose name contains any of:
+`cost_`, `margin_`, `internal_`, `total_cost`, `password`, `api_key`, `client_secret`, `token_hash`.
+
+That means a Power BI token connected to `/api/reporting/v1/quotes` will see line items but **never** the internal cost breakdown, margin %, or any secret fields — even though super admins can see them in the UI. BI tools also cannot read the Pricing & Margin report, Pricing Settings cost inputs, integration secrets, or the user list. They are scoped strictly to operational facts about customers, quotes, jobs, invoices, vehicles and employees.
+
+---
+
 ## 16. Version & Change Log
 
-**App version**: v1.0 · Phase 7
+**App version**: v1.0 · Phase 8
 **Manual last updated**: 2026-06-15
 
 ### Phase 1 — Foundation
@@ -393,6 +451,14 @@ Universal soft/hard delete + restore on every entity, audit log of all business-
 - Quote line snapshots freeze BOTH sell and cost numbers — old quotes never change
 - Dashboard → "This month — Quoted margin" + "Avg margin %" KPI cards
 - **Zero-leak guarantee**: customer-facing print, public magic-link, and the M365 email body never contain any cost or margin info, regardless of viewer permission
+
+### Phase 8 — Reports, Data Export & Power BI Integration
+- New **Reports** sidebar entry with 7 detail dashboards: Customers, Quotes, Jobs, Invoices, Vehicles, Employees, Pricing & Margin (admin-only).
+- Each report ships KPIs, Recharts visuals (lines, stacked bars, doughnuts, histograms) and a filterable table with `?date_from / ?date_to` pickers + per-report CSV export.
+- **Data Export tab** (super admin): bulk CSV dumps for any module (customers, projects, quotes, jobs, invoices, vehicles, employees, audit events) with a 100,000-row hard cap; date range, "All time", and "Include soft-deleted" toggles; capped responses emit `X-Export-Capped: true` plus a trailing marker row.
+- **Power BI Integration tab** (super admin): generate long-lived API tokens (raw value shown once, bcrypt-stored), connect via `X-BI-Token` header to read-only `/api/reporting/v1/*` endpoints, manage/revoke tokens with full audit trail.
+- BI tokens are scoped strictly to operational reads — recursive scrub strips every `cost_*`, `margin_*`, `internal_*`, `total_cost`, `password*`, `client_secret`, `api_key`, `token_hash` key from responses; cross-route writes/non-reporting routes return 403.
+- In-app User Manual gains §17 with end-to-end guidance + Recharts-coloured navigation icons (welcome=yellow, customers=purple, calculator=charcoal, jobs=orange, invoices=green, audit=red, reports=green, …).
 
 ---
 

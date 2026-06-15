@@ -320,4 +320,4 @@ Next: Phase 7 — Pricing model upgrade (Cost vs Sell + labour per panel type & 
 - Sections 1–16 cover the full shipped scope (Phases 1–7), with §14 listing what's still MOCKED and §16 a chronological change log.
 
 ### Process rule (enforced going forward)
-**User manual updates: every new phase MUST include a corresponding update to `/app/frontend/src/content/user-manual.md` and bump the "Last updated" date in §16.** The file itself carries an HTML comment reminder at the top so future contributors see it on open.
+**User manual updates: every new phase MUST include a corresponding update to `/app/frontend/src/content/user-manual.md`, bump the App version + "Manual last updated" line in §16, and add a change-log entry.** The reminder lives at the top of `/app/frontend/src/pages/Help.jsx` (every dev touching the manual sees it) — NOT inside the markdown, because the markdown is end-user facing. A defensive regex strip in `Help.jsx`/`HelpPrint.jsx` removes any stray HTML comments before render.

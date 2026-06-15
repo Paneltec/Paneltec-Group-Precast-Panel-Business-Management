@@ -57,6 +57,45 @@ def verify_password(plain: str, hashed: str) -> bool:
     try: return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
     except Exception: return False
 
+# ---------------------------------------------------------------------------
+# BI Tokens — separate identity ("BI bot") for read-only Power BI / Tableau / Excel
+# ---------------------------------------------------------------------------
+BI_TOKEN_PREFIX = "paneltec_bi_"
+BI_TOKEN_MAX_ACTIVE = 20
+
+def _bi_bot_user(token: dict) -> dict:
+    return {
+        "id": f"bi-bot-{token['id']}",
+        "email": "bi-bot@paneltec.internal",
+        "name": f"BI Bot ({token.get('name','')})",
+        "is_super_admin": False,
+        "permissions": {
+            "customers.view": True, "quotes.view": True, "jobs.view": True,
+            "invoices.view": True, "vehicles.view": True, "employees.view": True,
+        },
+        "_is_bi_bot": True,
+        "_bi_token_id": token["id"],
+        "is_active": True,
+    }
+
+async def _resolve_bi_token(raw: str, request: Request) -> Optional[dict]:
+    """Return synthetic BI bot user if raw matches a non-revoked token else None."""
+    if not raw or not raw.startswith(BI_TOKEN_PREFIX): return None
+    # Iterate active (non-revoked) tokens; collection is small (cap 20 active).
+    tokens = await db.bi_api_tokens.find({"revoked_at": None}, {"_id": 0}).to_list(200)
+    raw_b = raw.encode("utf-8")
+    for t in tokens:
+        try:
+            if bcrypt.checkpw(raw_b, t["token_hash"].encode("utf-8")):
+                ip = (request.client.host if request.client else None) or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or None
+                await db.bi_api_tokens.update_one({"id": t["id"]},
+                    {"$set": {"last_used_at": now_iso(), "last_used_ip": ip}})
+                return _bi_bot_user(t)
+        except Exception:
+            continue
+    return None
+
+
 def create_access_token(user_id: str, email: str) -> str:
     payload = {"sub": user_id, "email": email, "type": "access",
                "iat": now_utc(), "exp": now_utc() + timedelta(hours=JWT_EXPIRES_HOURS)}
@@ -159,6 +198,14 @@ def normalise_permissions(perms: Optional[Dict[str, bool]]) -> Dict[str, bool]:
 # Auth dependencies
 # ---------------------------------------------------------------------------
 async def _get_current_user_raw(request: Request, creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme)) -> dict:
+    # ---- BI token path (read-only bot identity) ----
+    bi_raw = request.headers.get("X-BI-Token") or request.headers.get("x-bi-token")
+    if bi_raw:
+        bi_user = await _resolve_bi_token(bi_raw, request)
+        if bi_user is None:
+            raise HTTPException(status_code=401, detail="Invalid BI token")
+        return bi_user
+    # ---- Standard JWT path ----
     token: Optional[str] = None
     if creds and creds.scheme.lower() == "bearer": token = creds.credentials
     if not token:
@@ -185,15 +232,29 @@ def has_permission(user: dict, perm: str) -> bool:
     if user.get("is_super_admin"): return True
     return bool((user.get("permissions") or {}).get(perm))
 
+# Permissions a BI bot identity may EVER have (hard ceiling). Anything else is denied.
+BI_BOT_ALLOWED_PERMS = {"customers.view","quotes.view","jobs.view","invoices.view",
+                       "vehicles.view","employees.view"}
+
 def require_permission(perm: str):
-    async def _dep(user: dict = Depends(get_current_user)) -> dict:
+    async def _dep(request: Request, user: dict = Depends(get_current_user)) -> dict:
+        if user.get("_is_bi_bot"):
+            # BI bots may only hit /api/reporting/v1/* — hard guard.
+            if not request.url.path.startswith("/api/reporting/v1/"):
+                raise HTTPException(status_code=403,
+                                    detail="BI tokens may only access /api/reporting/v1/*")
+            if perm not in BI_BOT_ALLOWED_PERMS:
+                raise HTTPException(status_code=403,
+                                    detail="BI tokens are read-only with view permissions only")
         if not has_permission(user, perm):
             raise HTTPException(status_code=403, detail=f"Permission required: {perm}")
         return user
     _dep.__name__ = f"require_permission_{perm.replace('.', '_')}"
     return _dep
 
-async def require_super_admin(user: dict = Depends(get_current_user)) -> dict:
+async def require_super_admin(request: Request, user: dict = Depends(get_current_user)) -> dict:
+    if user.get("_is_bi_bot"):
+        raise HTTPException(status_code=403, detail="BI tokens may only access /api/reporting/v1/*")
     if not user.get("is_super_admin"):
         raise HTTPException(status_code=403, detail="Super admin access required")
     return user
@@ -880,6 +941,12 @@ async def seed_database():
         await db.audit_events.create_index([("action",1)])
     except Exception as _e:
         logger.warning(f"audit index creation skipped: {_e}")
+    # Phase 8 Pass 3: BI token indexes
+    try:
+        await db.bi_api_tokens.create_index([("revoked_at",1)])
+        await db.bi_api_tokens.create_index([("created_at",-1)])
+    except Exception as _e:
+        logger.warning(f"bi_api_tokens index creation skipped: {_e}")
 
 async def _seed_phase2():
     admin = await db.users.find_one({"role":"admin"}, {"_id":0, "id":1})
@@ -999,7 +1066,7 @@ AUDIT_ACTIONS = {"created","updated","soft_deleted","hard_deleted","restored","s
     "quote_sent","quote_viewed","quote_accepted","quote_rejected","quote_revised",
     "invoice_issued","invoice_paid","invoice_pushed_xero","email_sent","settings_changed"}
 AUDIT_ENTITY_TYPES = {"customer","project","quote","job","invoice","vehicle","employee",
-    "user","pricing_settings","company_settings","integration_settings","system"}
+    "user","pricing_settings","company_settings","integration_settings","system","bi_api_token"}
 AUDIT_SECRET_KEYS = {"client_secret","api_key","password","password_hash"}
 
 async def record_audit(actor: Optional[dict], action: str, entity_type: str,
@@ -3126,6 +3193,129 @@ async def data_export(module: str, user: dict = Depends(get_current_user),
 
 
 app.include_router(api_router)
+
+
+# ===========================================================================
+# Phase 8 Pass 3 — BI API Tokens + /api/reporting/v1/* read-only namespace
+# ===========================================================================
+import secrets as _secrets
+
+_bi_router = APIRouter(prefix="/api")
+
+# Recursive scrubber for internal cost/margin/secret keys.
+_BI_FORBIDDEN_KEY_PATTERNS = ("cost_", "margin_", "internal_", "total_cost",
+                              "_cost_aud", "_margin_aud", "_margin_pct",
+                              "password", "password_hash", "client_secret",
+                              "api_key", "token_hash")
+
+def _bi_scrub(obj: Any) -> Any:
+    """Recursively strip any key containing a forbidden substring (case-insensitive)."""
+    if isinstance(obj, list): return [_bi_scrub(x) for x in obj]
+    if not isinstance(obj, dict): return obj
+    out = {}
+    for k, v in obj.items():
+        lk = k.lower()
+        if any(p in lk for p in _BI_FORBIDDEN_KEY_PATTERNS):
+            continue
+        out[k] = _bi_scrub(v)
+    return out
+
+class BITokenCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+# --- Token management (super admin) ---
+@_bi_router.get("/reporting/tokens")
+async def list_bi_tokens(user: dict = Depends(require_super_admin)):
+    docs = await db.bi_api_tokens.find({}, {"_id": 0, "token_hash": 0}).sort("created_at", -1).to_list(200)
+    return docs
+
+@_bi_router.post("/reporting/tokens", status_code=201)
+async def create_bi_token(payload: BITokenCreate, user: dict = Depends(require_super_admin)):
+    active_count = await db.bi_api_tokens.count_documents({"revoked_at": None})
+    if active_count >= BI_TOKEN_MAX_ACTIVE:
+        raise HTTPException(status_code=400,
+                            detail=f"Maximum {BI_TOKEN_MAX_ACTIVE} active tokens reached. Revoke an existing token first.")
+    raw = BI_TOKEN_PREFIX + _secrets.token_urlsafe(24)
+    tid = str(uuid.uuid4())
+    doc = {
+        "id": tid, "name": payload.name.strip(),
+        "token_hash": hash_password(raw),
+        "token_prefix": raw[:16],
+        "created_by_user_id": user["id"],
+        "created_by_name": user.get("name") or user.get("email") or "Unknown",
+        "created_at": now_iso(),
+        "last_used_at": None, "last_used_ip": None,
+        "revoked_at": None, "revoked_by_user_id": None,
+    }
+    await db.bi_api_tokens.insert_one(doc)
+    await record_audit(user, "created", "bi_api_token", tid, doc["name"],
+                       metadata={"token_prefix": doc["token_prefix"]})
+    return {"id": tid, "name": doc["name"], "token": raw, "token_prefix": doc["token_prefix"]}
+
+@_bi_router.post("/reporting/tokens/{token_id}/revoke")
+async def revoke_bi_token(token_id: str, user: dict = Depends(require_super_admin)):
+    doc = await db.bi_api_tokens.find_one({"id": token_id}, {"_id": 0})
+    if not doc: raise HTTPException(status_code=404, detail="Token not found")
+    if doc.get("revoked_at"): raise HTTPException(status_code=400, detail="Token already revoked")
+    await db.bi_api_tokens.update_one({"id": token_id},
+        {"$set": {"revoked_at": now_iso(), "revoked_by_user_id": user["id"]}})
+    await record_audit(user, "soft_deleted", "bi_api_token", token_id, doc["name"],
+                       metadata={"token_prefix": doc.get("token_prefix")})
+    return {"ok": True}
+
+# --- /api/reporting/v1/* read-only namespace ---
+async def _reporting_paginated(coll, perm: str, request: Request,
+                                date_from: Optional[str], date_to: Optional[str],
+                                page: int, per_page: int) -> Dict[str, Any]:
+    per_page = max(1, min(per_page, 1000))
+    page = max(1, page)
+    q: Dict[str, Any] = {"deleted_at": {"$in": [None]}}
+    if date_from or date_to:
+        df, dt = _date_range_iso(date_from, date_to, default_days=10000)
+        q["created_at"] = {"$gte": df, "$lte": dt}
+    total = await coll.count_documents(q)
+    docs = await coll.find(q, {"_id": 0}).sort("created_at", -1).skip((page-1)*per_page).limit(per_page).to_list(per_page)
+    items = [_bi_scrub(d) for d in docs]
+    return {"items": items, "total": total, "page": page, "per_page": per_page}
+
+@_bi_router.get("/reporting/v1/customers")
+async def rpt_customers(request: Request, user: dict = Depends(require_permission("customers.view")),
+                         date_from: Optional[str] = None, date_to: Optional[str] = None,
+                         page: int = 1, per_page: int = 100):
+    return await _reporting_paginated(db.customers, "customers.view", request, date_from, date_to, page, per_page)
+
+@_bi_router.get("/reporting/v1/quotes")
+async def rpt_quotes(request: Request, user: dict = Depends(require_permission("quotes.view")),
+                      date_from: Optional[str] = None, date_to: Optional[str] = None,
+                      page: int = 1, per_page: int = 100):
+    return await _reporting_paginated(db.quotes, "quotes.view", request, date_from, date_to, page, per_page)
+
+@_bi_router.get("/reporting/v1/jobs")
+async def rpt_jobs(request: Request, user: dict = Depends(require_permission("jobs.view")),
+                    date_from: Optional[str] = None, date_to: Optional[str] = None,
+                    page: int = 1, per_page: int = 100):
+    return await _reporting_paginated(db.jobs, "jobs.view", request, date_from, date_to, page, per_page)
+
+@_bi_router.get("/reporting/v1/invoices")
+async def rpt_invoices(request: Request, user: dict = Depends(require_permission("invoices.view")),
+                        date_from: Optional[str] = None, date_to: Optional[str] = None,
+                        page: int = 1, per_page: int = 100):
+    return await _reporting_paginated(db.invoices, "invoices.view", request, date_from, date_to, page, per_page)
+
+@_bi_router.get("/reporting/v1/vehicles")
+async def rpt_vehicles(request: Request, user: dict = Depends(require_permission("vehicles.view")),
+                        date_from: Optional[str] = None, date_to: Optional[str] = None,
+                        page: int = 1, per_page: int = 100):
+    return await _reporting_paginated(db.vehicles, "vehicles.view", request, date_from, date_to, page, per_page)
+
+@_bi_router.get("/reporting/v1/employees")
+async def rpt_employees(request: Request, user: dict = Depends(require_permission("employees.view")),
+                         date_from: Optional[str] = None, date_to: Optional[str] = None,
+                         page: int = 1, per_page: int = 100):
+    return await _reporting_paginated(db.employees, "employees.view", request, date_from, date_to, page, per_page)
+
+app.include_router(_bi_router)
+# (Removed stale comment about double-registration — handled via the dedicated sub-router above.)
 app.add_middleware(CORSMiddleware,
     allow_credentials=True, allow_origins=os.environ.get('CORS_ORIGINS','*').split(','),
     allow_methods=["*"], allow_headers=["*"])
