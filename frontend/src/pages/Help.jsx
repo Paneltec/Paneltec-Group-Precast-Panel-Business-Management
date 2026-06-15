@@ -12,12 +12,23 @@ import manualMd from "../content/user-manual.md";
 const APP_VERSION = "v1.0 · Phase 7";
 
 const ICON_MAP = {
-  welcome: Home, "getting-started": Rocket, "roles-permissions": ShieldCheck,
-  calculator: Calculator, customers: Users, projects: FolderKanban,
-  quotes: FileText, jobs: Hammer, invoices: Receipt,
-  "vehicles-employees": Truck, settings: Settings, "audit-trail": History,
-  "universal-actions": MousePointerClick, mocked: FlaskConical,
-  troubleshooting: LifeBuoy, "version-changelog": GitBranch, reports: BarChart3,
+  welcome:             { icon: Home,               color: "#F5C518" },
+  "getting-started":   { icon: Rocket,             color: "#2E7D5B" },
+  "roles-permissions": { icon: ShieldCheck,        color: "#3A6B8C" },
+  calculator:          { icon: Calculator,         color: "#1F2A33" },
+  customers:           { icon: Users,              color: "#7B3F9E" },
+  projects:            { icon: FolderKanban,       color: "#C2613A" },
+  quotes:              { icon: FileText,           color: "#2C7BB6" },
+  jobs:                { icon: Hammer,             color: "#C95F2A" },
+  invoices:            { icon: Receipt,            color: "#2E7D5B" },
+  "vehicles-employees":{ icon: Truck,              color: "#4A6741" },
+  settings:            { icon: Settings,           color: "#566573" },
+  "audit-trail":       { icon: History,            color: "#B22F2F" },
+  "universal-actions": { icon: MousePointerClick,  color: "#D4318A" },
+  mocked:              { icon: FlaskConical,       color: "#B8860B" },
+  troubleshooting:     { icon: LifeBuoy,           color: "#B22F2F" },
+  "version-changelog": { icon: GitBranch,          color: "#4B4F8C" },
+  reports:             { icon: BarChart3,          color: "#2E7D5B" },
 };
 function iconKeyFor(text) {
   const t = String(text).toLowerCase();
@@ -118,7 +129,9 @@ export default function Help() {
       h2: ({ children }) => {
         const text = stringify(children);
         const id = slugify(text);
-        const Icon = ICON_MAP[iconKeyFor(text)];
+        const entry = ICON_MAP[iconKeyFor(text)];
+        const Icon = entry?.icon;
+        const color = entry?.color || "#3A6B8C";
         const idx = h2Count++;
         return (
           <>
@@ -128,7 +141,7 @@ export default function Help() {
             )}
             <div id={id} className="manual-h2 scroll-mt-6 flex items-start gap-3 mt-4 mb-3 pl-3 border-l-4 border-[#F5C518] section-break"
                  style={{ pageBreakBefore: idx > 0 ? "always" : "auto" }}>
-              {Icon && <Icon className="w-7 h-7 text-[#3A6B8C] shrink-0 mt-0.5"/>}
+              {Icon && <Icon className="w-7 h-7 shrink-0 mt-0.5" style={{ color }}/>}
               <h2 className="text-2xl font-black text-[#1F2A33] tracking-tight">{<HighlightText text={text} q={query} />}</h2>
             </div>
           </>
@@ -194,7 +207,9 @@ export default function Help() {
             <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-2">Contents</div>
             <ul className="space-y-1">
               {toc.map((t) => {
-                const Icon = t.level === 2 ? ICON_MAP[t.iconKey] : null;
+                const entry = t.level === 2 ? ICON_MAP[t.iconKey] : null;
+                const Icon = entry?.icon;
+                const iconColor = entry?.color || "#3A6B8C";
                 const isActive = activeId === t.id;
                 return (
                   <li key={t.id} className={t.level === 3 ? "ml-5" : ""}>
@@ -203,7 +218,7 @@ export default function Help() {
                               t.level === 2 ? "font-bold" : ""
                             } ${isActive ? "text-[#3A6B8C] border-l-[3px] border-[#F5C518]" : (t.level === 2 ? "text-[#1F2A33]" : "text-gray-600")}`}
                             data-testid={`toc-${t.id}`}>
-                      {Icon && <Icon className="w-4 h-4 text-[#3A6B8C] shrink-0"/>}
+                      {Icon && <Icon className="w-4 h-4 shrink-0" style={{ color: iconColor }}/>}
                       <span>{t.text}</span>
                     </button>
                   </li>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Download, Lock, Loader2 } from "lucide-react";
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
+import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 import { api, tokenStore } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -94,6 +94,46 @@ export default function ReportDetail() {
         <>
           {/* KPI tiles */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="report-kpis">
+            {key === "customers" && (
+              <>
+                <Kpi label="Active customers" value={data.kpis.active_customers}/>
+                <Kpi label="New in range" value={data.kpis.new_in_range}/>
+                <Kpi label="Avg quotes/customer" value={data.kpis.avg_quotes_per_customer}/>
+                <Kpi label="Top customer revenue" value={formatAUD(data.kpis.top_customer_revenue_aud)}/>
+              </>
+            )}
+            {key === "quotes" && (
+              <>
+                <Kpi label="Quotes sent" value={data.kpis.quotes_sent}/>
+                <Kpi label="Total quoted value" value={formatAUD(data.kpis.total_quoted_aud)}/>
+                <Kpi label="Win rate" value={`${data.kpis.win_rate_pct}%`}/>
+                <Kpi label="Avg days to accept" value={data.kpis.avg_days_to_accept}/>
+              </>
+            )}
+            {key === "jobs" && (
+              <>
+                <Kpi label="Active jobs" value={data.kpis.active_jobs}/>
+                <Kpi label="Completed in range" value={data.kpis.completed_in_range}/>
+                <Kpi label="Avg cycle (days)" value={data.kpis.avg_cycle_days}/>
+                <Kpi label="On-time delivery" value={`${data.kpis.on_time_delivery_pct}%`}/>
+              </>
+            )}
+            {key === "vehicles" && (
+              <>
+                <Kpi label="Total vehicles" value={data.kpis.total_vehicles}/>
+                <Kpi label="Active vehicles" value={data.kpis.active_vehicles}/>
+                <Kpi label="Fleet capacity (t)" value={data.kpis.total_capacity_tonnes}/>
+                <Kpi label="Most-used vehicle" value={data.kpis.most_used_vehicle}/>
+              </>
+            )}
+            {key === "employees" && (
+              <>
+                <Kpi label="Active employees" value={data.kpis.active_employees}/>
+                <Kpi label="Total assignments" value={data.kpis.total_assignments}/>
+                <Kpi label="Avg per employee" value={data.kpis.avg_assignments_per_employee}/>
+                <Kpi label="Most active" value={data.kpis.most_active_employee}/>
+              </>
+            )}
             {key === "invoices" && (
               <>
                 <Kpi label="Total outstanding" value={formatAUD(data.kpis.total_outstanding_aud)} />
@@ -113,6 +153,92 @@ export default function ReportDetail() {
           </div>
 
           {/* Charts */}
+          {key === "customers" && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <ChartCard title="Top 10 customers by quoted value">
+                <BarChart data={data.charts.top_customers_by_quoted} layout="vertical" margin={{left:90}}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eee"/><XAxis type="number" tickFormatter={v=>`$${(v/1000).toFixed(0)}k`}/>
+                  <YAxis dataKey="customer" type="category" width={150} tick={{fontSize:11}}/><Tooltip formatter={v=>formatAUD(v)}/>
+                  <Bar dataKey="total_quoted" fill="#3A6B8C"/>
+                </BarChart>
+              </ChartCard>
+              <ChartCard title="New customers per month (12 mo)">
+                <LineChart data={data.charts.new_customers_per_month}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eee"/><XAxis dataKey="month"/><YAxis/><Tooltip/>
+                  <Line type="monotone" dataKey="new_customers" stroke="#1F2A33" strokeWidth={2}/>
+                </LineChart>
+              </ChartCard>
+            </div>
+          )}
+          {key === "quotes" && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <ChartCard title="Win rate trend (6 mo)">
+                <LineChart data={data.charts.win_rate_trend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eee"/><XAxis dataKey="month"/><YAxis unit="%"/><Tooltip/>
+                  <Line type="monotone" dataKey="win_rate" stroke="#3A6B8C" strokeWidth={2}/>
+                </LineChart>
+              </ChartCard>
+              <ChartCard title="Funnel">
+                <BarChart data={data.charts.funnel}><CartesianGrid strokeDasharray="3 3" stroke="#eee"/>
+                  <XAxis dataKey="stage"/><YAxis/><Tooltip/><Bar dataKey="count" fill="#F5C518"/>
+                </BarChart>
+              </ChartCard>
+              <ChartCard title="Quote value by month (stacked)">
+                <BarChart data={data.charts.value_by_month_stacked}><CartesianGrid strokeDasharray="3 3" stroke="#eee"/>
+                  <XAxis dataKey="month"/><YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`}/><Tooltip formatter={v=>formatAUD(v)}/><Legend/>
+                  <Bar dataKey="draft" stackId="a" fill="#7B9BB0"/><Bar dataKey="sent" stackId="a" fill="#F5C518"/>
+                  <Bar dataKey="accepted" stackId="a" fill="#3A6B8C"/><Bar dataKey="rejected" stackId="a" fill="#A53F2B"/>
+                </BarChart>
+              </ChartCard>
+            </div>
+          )}
+          {key === "jobs" && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <ChartCard title="Jobs by status">
+                <PieChart><Pie data={data.charts.by_status} dataKey="count" nameKey="status" outerRadius={80} label>
+                  {data.charts.by_status.map((_, i) => <Cell key={i} fill={PALETTE[i%PALETTE.length]}/>)}
+                </Pie><Tooltip/><Legend/></PieChart>
+              </ChartCard>
+              <ChartCard title="Completed per month">
+                <BarChart data={data.charts.completed_per_month}><CartesianGrid strokeDasharray="3 3" stroke="#eee"/>
+                  <XAxis dataKey="month"/><YAxis/><Tooltip/><Bar dataKey="completed" fill="#3A6B8C"/>
+                </BarChart>
+              </ChartCard>
+              <ChartCard title="Cycle time histogram">
+                <BarChart data={data.charts.cycle_histogram}><CartesianGrid strokeDasharray="3 3" stroke="#eee"/>
+                  <XAxis dataKey="bucket"/><YAxis/><Tooltip/><Bar dataKey="count" fill="#F5C518"/>
+                </BarChart>
+              </ChartCard>
+            </div>
+          )}
+          {key === "vehicles" && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <ChartCard title="Assignments per vehicle">
+                <BarChart data={data.charts.assignments_per_vehicle}><CartesianGrid strokeDasharray="3 3" stroke="#eee"/>
+                  <XAxis dataKey="vehicle"/><YAxis/><Tooltip/><Bar dataKey="assignments" fill="#3A6B8C"/>
+                </BarChart>
+              </ChartCard>
+              <ChartCard title="Status distribution">
+                <PieChart><Pie data={data.charts.status_distribution} dataKey="count" nameKey="status" outerRadius={80} label>
+                  {data.charts.status_distribution.map((_, i) => <Cell key={i} fill={PALETTE[i%PALETTE.length]}/>)}
+                </Pie><Tooltip/><Legend/></PieChart>
+              </ChartCard>
+            </div>
+          )}
+          {key === "employees" && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <ChartCard title="Assignments per employee">
+                <BarChart data={data.charts.assignments_per_employee}><CartesianGrid strokeDasharray="3 3" stroke="#eee"/>
+                  <XAxis dataKey="employee" tick={{fontSize:10}}/><YAxis/><Tooltip/><Bar dataKey="assignments" fill="#3A6B8C"/>
+                </BarChart>
+              </ChartCard>
+              <ChartCard title="Role distribution">
+                <PieChart><Pie data={data.charts.role_distribution} dataKey="count" nameKey="role" outerRadius={80} label>
+                  {data.charts.role_distribution.map((_, i) => <Cell key={i} fill={PALETTE[i%PALETTE.length]}/>)}
+                </Pie><Tooltip/><Legend/></PieChart>
+              </ChartCard>
+            </div>
+          )}
           {key === "invoices" && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <ChartCard title="Aging buckets ($)">

@@ -3080,6 +3080,51 @@ async def export_report(key: str, user: dict = Depends(get_current_user),
                     headers={"Content-Disposition": f"attachment; filename={key}-report.csv"})
 
 
+_DATA_EXPORT_COLLECTIONS = {
+    "customers": "customers", "projects": "projects", "quotes": "quotes",
+    "jobs": "jobs", "invoices": "invoices", "vehicles": "vehicles",
+    "employees": "employees", "audit": "audit_events",
+}
+
+@api_router.get("/data-export/{module}.csv")
+async def data_export(module: str, user: dict = Depends(get_current_user),
+                      date_from: Optional[str] = None, date_to: Optional[str] = None,
+                      include_deleted: bool = False, max_rows: int = Query(100000, ge=1, le=100000)):
+    if not user.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Super admin only")
+    if module not in _DATA_EXPORT_COLLECTIONS:
+        raise HTTPException(status_code=404, detail="Unknown module")
+    coll_name = _DATA_EXPORT_COLLECTIONS[module]
+    coll = getattr(db, coll_name)
+    q: Dict[str, Any] = {}
+    if not include_deleted and module != "audit": q["deleted_at"] = {"$in": [None]}
+    date_field = "timestamp" if module == "audit" else "created_at"
+    if date_from or date_to:
+        df, dt = _date_range_iso(date_from, date_to, default_days=10000)
+        q[date_field] = {"$gte": df, "$lte": dt}
+    import csv, io, json as _j
+    docs = await coll.find(q, {"_id": 0}).sort(date_field, -1).limit(max_rows + 1).to_list(max_rows + 1)
+    capped = len(docs) > max_rows
+    docs = docs[:max_rows]
+    cols: List[str] = []
+    seen = set()
+    for d in docs:
+        for k in d.keys():
+            if k not in seen: seen.add(k); cols.append(k)
+    buf = io.StringIO(); w = csv.writer(buf); w.writerow(cols)
+    for d in docs:
+        row = []
+        for c in cols:
+            v = d.get(c, "")
+            if isinstance(v, (list, dict)): v = _j.dumps(v, default=str)
+            row.append(v)
+        w.writerow(row)
+    if capped: w.writerow([f"--- EXPORT CAPPED AT {max_rows} ROWS ---"] + [""] * (len(cols) - 1))
+    headers = {"Content-Disposition": f"attachment; filename={module}-export.csv"}
+    if capped: headers["X-Export-Capped"] = "true"
+    return Response(content=buf.getvalue(), media_type="text/csv", headers=headers)
+
+
 app.include_router(api_router)
 app.add_middleware(CORSMiddleware,
     allow_credentials=True, allow_origins=os.environ.get('CORS_ORIGINS','*').split(','),
