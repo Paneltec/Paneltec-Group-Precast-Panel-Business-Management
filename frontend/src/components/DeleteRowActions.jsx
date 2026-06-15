@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Trash2, RotateCcw, Skull, Loader2, AlertTriangle } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import AppIcon from "./AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -33,7 +34,7 @@ export default function DeleteRowActions({ entity, row, label, canDelete, isSupe
           <button onClick={() => setConfirmSoft(true)} title="Delete"
             data-testid={`del-row-${row.id}`}
             className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50">
-            <Trash2 className="w-4 h-4"/>
+            <AppIcon name="delete" size={18} decorative/>
           </button>
         )}
         {isDeleted && canDelete && (
@@ -41,13 +42,13 @@ export default function DeleteRowActions({ entity, row, label, canDelete, isSupe
             <button onClick={() => setConfirmRestore(true)} title="Restore"
               data-testid={`restore-row-${row.id}`}
               className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33]">
-              <RotateCcw className="w-3 h-3"/> Restore
+              <AppIcon name="restore" size={14} decorative/> Restore
             </button>
             {isSuperAdmin && (
               <button onClick={() => setConfirmPerm(true)} title="Permanently delete"
                 data-testid={`perm-del-row-${row.id}`}
                 className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-red-900 hover:text-red-700 ml-2">
-                <Skull className="w-3 h-3"/> Permanently
+                <AppIcon name="hard_deleted" size={14} decorative/> Permanently
               </button>
             )}
           </>
@@ -81,7 +82,7 @@ function SoftDeleteConfirm({ open, onClose, entity, row, label, onDone }) {
       <DialogContent data-testid="soft-delete-dialog" className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-red-700 inline-flex items-center gap-2">
-            <Trash2 className="w-5 h-5"/> Delete {entity.slice(0,-1)}?
+            <AppIcon name="delete" size={22} decorative/> Delete {entity.slice(0,-1)}?
           </DialogTitle>
           <DialogDescription className="pt-2 text-sm text-gray-700">
             This will soft-delete <strong>{label(row)}</strong>. It will be hidden from default views
@@ -91,7 +92,7 @@ function SoftDeleteConfirm({ open, onClose, entity, row, label, onDone }) {
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} data-testid="soft-delete-cancel">Cancel</Button>
           <Button onClick={submit} disabled={busy} className="bg-red-600 text-white hover:bg-red-700" data-testid="soft-delete-confirm">
-            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Trash2 className="w-4 h-4 mr-2"/>} Delete
+            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="delete" size={16} className="mr-2" decorative/>} Delete
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -138,7 +139,7 @@ function PermDeleteConfirm({ open, onClose, entity, row, label, onDone }) {
       <DialogContent data-testid="perm-delete-dialog" className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-red-900 inline-flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5"/> Permanently delete — irreversible
+            <AppIcon name="warning" size={22} decorative/> Permanently delete — irreversible
           </DialogTitle>
           <DialogDescription className="pt-2 text-sm text-gray-700">
             Permanently remove <strong>{identifier}</strong>. This cannot be undone.
@@ -168,7 +169,7 @@ function PermDeleteConfirm({ open, onClose, entity, row, label, onDone }) {
           <Button onClick={submit} disabled={busy || blocked || !matches}
             className="bg-red-900 text-white hover:bg-red-800 disabled:opacity-40"
             data-testid="perm-delete-confirm">
-            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Skull className="w-4 h-4 mr-2"/>} Permanently delete
+            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="hard_deleted" size={16} className="mr-2" decorative/>} Permanently delete
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -193,7 +194,7 @@ function RestoreConfirm({ open, onClose, entity, row, label, onDone }) {
       <DialogContent data-testid="restore-dialog" className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-[#3A6B8C] inline-flex items-center gap-2">
-            <RotateCcw className="w-5 h-5"/> Restore?
+            <AppIcon name="restore" size={22} decorative/> Restore?
           </DialogTitle>
           <DialogDescription className="pt-2 text-sm text-gray-700">
             Reactivate <strong>{label(row)}</strong>. It will reappear in default views immediately.
@@ -202,7 +203,7 @@ function RestoreConfirm({ open, onClose, entity, row, label, onDone }) {
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} data-testid="restore-cancel">Cancel</Button>
           <Button onClick={submit} disabled={busy} className="bg-[#3A6B8C] text-white hover:bg-[#1F2A33]" data-testid="restore-confirm">
-            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <RotateCcw className="w-4 h-4 mr-2"/>} Restore
+            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="restore" size={16} className="mr-2" decorative/>} Restore
           </Button>
         </DialogFooter>
       </DialogContent>

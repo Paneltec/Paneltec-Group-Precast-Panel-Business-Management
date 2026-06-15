@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { Loader2, ArrowLeft, Save, Trash2, Mail, Printer } from "lucide-react";
+import { Loader2, ArrowLeft, Save, Trash2 } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -120,10 +121,10 @@ export default function CustomerForm() {
         {!isNew && (
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => openPrintPopup(`/customers/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold" data-testid="customer-print-btn">
-              <Printer className="w-4 h-4 mr-2"/> Print
+              <AppIcon name="print" size={18} className="mr-2" decorative/> Print
             </Button>
             <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold" data-testid="customer-email-btn">
-              <Mail className="w-4 h-4 mr-2"/> Email
+              <AppIcon name="email" size={18} className="mr-2" decorative/> Email
             </Button>
             <Button variant="outline" onClick={onDelete} data-testid="delete-customer-btn"
               className="border-red-300 text-red-700 hover:bg-red-50">

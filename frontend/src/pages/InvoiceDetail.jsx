@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Loader2, ArrowLeft, Send, Check, Printer, ExternalLink, Mail } from "lucide-react";
+import { Loader2, ArrowLeft, Check, ExternalLink } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -90,14 +91,14 @@ export default function InvoiceDetail() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => openPrintPopup(`/invoices/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="invoice-print-btn">
-            <Printer className="w-4 h-4 mr-2"/> Print
+            <AppIcon name="print" size={18} className="mr-2" decorative/> Print
           </Button>
           <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold h-10" data-testid="invoice-email-btn">
-            <Mail className="w-4 h-4 mr-2"/> Email
+            <AppIcon name="email" size={18} className="mr-2" decorative/> Email
           </Button>
           {inv.status === "draft" && hasPerm("invoices.issue") && (
             <Button onClick={issue} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-10" data-testid="invoice-issue-btn">
-              <Send className="w-4 h-4 mr-2"/> Issue
+              <AppIcon name="send" size={18} className="mr-2" decorative/> Issue
             </Button>
           )}
           {inv.status === "issued" && hasPerm("invoices.mark_paid") && (

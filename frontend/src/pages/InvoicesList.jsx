@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Loader2, Search, X, AlertTriangle, CheckCircle2, MinusCircle, XCircle } from "lucide-react";
+import { Loader2, Search, X } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -269,7 +270,7 @@ export default function InvoicesList() {
               </Button>
               <Button onClick={openConfirm} data-testid="bulk-xero-push-btn"
                       className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]">
-                Push to Xero
+                <AppIcon name="xero_push" size={16} className="mr-1.5" decorative/> Push to Xero
               </Button>
             </div>
           </div>
@@ -281,7 +282,7 @@ export default function InvoicesList() {
         <DialogContent data-testid="bulk-xero-confirm-dialog" className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-[#1F2A33] inline-flex items-center gap-2">
-              Push {selected.size} invoice{selected.size === 1 ? "" : "s"} to Xero
+              <AppIcon name="xero_push" size={22} decorative/> Push {selected.size} invoice{selected.size === 1 ? "" : "s"} to Xero
             </DialogTitle>
             <DialogDescription className="pt-2 text-sm text-gray-700">
               This is a MOCKED push (Xero integration lands in Phase 4). A mock Xero invoice ID will be recorded for each.
@@ -292,7 +293,7 @@ export default function InvoicesList() {
             <div className="bg-[#F5C518]/15 border border-[#F5C518] rounded p-3 text-sm"
                  data-testid="bulk-xero-prior-warning">
               <div className="font-bold uppercase tracking-wider text-xs text-[#1F2A33] inline-flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4"/> Prior push detected
+                <AppIcon name="warning" size={16} decorative/> Prior push detected
               </div>
               <div className="text-[#1F2A33]/85 text-xs mt-1.5">
                 {priorlyPushed.length} of {selected.size} selected invoice{priorlyPushed.length === 1 ? " was" : "s were"} already pushed:
@@ -361,9 +362,9 @@ export default function InvoicesList() {
                     {result.results.map((r, idx) => (
                       <tr key={idx} className="border-b border-gray-100 last:border-b-0">
                         <td className="px-2 py-1.5 w-6">
-                          {r.status === "MOCKED_PUSHED" && <CheckCircle2 className="w-4 h-4 text-green-700"/>}
-                          {r.status === "SKIPPED" && <MinusCircle className="w-4 h-4 text-gray-500"/>}
-                          {r.status === "ERROR" && <XCircle className="w-4 h-4 text-red-700"/>}
+                          {r.status === "MOCKED_PUSHED" && <AppIcon name="success" size={18} decorative/>}
+                          {r.status === "SKIPPED" && <AppIcon name="info" size={18} decorative/>}
+                          {r.status === "ERROR" && <AppIcon name="error" size={18} decorative/>}
                         </td>
                         <td className="px-2 py-1.5 font-semibold tabular-nums">{r.invoice_number || r.invoice_id}</td>
                         <td className="px-2 py-1.5 text-gray-600">{r.message || (r.xero_invoice_id ? `Mock ID: ${r.xero_invoice_id}` : "")}</td>

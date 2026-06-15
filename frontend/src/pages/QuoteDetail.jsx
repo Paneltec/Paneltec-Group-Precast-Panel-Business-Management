@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { Loader2, ArrowLeft, Send, Edit, Printer, Copy, Check, X, ExternalLink, Lock, ChevronDown, ChevronUp } from "lucide-react";
+import { Loader2, ArrowLeft, Copy, Check, X, ExternalLink, Lock, ChevronDown, ChevronUp } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { formatAUD, formatNumber, formatDateTime } from "../lib/format";
@@ -109,15 +110,15 @@ export default function QuoteDetail() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => openPrintPopup(`/quotes/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="quote-print-btn">
-            <Printer className="w-4 h-4 mr-2"/> Print
+            <AppIcon name="print" size={18} className="mr-2" decorative/> Print
           </Button>
           {quote.status === "draft" && (
             <>
               <Button variant="outline" onClick={() => navigate(`/quotes/${id}/edit`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="quote-edit-btn">
-                <Edit className="w-4 h-4 mr-2"/> Edit
+                <AppIcon name="edit" size={18} className="mr-2" decorative/> Edit
               </Button>
               <Button onClick={onSend} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-10" data-testid="quote-send-btn">
-                <Send className="w-4 h-4 mr-2"/> Send
+                <AppIcon name="send" size={18} className="mr-2" decorative/> Send
               </Button>
             </>
           )}
