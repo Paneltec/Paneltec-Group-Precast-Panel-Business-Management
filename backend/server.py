@@ -1191,6 +1191,42 @@ async def employee_refs_ep(eid: str, admin: dict = Depends(require_super_admin))
 # ===========================================================================
 # Audit endpoints
 # ===========================================================================
+async def _resolve_user_lite(uid: Optional[str], cache: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Return a small user reference for display: {id, name, email, is_deleted, exists}.
+    Returns None when uid is None/empty/'system'. Returns {exists:False} for missing/hard-deleted users."""
+    if not uid: return None
+    if uid == "system":
+        return {"id": "system", "name": "System", "email": "", "is_deleted": False, "exists": True}
+    if uid in cache: return cache[uid]
+    doc = await db.users.find_one({"id": uid}, {"_id": 0, "id": 1, "name": 1, "email": 1, "deleted_at": 1})
+    if not doc:
+        out = {"id": uid, "name": None, "email": None, "is_deleted": True, "exists": False}
+    else:
+        out = {"id": doc["id"], "name": doc.get("name") or "", "email": doc.get("email") or "",
+               "is_deleted": bool(doc.get("deleted_at")), "exists": True}
+    cache[uid] = out
+    return out
+
+async def populate_user_refs(doc: Dict[str, Any], fields: List[str], cache: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """For each UUID-valued field on doc, attach `<field>_user`={id,name,email,is_deleted,exists}.
+    Mutates and returns the doc."""
+    if not doc: return doc
+    cache = cache if cache is not None else {}
+    for f in fields:
+        uid = doc.get(f)
+        doc[f"{f}_user"] = await _resolve_user_lite(uid, cache)
+    return doc
+
+# Default user-ref fields for each entity type
+_USER_REF_FIELDS = {
+    "quote":    ["created_by", "last_email_sent_by_user_id"],
+    "job":      ["created_by", "cancelled_by"],
+    "invoice":  ["created_by", "last_email_sent_by_user_id", "last_xero_push_by_user_id"],
+    "customer": ["created_by_user_id", "updated_by_user_id", "deleted_by_user_id"],
+    "project":  ["created_by_user_id", "updated_by_user_id", "deleted_by_user_id"],
+}
+
+
 @api_router.get("/audit")
 async def list_audit(_u: dict = Depends(require_permission("audit.view")),
                       date_from: Optional[str] = None, date_to: Optional[str] = None,
@@ -1210,6 +1246,21 @@ async def list_audit(_u: dict = Depends(require_permission("audit.view")),
     skip = (page-1)*per_page
     items = await db.audit_events.find(q, {"_id":0}).sort("timestamp",-1).skip(skip).limit(per_page).to_list(per_page)
     return {"items": items, "total": total, "page": page, "per_page": per_page}
+
+@api_router.get("/audit/recent")
+async def audit_recent(_u: dict = Depends(require_permission("audit.view")),
+                        limit: int = Query(10, ge=1, le=50)):
+    """Convenience endpoint for the Dashboard Recent Activity widget.
+    Returns the last N events plus a today-counts summary by action."""
+    items = await db.audit_events.find({}, {"_id":0}).sort("timestamp",-1).limit(limit).to_list(limit)
+    start_today = datetime(now_utc().year, now_utc().month, now_utc().day, tzinfo=timezone.utc).isoformat()
+    summary_actions = ["quote_sent","quote_accepted","quote_rejected","invoice_issued","invoice_paid",
+                       "invoice_pushed_xero","status_changed","login_success","created","soft_deleted","restored","email_sent"]
+    today_summary: Dict[str, int] = {}
+    for a in summary_actions:
+        c = await db.audit_events.count_documents({"action": a, "timestamp": {"$gte": start_today}})
+        if c > 0: today_summary[a] = c
+    return {"items": items, "today_summary": today_summary, "today_start": start_today}
 
 @api_router.get("/audit/export.csv")
 async def export_audit(_u: dict = Depends(require_permission("audit.view")),
@@ -1636,7 +1687,7 @@ async def create_customer(payload: CustomerCreate, _user: dict = Depends(require
 async def get_customer(cid: str, _user: dict = Depends(require_permission("customers.view"))):
     doc = await db.customers.find_one({"id":cid}, {"_id":0})
     if not doc: raise HTTPException(status_code=404, detail="Customer not found")
-    return doc
+    return await populate_user_refs(doc, _USER_REF_FIELDS["customer"])
 
 @api_router.patch("/customers/{cid}")
 async def update_customer(cid: str, payload: CustomerUpdate, _user: dict = Depends(require_permission("customers.edit"))):
@@ -1696,7 +1747,7 @@ async def create_project(payload: ProjectCreate, _user: dict = Depends(require_p
 async def get_project(pid: str, _user: dict = Depends(require_permission("projects.view"))):
     doc = await db.projects.find_one({"id":pid}, {"_id":0})
     if not doc: raise HTTPException(status_code=404, detail="Project not found")
-    return doc
+    return await populate_user_refs(doc, _USER_REF_FIELDS["project"])
 
 @api_router.patch("/projects/{pid}")
 
@@ -1781,7 +1832,8 @@ async def create_quote(payload: QuoteCreate, user: dict = Depends(require_permis
 
 @api_router.get("/quotes/{qid}")
 async def get_quote(qid: str, _user: dict = Depends(require_permission("quotes.view"))):
-    return await _get_quote_or_404(qid)
+    q = await _get_quote_or_404(qid)
+    return await populate_user_refs(q, _USER_REF_FIELDS["quote"])
 
 @api_router.patch("/quotes/{qid}")
 async def update_quote(qid: str, payload: QuoteUpdate, _user: dict = Depends(require_permission("quotes.edit"))):
@@ -2097,7 +2149,13 @@ async def list_jobs(_user: dict = Depends(require_permission("jobs.view")),
 
 @api_router.get("/jobs/{jid}")
 async def get_job(jid: str, _user: dict = Depends(require_permission("jobs.view"))):
-    return await _get_job_or_404(jid)
+    job = await _get_job_or_404(jid)
+    cache: Dict[str, Any] = {}
+    await populate_user_refs(job, _USER_REF_FIELDS["job"], cache)
+    # status_history entries each carry by_user_id → resolve to a small ref
+    for h in (job.get("status_history") or []):
+        h["by_user"] = await _resolve_user_lite(h.get("by_user_id"), cache)
+    return job
 
 @api_router.patch("/jobs/{jid}")
 async def update_job(jid: str, payload: JobUpdate, _user: dict = Depends(require_permission("jobs.edit"))):
@@ -2189,12 +2247,21 @@ async def list_invoices(_user: dict = Depends(require_permission("invoices.view"
                          status_filter: Optional[str] = Query(None, alias="status"),
                          customer_id: Optional[str] = None, search: Optional[str] = Query(None),
                          page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200),
-                       lifecycle: str = Query("active")):
+                       lifecycle: str = Query("active"),
+                       xero_push_status: str = Query("all")):
     q: Dict[str, Any] = {}
     s = (lifecycle or "active").lower()
     if s not in ("active","deleted","all"): raise HTTPException(status_code=400, detail="lifecycle must be one of active|deleted|all")
     if s == "active": q["deleted_at"] = {"$in":[None]}
     elif s == "deleted": q["deleted_at"] = {"$ne": None}
+    xs = (xero_push_status or "all").lower()
+    if xs not in ("all","pending","pushed"):
+        raise HTTPException(status_code=400, detail="xero_push_status must be one of all|pending|pushed")
+    if xs == "pending":
+        q["status"] = "issued"
+        q["xero_push_status"] = {"$nin": ["MOCKED_PUSHED", "PUSHED"]}
+    elif xs == "pushed":
+        q["xero_push_status"] = {"$in": ["MOCKED_PUSHED", "PUSHED"]}
     if status_filter: q["status"] = status_filter
     if customer_id: q["customer_id"] = customer_id
     if search: q["invoice_number"] = re.compile(re.escape(search), re.IGNORECASE)
@@ -2220,7 +2287,8 @@ async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_pe
 
 @api_router.get("/invoices/{iid}")
 async def get_invoice(iid: str, _user: dict = Depends(require_permission("invoices.view"))):
-    return await _get_invoice_or_404(iid)
+    inv = await _get_invoice_or_404(iid)
+    return await populate_user_refs(inv, _USER_REF_FIELDS["invoice"])
 
 @api_router.patch("/invoices/{iid}")
 async def update_invoice(iid: str, payload: InvoiceUpdate, _user: dict = Depends(require_permission("invoices.create"))):
@@ -2332,6 +2400,11 @@ async def dashboard_kpis(_user: dict = Depends(get_current_user)):
     invoices_draft = await db.invoices.count_documents({"status":"draft", "deleted_at": {"$in": [None]}})
     invoices_issued = await db.invoices.count_documents({"status":"issued", "deleted_at": {"$in": [None]}})
     invoices_paid = await db.invoices.count_documents({"status":"paid", "deleted_at": {"$in": [None]}})
+    invoices_awaiting_xero_push = await db.invoices.count_documents({
+        "status": "issued",
+        "xero_push_status": {"$nin": ["MOCKED_PUSHED", "PUSHED"]},
+        "deleted_at": {"$in": [None]},
+    })
 
     outstanding = 0.0
     async for d in db.invoices.aggregate([{"$match":{"status":{"$in":["issued","overdue"]}}},
@@ -2360,6 +2433,7 @@ async def dashboard_kpis(_user: dict = Depends(get_current_user)):
         "accepted_this_month_aud":_round2(accepted_this_month),
         "jobs_by_status":jobs_by_status, "jobs_active":jobs_active,
         "invoices_draft":invoices_draft, "invoices_issued":invoices_issued, "invoices_paid":invoices_paid,
+        "invoices_awaiting_xero_push": invoices_awaiting_xero_push,
         "outstanding_aud":_round2(outstanding), "paid_this_month_aud":_round2(paid_this_month),
         "recent_quotes":recent_quotes, "recent_jobs":recent_jobs,
     }

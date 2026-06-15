@@ -6,6 +6,7 @@ import { Button } from "../components/ui/button";
 import { formatAUD, formatNumber, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
 import { openPrintPopup, openCustomerPreviewPopup } from "../lib/print";
+import UserBadge from "../components/UserBadge";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "../components/ui/dialog";
@@ -102,6 +103,9 @@ export default function QuoteDetail() {
           </div>
           <p className="text-sm text-gray-500 mt-1">For <Link to={`/customers/${customer.id}`} className="font-semibold text-[#3A6B8C] hover:text-[#1F2A33]">{customer.company_name}</Link>
             {project && <> · {project.project_name}</>} · Valid until {quote.valid_until}</p>
+          <p className="text-xs text-gray-500 mt-1" data-testid="quote-created-by">
+            Created by <UserBadge user={quote.created_by_user} testid="quote-created-by-badge" />
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => openPrintPopup(`/quotes/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="quote-print-btn">

@@ -11,6 +11,7 @@ import { Toaster, toast } from "sonner";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
 import { useAuth } from "../contexts/AuthContext";
 import { openPrintPopup } from "../lib/print";
+import UserBadge from "../components/UserBadge";
 
 const STATUS_STYLES = {
   draft:"bg-gray-100 text-gray-700",issued:"bg-blue-100 text-blue-800",
@@ -83,6 +84,9 @@ export default function InvoiceDetail() {
             <Link to={`/jobs/${inv.job_id}`} className="text-[#3A6B8C] hover:text-[#1F2A33]">Job {inv.job_number}</Link>
           </p>
           <LastEmailedLabel at={inv.last_email_sent_at} subject={inv.last_email_subject}/>
+          <p className="text-xs text-gray-500 mt-1" data-testid="invoice-created-by">
+            Created by <UserBadge user={inv.created_by_user} testid="invoice-created-by-badge" />
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => openPrintPopup(`/invoices/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="invoice-print-btn">

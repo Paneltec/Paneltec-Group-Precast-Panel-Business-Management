@@ -215,3 +215,45 @@ Backend curl 16/16 (incl. setup): soft delete + restore + login block + self-pro
 - Recent Activity widget on super-admin dashboard.
 - `(deleted)` / "Unknown user" badges on detail pages (created_by, status_history references).
 - Standalone `/projects` page (still accessed via CustomerForm projects sub-list).
+
+
+## Phase 6 Pass 5 — Audit Drawer Polish + Activity Widget + (deleted) Badges + Xero KPI (2026-06-15)
+
+### Implemented
+- **Audit page** (`/admin/audit`) — Dialog replaced with right-side **Sheet drawer** (~520 px). Drawer renders large action badge, absolute + relative timestamp, actor row with initials avatar, entity row with **Open <entity>** button (disabled w/ tooltip "Record no longer exists" if entity hard-deleted), pretty diff section (object diffs `{added, removed}` → green `+key` / red `−key`; scalar diffs `{from, to}` → strike-through red → arrow → green; long values truncate w/ hover tooltip), metadata section with light UA parsing.
+- **URL-bound filters** on audit page — `?action=&entity_type=&search=&date_from=&date_to=&page=&focus=`. Default date range is last 30 days. **Clear dates** button resets the range. Page is shareable/bookmarkable. `?focus=<event_id>` auto-opens that drawer (used by dashboard widget links).
+- **Recent Activity widget** on Dashboard (super-admin / `audit.view` gated) — "Today: …" summary line of non-zero action counts (`No activity yet today` when empty); last 10 events as compact rows; click row → `/admin/audit?focus=<id>` opens the drawer; "View all →" link.
+- **Invoices awaiting Xero push** KPI card on Dashboard (`invoices.view` gated) — large count, click navigates to `/invoices?xero_push_status=pending` with the filter pre-applied.
+- **`xero_push_status` filter** on `/invoices` — both backend (`?xero_push_status=pending|pushed|all`, default `all`) and UI dropdown + URL-synced state.
+- **`<UserBadge user={u}/>`** component — single source of truth for user-reference rendering: `name` for active, `name (deleted)` muted italic for soft-deleted, `Unknown user` muted italic for hard-deleted, `—` for null. Wired into QuoteDetail header (`created_by_user`), JobDetail status_history rows (`by_user`), InvoiceDetail header (`created_by_user`).
+- **Server-side user-ref population** — added `populate_user_refs(doc, fields)` helper + `_resolve_user_lite(uid)` (with per-request cache). Applied to `GET /api/quotes/{id}`, `GET /api/jobs/{id}` (incl. each `status_history` entry), `GET /api/invoices/{id}`, `GET /api/customers/{id}`, `GET /api/projects/{id}`. Each user-id field gets a sibling `<field>_user` of shape `{id, name, email, is_deleted, exists}`.
+
+### New / changed endpoints
+- `GET /api/audit/recent?limit=10` (`audit.view`) — returns `{items, today_summary, today_start}`. `today_summary` is a dict of non-zero action counts since UTC midnight.
+- `GET /api/invoices` — adds `xero_push_status: all|pending|pushed` (default `all`). `pending` is defined as `status=issued AND xero_push_status NOT IN [MOCKED_PUSHED, PUSHED]`.
+- `GET /api/dashboard/kpis` — adds `invoices_awaiting_xero_push: int`.
+- `GET /api/{quotes|jobs|invoices|customers|projects}/{id}` — response shape now includes resolved `*_user` reference fields.
+
+### Self-tested (10/10 PASS via Playwright)
+1. Drawer is right-side (`audit-detail-drawer` exists, header structure rendered) ✓
+2. Date range filter present; URL updates with `?date_from=…` ✓ (verified `URL after date filter: ...?date_from=2026-06-01&page=1`)
+3. "Open <entity>" button present in drawer with valid entity (existence check via `ENTITY_FETCH` map) ✓
+4. PrettyDiff renders scalar + added/removed cases (component verified) ✓
+5. Super-admin Dashboard shows `recent-activity-card` + `xero-pending-kpi-card` (`summary="Today: 5 logins · 1 deletion"`, `xero_count="0"`) ✓
+6. Quote detail `Created by Ref User (DELETED)` rendered correctly (test user is soft-deleted) ✓
+7. Job status_history: first entry shows `by Unknown user` (magic-link author is missing → exists:false) ✓
+8. `?xero_push_status=pending` filter shows correct empty list ✓ + KPI card clickable
+9. Backend filter verified: `/api/invoices?xero_push_status=pending` returns 0; `/api/invoices?xero_push_status=pushed` returns 3 ✓
+10. No regressions detected (0 console errors / 0 page errors across navigation) ✓
+
+### Files touched
+- `/app/backend/server.py` (helper + user-ref wiring + new endpoint + KPI + invoices filter)
+- `/app/frontend/src/components/UserBadge.jsx` (new)
+- `/app/frontend/src/pages/Audit.jsx` (rewrite for Sheet drawer + date filters + URL sync + PrettyDiff + UA parser)
+- `/app/frontend/src/pages/Dashboard.jsx` (Recent Activity + Xero KPI cards)
+- `/app/frontend/src/pages/InvoicesList.jsx` (xero_push_status URL filter + dropdown)
+- `/app/frontend/src/pages/QuoteDetail.jsx`, `JobDetail.jsx`, `InvoiceDetail.jsx` (UserBadge integration)
+
+### Phase 6 — COMPLETE
+Next: Phase 7 — Pricing model upgrade (Cost vs Sell + labour per panel type & finish + margin display on calculator and quote builder).
+

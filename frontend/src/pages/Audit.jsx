@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Download, FileSearch } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Loader2, RefreshCw, Download, FileSearch, ArrowRight, ExternalLink, X } from "lucide-react";
 import { api, formatApiErrorDetail, tokenStore } from "../lib/api";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Toaster, toast } from "sonner";
 import { formatDateTime } from "../lib/format";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from "../components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+import UserBadge from "../components/UserBadge";
 
 const ACTIONS = ["created","updated","soft_deleted","hard_deleted","restored","status_changed",
   "login_success","login_failed","password_changed","password_reset","permission_changed",
@@ -30,43 +35,220 @@ const ACTION_COLOR = {
   email_sent:"bg-blue-100 text-blue-800", settings_changed:"bg-slate-100 text-slate-800",
 };
 
+const ENTITY_ROUTE = {
+  customer: (id) => `/customers/${id}`,
+  project:  (id) => `/customers`,            // projects live under their customer page
+  quote:    (id) => `/quotes/${id}`,
+  job:      (id) => `/jobs/${id}`,
+  invoice:  (id) => `/invoices/${id}`,
+  vehicle:  (id) => `/vehicles/${id}`,
+  employee: (id) => `/employees/${id}`,
+  user:     (id) => `/users`,
+};
+
+const ENTITY_FETCH = {
+  customer: (id) => `/customers/${id}`,
+  project:  (id) => `/projects/${id}`,
+  quote:    (id) => `/quotes/${id}`,
+  job:      (id) => `/jobs/${id}`,
+  invoice:  (id) => `/invoices/${id}`,
+  vehicle:  (id) => `/vehicles/${id}`,
+  employee: (id) => `/employees/${id}`,
+  user:     (id) => `/users/${id}/references`, // /users/{id} has no GET, use refs as existence probe
+};
+
+// Tiny UA → readable name parser (no dep)
+function parseUserAgent(ua) {
+  if (!ua) return null;
+  const browser =
+    /Edg\/([\d.]+)/.exec(ua)?.[0]?.replace("Edg/", "Edge ") ||
+    /OPR\/([\d.]+)/.exec(ua)?.[0]?.replace("OPR/", "Opera ") ||
+    /Chrome\/([\d.]+)/.exec(ua)?.[0]?.replace("Chrome/", "Chrome ") ||
+    /Firefox\/([\d.]+)/.exec(ua)?.[0]?.replace("Firefox/", "Firefox ") ||
+    /Safari\/([\d.]+)/.exec(ua)?.[0]?.replace("Safari/", "Safari ") ||
+    "Unknown browser";
+  const os =
+    (/Mac OS X ([\d_]+)/.exec(ua) ? "macOS " + RegExp.$1.replace(/_/g, ".") : null) ||
+    (/Windows NT ([\d.]+)/.exec(ua) ? "Windows " + RegExp.$1 : null) ||
+    (/Android ([\d.]+)/.exec(ua) ? "Android " + RegExp.$1 : null) ||
+    (/iPhone OS ([\d_]+)/.exec(ua) ? "iOS " + RegExp.$1.replace(/_/g, ".") : null) ||
+    (/Linux/.exec(ua) ? "Linux" : null) ||
+    "Unknown OS";
+  return `${browser.split(".")[0]} on ${os}`;
+}
+
+function relativeTime(iso) {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  const diff = Date.now() - t;
+  const abs = Math.abs(diff);
+  const m = Math.round(abs / 60000);
+  const h = Math.round(abs / 3600000);
+  const d = Math.round(abs / 86400000);
+  const past = diff >= 0;
+  const fmt = (n, unit) => `${n} ${unit}${n === 1 ? "" : "s"} ${past ? "ago" : "from now"}`;
+  if (m < 1) return "just now";
+  if (m < 60) return fmt(m, "min");
+  if (h < 24) return fmt(h, "hour");
+  if (d < 30) return fmt(d, "day");
+  return new Date(iso).toLocaleDateString("en-AU");
+}
+
+function isScalarDiff(v) {
+  return v && typeof v === "object" && !Array.isArray(v) && "from" in v && "to" in v
+    && (typeof v.from !== "object" || v.from === null)
+    && (typeof v.to   !== "object" || v.to   === null);
+}
+function isAddedRemovedDiff(v) {
+  return v && typeof v === "object" && !Array.isArray(v) && ("added" in v || "removed" in v);
+}
+
+function PrettyDiff({ changes }) {
+  if (!changes || (typeof changes === "object" && Object.keys(changes).length === 0)) {
+    return <div className="text-xs text-gray-400">No changes recorded.</div>;
+  }
+  return (
+    <div className="space-y-3 text-sm">
+      {Object.entries(changes).map(([key, v]) => {
+        if (isAddedRemovedDiff(v)) {
+          const added = v.added || [];
+          const removed = v.removed || [];
+          return (
+            <div key={key} className="bg-gray-50 border border-gray-200 rounded p-3" data-testid={`diff-${key}`}>
+              <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-1.5">{key}</div>
+              <div className="space-y-0.5 font-mono text-[11px]">
+                {added.map((k, i) => (<div key={`a${i}`} className="text-green-700"><span className="bg-green-100 px-1 rounded">+ {String(k)}</span></div>))}
+                {removed.map((k, i) => (<div key={`r${i}`} className="text-red-700"><span className="bg-red-100 px-1 rounded">− {String(k)}</span></div>))}
+              </div>
+            </div>
+          );
+        }
+        if (isScalarDiff(v)) {
+          const renderVal = (val) => {
+            const s = val === null || val === undefined ? "∅" : String(val);
+            return s.length > 80 ? (
+              <Tooltip>
+                <TooltipTrigger asChild><span className="truncate inline-block max-w-[18ch] align-bottom underline decoration-dotted">{s.slice(0, 78)}…</span></TooltipTrigger>
+                <TooltipContent className="max-w-md break-words">{s}</TooltipContent>
+              </Tooltip>
+            ) : s;
+          };
+          return (
+            <div key={key} className="bg-gray-50 border border-gray-200 rounded p-3 flex items-center gap-2" data-testid={`diff-${key}`}>
+              <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] w-32 shrink-0">{key}</div>
+              <div className="font-mono text-[11px] flex-1 flex items-center gap-2 flex-wrap">
+                <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded line-through">{renderVal(v.from)}</span>
+                <ArrowRight className="w-3 h-3 text-gray-400 shrink-0"/>
+                <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded">{renderVal(v.to)}</span>
+              </div>
+            </div>
+          );
+        }
+        // fallback: dump as compact JSON
+        return (
+          <div key={key} className="bg-gray-50 border border-gray-200 rounded p-3" data-testid={`diff-${key}`}>
+            <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-1.5">{key}</div>
+            <pre className="text-[11px] font-mono overflow-x-auto">{JSON.stringify(v, null, 2)}</pre>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function initialsOf(name, email) {
+  const s = (name || email || "?").trim();
+  const parts = s.split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return s.slice(0, 2).toUpperCase();
+}
+
+function defaultDate(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function AuditPage() {
   const [items, setItems] = useState(null);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const perPage = 50;
-  const [action, setAction] = useState("");
-  const [entityType, setEntityType] = useState("");
-  const [search, setSearch] = useState("");
   const [drawer, setDrawer] = useState(null);
+  const [entityExists, setEntityExists] = useState(null); // for "Open <entity>" guard
+  const [params, setParams] = useSearchParams();
+
+  // ----- URL-bound filter state -----
+  const page = parseInt(params.get("page") || "1", 10);
+  const action = params.get("action") || "";
+  const entityType = params.get("entity_type") || "";
+  const search = params.get("search") || "";
+  const dateFrom = params.get("date_from") || defaultDate(-30);
+  const dateTo = params.get("date_to") || defaultDate(0);
+  const focusId = params.get("focus") || "";
+  const perPage = 50;
+
+  const setFilter = (patch) => {
+    const next = new URLSearchParams(params);
+    Object.entries(patch).forEach(([k, v]) => {
+      if (v === "" || v === null || v === undefined) next.delete(k);
+      else next.set(k, String(v));
+    });
+    setParams(next, { replace: false });
+  };
+
+  const [searchInput, setSearchInput] = useState(search);
+  useEffect(() => { setSearchInput(search); }, [search]);
 
   const load = async () => {
     setItems(null);
     try {
-      const params = new URLSearchParams();
-      params.set("page", String(page));
-      params.set("per_page", String(perPage));
-      if (action) params.set("action", action);
-      if (entityType) params.set("entity_type", entityType);
-      if (search) params.set("search", search);
-      const { data } = await api.get(`/audit?${params}`);
-      setItems(data.items);
-      setTotal(data.total);
+      const qp = new URLSearchParams();
+      qp.set("page", String(page));
+      qp.set("per_page", String(perPage));
+      if (action) qp.set("action", action);
+      if (entityType) qp.set("entity_type", entityType);
+      if (search) qp.set("search", search);
+      // Treat the date inputs as ISO date strings; broaden to full day on `to`
+      if (dateFrom) qp.set("date_from", new Date(`${dateFrom}T00:00:00Z`).toISOString());
+      if (dateTo)   qp.set("date_to",   new Date(`${dateTo}T23:59:59.999Z`).toISOString());
+      const { data } = await api.get(`/audit?${qp}`);
+      setItems(data.items); setTotal(data.total);
+      // If ?focus=<eventId> is set, auto-open that event's drawer
+      if (focusId && !drawer) {
+        const target = data.items.find((e) => e.id === focusId);
+        if (target) setDrawer(target);
+        else {
+          // Try direct fetch (could be on a different page)
+          try { const { data: ev } = await api.get(`/audit/${focusId}`); setDrawer(ev); } catch (_) {}
+        }
+      }
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [page, action, entityType]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ },
+    [page, action, entityType, search, dateFrom, dateTo]);
+
+  // Check entity existence when drawer opens
+  useEffect(() => {
+    if (!drawer) { setEntityExists(null); return; }
+    if (!drawer.entity_id || !ENTITY_FETCH[drawer.entity_type]) { setEntityExists(false); return; }
+    setEntityExists(null);
+    api.get(ENTITY_FETCH[drawer.entity_type](drawer.entity_id))
+      .then(() => setEntityExists(true))
+      .catch(() => setEntityExists(false));
+    // eslint-disable-next-line
+  }, [drawer?.id]);
 
   const csvExport = () => {
-    const params = new URLSearchParams();
-    if (action) params.set("action", action);
-    if (entityType) params.set("entity_type", entityType);
-    if (search) params.set("search", search);
+    const qp = new URLSearchParams();
+    if (action) qp.set("action", action);
+    if (entityType) qp.set("entity_type", entityType);
+    if (search) qp.set("search", search);
+    if (dateFrom) qp.set("date_from", new Date(`${dateFrom}T00:00:00Z`).toISOString());
+    if (dateTo)   qp.set("date_to",   new Date(`${dateTo}T23:59:59.999Z`).toISOString());
     const token = tokenStore.get();
-    // browser can't add Authorization header for direct GET; fetch + blob it
-    fetch(`${process.env.REACT_APP_BACKEND_URL}/api/audit/export.csv?${params}`,
+    fetch(`${process.env.REACT_APP_BACKEND_URL}/api/audit/export.csv?${qp}`,
         { headers: { Authorization: `Bearer ${token}` }})
       .then(r => r.blob())
       .then(blob => {
@@ -79,7 +261,16 @@ export default function AuditPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
 
+  const closeDrawer = () => { setDrawer(null); if (focusId) setFilter({ focus: null }); };
+
+  const drawerEntityHref = useMemo(() => {
+    if (!drawer || !drawer.entity_id) return null;
+    const make = ENTITY_ROUTE[drawer.entity_type];
+    return make ? make(drawer.entity_id) : null;
+  }, [drawer]);
+
   return (
+    <TooltipProvider>
     <div className="space-y-5" data-testid="audit-page">
       <Toaster richColors position="top-right" />
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
@@ -101,31 +292,47 @@ export default function AuditPage() {
       </div>
 
       <div className="flex flex-wrap gap-2 items-center bg-white border border-gray-200 rounded p-3">
-        <Input placeholder="Search entity label / actor email" value={search}
-          onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (setPage(1), load())}
-          className="w-72" data-testid="audit-search"/>
-        <Select value={action || "all"} onValueChange={(v) => { setAction(v === "all" ? "" : v); setPage(1); }}>
-          <SelectTrigger className="w-52" data-testid="audit-action-filter"><SelectValue placeholder="Action"/></SelectTrigger>
+        <Input placeholder="Search entity label / actor email" value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && setFilter({ search: searchInput || null, page: 1 })}
+          className="w-64" data-testid="audit-search"/>
+        <Select value={action || "all"} onValueChange={(v) => setFilter({ action: v === "all" ? null : v, page: 1 })}>
+          <SelectTrigger className="w-48" data-testid="audit-action-filter"><SelectValue placeholder="Action"/></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All actions</SelectItem>
             {ACTIONS.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Select value={entityType || "all"} onValueChange={(v) => { setEntityType(v === "all" ? "" : v); setPage(1); }}>
-          <SelectTrigger className="w-52" data-testid="audit-entity-filter"><SelectValue placeholder="Entity"/></SelectTrigger>
+        <Select value={entityType || "all"} onValueChange={(v) => setFilter({ entity_type: v === "all" ? null : v, page: 1 })}>
+          <SelectTrigger className="w-48" data-testid="audit-entity-filter"><SelectValue placeholder="Entity"/></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All entities</SelectItem>
             {ENTITIES.map((e) => <SelectItem key={e} value={e}>{e}</SelectItem>)}
           </SelectContent>
         </Select>
-        <div className="ml-auto text-xs text-gray-500">{total.toLocaleString()} events</div>
+
+        {/* Date range */}
+        <div className="flex items-center gap-1.5 ml-1">
+          <label className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">From</label>
+          <Input type="date" value={dateFrom} onChange={(e) => setFilter({ date_from: e.target.value || null, page: 1 })}
+                 className="w-40 h-9" data-testid="audit-date-from"/>
+          <label className="text-[10px] uppercase tracking-wider text-gray-500 font-bold ml-1">To</label>
+          <Input type="date" value={dateTo} onChange={(e) => setFilter({ date_to: e.target.value || null, page: 1 })}
+                 className="w-40 h-9" data-testid="audit-date-to"/>
+          <Button variant="ghost" size="sm" data-testid="audit-clear-dates"
+                  onClick={() => setFilter({ date_from: null, date_to: null, page: 1 })}>
+            <X className="w-3.5 h-3.5 mr-1"/> Clear dates
+          </Button>
+        </div>
+
+        <div className="ml-auto text-xs text-gray-500" data-testid="audit-total">{total.toLocaleString()} events</div>
       </div>
 
       <div className="bg-white border border-gray-200 rounded overflow-hidden">
         {items === null ? (
           <div className="p-6 flex items-center gap-2 text-sm text-gray-500"><Loader2 className="w-4 h-4 animate-spin"/> Loading…</div>
         ) : items.length === 0 ? (
-          <div className="p-6 text-sm text-gray-500">No events match the filters.</div>
+          <div className="p-6 text-sm text-gray-500" data-testid="audit-empty">No events match the filters.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -140,7 +347,7 @@ export default function AuditPage() {
                 </tr>
               </thead>
               <tbody data-testid="audit-table">
-                {items.map((e) => (
+                {(items ?? []).map((e) => (
                   <tr key={e.id} onClick={() => setDrawer(e)}
                     className="border-t border-gray-200 hover:bg-gray-50 cursor-pointer"
                     data-testid={`audit-row-${e.id}`}>
@@ -165,47 +372,117 @@ export default function AuditPage() {
         )}
       </div>
 
-      {/* Pagination */}
       <div className="flex justify-between items-center text-xs text-gray-500">
         <div>Page {page} of {totalPages}</div>
         <div className="flex gap-1">
-          <Button variant="outline" size="sm" disabled={page<=1} onClick={() => setPage(p=>p-1)} data-testid="audit-prev">Prev</Button>
-          <Button variant="outline" size="sm" disabled={page>=totalPages} onClick={() => setPage(p=>p+1)} data-testid="audit-next">Next</Button>
+          <Button variant="outline" size="sm" disabled={page<=1} onClick={() => setFilter({ page: page - 1 })} data-testid="audit-prev">Prev</Button>
+          <Button variant="outline" size="sm" disabled={page>=totalPages} onClick={() => setFilter({ page: page + 1 })} data-testid="audit-next">Next</Button>
         </div>
       </div>
 
-      <Dialog open={!!drawer} onOpenChange={(v) => { if (!v) setDrawer(null); }}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="audit-detail-dialog">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${ACTION_COLOR[drawer?.action] || "bg-gray-100 text-gray-700"}`}>{drawer?.action}</span>
-              <span className="font-mono">{drawer?.entity_label}</span>
-            </DialogTitle>
-          </DialogHeader>
+      {/* ===== Right-side drawer ===== */}
+      <Sheet open={!!drawer} onOpenChange={(v) => { if (!v) closeDrawer(); }}>
+        <SheetContent side="right" data-testid="audit-detail-drawer"
+                      className="w-full sm:max-w-[520px] overflow-y-auto p-0">
           {drawer && (
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-3">
-                <div><div className="overline">When</div><div className="font-mono text-xs">{drawer.timestamp}</div></div>
-                <div><div className="overline">Actor</div><div>{drawer.actor_name} <span className="text-gray-400">({drawer.actor_email})</span></div></div>
-                <div><div className="overline">Entity Type</div><div>{drawer.entity_type}</div></div>
-                <div><div className="overline">Entity ID</div><div className="font-mono text-[11px]">{drawer.entity_id || "—"}</div></div>
+            <div className="flex flex-col h-full">
+              <SheetHeader className="p-5 border-b border-gray-200 bg-gray-50">
+                <SheetTitle className="flex items-center gap-2 text-base">
+                  <span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded ${ACTION_COLOR[drawer.action] || "bg-gray-100 text-gray-700"}`}
+                        data-testid="drawer-action-badge">{drawer.action}</span>
+                  <span className="font-mono text-[#1F2A33] truncate">{drawer.entity_label || "—"}</span>
+                </SheetTitle>
+                <SheetDescription className="text-xs">
+                  <span className="text-gray-700 font-semibold">{formatDateTime(drawer.timestamp)}</span>
+                  <span className="text-gray-400"> · {relativeTime(drawer.timestamp)}</span>
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="p-5 space-y-5 text-sm">
+                {/* Actor */}
+                <section>
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-1.5">Actor</div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-[#3A6B8C] text-white flex items-center justify-center text-xs font-bold tracking-wider">
+                      {initialsOf(drawer.actor_name, drawer.actor_email)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-[#1F2A33] truncate" data-testid="drawer-actor-name">
+                        {drawer.actor_name || "System"}
+                      </div>
+                      <div className="text-xs text-gray-500 truncate">{drawer.actor_email}</div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Entity */}
+                <section>
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-1.5">Entity</div>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div>
+                      <span className="text-[10px] uppercase tracking-wider bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded mr-2">{drawer.entity_type}</span>
+                      <span className="font-mono text-[12px] text-[#1F2A33]">{drawer.entity_label || "—"}</span>
+                      {drawer.entity_id && <div className="text-[10px] font-mono text-gray-400 mt-1">{drawer.entity_id}</div>}
+                    </div>
+                    {drawerEntityHref ? (
+                      entityExists === false ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span>
+                              <Button size="sm" variant="outline" disabled data-testid="drawer-open-entity-btn"
+                                      className="border-gray-200 text-gray-400 cursor-not-allowed">
+                                <ExternalLink className="w-3.5 h-3.5 mr-1.5"/> Open {drawer.entity_type}
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>Record no longer exists</TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <a href={drawerEntityHref} data-testid="drawer-open-entity-btn"
+                           className="inline-flex items-center text-xs font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33] border border-[#3A6B8C] rounded px-2.5 py-1.5">
+                          <ExternalLink className="w-3.5 h-3.5 mr-1.5"/> Open {drawer.entity_type}
+                        </a>
+                      )
+                    ) : null}
+                  </div>
+                </section>
+
+                {/* Changes */}
+                <section data-testid="drawer-changes-section">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-1.5">Changes</div>
+                  <PrettyDiff changes={drawer.changes} />
+                </section>
+
+                {/* Metadata */}
+                {drawer.metadata && Object.keys(drawer.metadata).length > 0 && (
+                  <section data-testid="drawer-metadata-section">
+                    <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-1.5">Metadata</div>
+                    <div className="bg-gray-50 border border-gray-200 rounded p-3 space-y-1">
+                      {Object.entries(drawer.metadata).map(([k, v]) => {
+                        let display = String(v);
+                        if (k === "user_agent" || k === "ua") {
+                          const parsed = parseUserAgent(String(v));
+                          if (parsed) display = parsed;
+                        }
+                        return (
+                          <div key={k} className="text-xs flex gap-2">
+                            <span className="text-[10px] uppercase tracking-wider font-bold text-gray-500 w-24 shrink-0">{k}</span>
+                            <span className="text-[#1F2A33] font-mono break-all">{display}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
               </div>
-              {drawer.changes && (
-                <div>
-                  <div className="overline mb-1">Changes</div>
-                  <pre className="bg-gray-50 border border-gray-200 rounded p-3 text-[11px] overflow-x-auto">{JSON.stringify(drawer.changes, null, 2)}</pre>
-                </div>
-              )}
-              {drawer.metadata && Object.keys(drawer.metadata).length > 0 && (
-                <div>
-                  <div className="overline mb-1">Metadata</div>
-                  <pre className="bg-gray-50 border border-gray-200 rounded p-3 text-[11px] overflow-x-auto">{JSON.stringify(drawer.metadata, null, 2)}</pre>
-                </div>
-              )}
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </div>
+    </TooltipProvider>
   );
 }
+
+// Helper so `<UserBadge/>` is reachable for tree-shaking checks (not directly used here).
+export { UserBadge };

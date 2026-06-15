@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Loader2, Search, X, AlertTriangle, CheckCircle2, MinusCircle, XCircle } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
@@ -32,6 +32,13 @@ export default function InvoicesList() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [lifecycleFilter, setLifecycleFilter] = useState("active");
+  const [urlParams, setUrlParams] = useSearchParams();
+  const xeroFilter = urlParams.get("xero_push_status") || "all";
+  const setXeroFilter = (v) => {
+    const next = new URLSearchParams(urlParams);
+    if (!v || v === "all") next.delete("xero_push_status"); else next.set("xero_push_status", v);
+    setUrlParams(next, { replace: false });
+  };
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(() => new Set());
@@ -48,6 +55,7 @@ export default function InvoicesList() {
       const params = { page, page_size: 25, lifecycle: lifecycleFilter };
       if (search) params.search = search;
       if (statusFilter && statusFilter !== "all") params.status = statusFilter;
+      if (xeroFilter && xeroFilter !== "all") params.xero_push_status = xeroFilter;
       const { data } = await api.get("/invoices", { params });
       setData(data);
       // Drop selections that are no longer present
@@ -59,7 +67,7 @@ export default function InvoicesList() {
       });
     } catch (e) { setError(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, statusFilter, lifecycleFilter]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, statusFilter, lifecycleFilter, xeroFilter]);
 
   const selectableRows = useMemo(
     () => (data?.items || []).filter(i => !i.deleted_at),
@@ -147,6 +155,14 @@ export default function InvoicesList() {
             <SelectItem value="active" data-testid="lifecycle-filter-active">Active</SelectItem>
             <SelectItem value="deleted" data-testid="lifecycle-filter-deleted">Deleted</SelectItem>
             <SelectItem value="all" data-testid="lifecycle-filter-all">All</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={xeroFilter} onValueChange={(v) => { setXeroFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-44 h-10" data-testid="xero-push-filter"><SelectValue/></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" data-testid="xero-push-filter-all">All Xero states</SelectItem>
+            <SelectItem value="pending" data-testid="xero-push-filter-pending">Awaiting Xero push</SelectItem>
+            <SelectItem value="pushed" data-testid="xero-push-filter-pushed">Pushed to Xero</SelectItem>
           </SelectContent>
         </Select>
       </div>

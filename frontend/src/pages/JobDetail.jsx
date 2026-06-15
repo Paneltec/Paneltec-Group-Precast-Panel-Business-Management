@@ -13,6 +13,7 @@ import { Toaster, toast } from "sonner";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
 import { useAuth } from "../contexts/AuthContext";
 import { openPrintPopup } from "../lib/print";
+import UserBadge from "../components/UserBadge";
 
 const ORDER = ["scheduled","in_production","ready_for_delivery","delivered","installed","completed"];
 const STATUS_STYLES = {
@@ -257,6 +258,9 @@ export default function JobDetail() {
                 <span className="text-xs font-bold uppercase tracking-wider text-[#1F2A33]">
                   {h.from || "—"} → {h.to}
                 </span>
+                <div className="text-[10px] text-gray-500" data-testid={`status-history-by-${i}`}>
+                  by <UserBadge user={h.by_user} fallback="System" />
+                </div>
                 {h.note && <div className="text-xs text-gray-600 mt-0.5">{h.note}</div>}
               </div>
             </li>
