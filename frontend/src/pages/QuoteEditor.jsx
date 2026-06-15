@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { Loader2, ArrowLeft, Save, Send, Plus, Trash2, Edit2 } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -224,7 +225,7 @@ export default function QuoteEditor() {
               <h2 className="text-sm font-bold uppercase tracking-[0.15em] text-[#3A6B8C]">Line items</h2>
               <Button onClick={() => setLineDialog({ open: true, mode: "add", line: null })}
                 className="bg-[#3A6B8C] text-white hover:bg-[#2C526B] h-9" data-testid="add-line-btn">
-                <Plus className="w-4 h-4 mr-1"/> Add line
+                <AppIcon name="add" size={16} className="mr-1" decorative/> Add line
               </Button>
             </div>
             {(quote?.line_items?.length || 0) === 0 ? (
@@ -255,8 +256,8 @@ export default function QuoteEditor() {
                         <td className="px-3 py-2.5 text-right tabular-nums">{formatAUD(l.subtotal_aud)}</td>
                         <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{formatAUD(l.total_aud)}</td>
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                          <button onClick={() => setLineDialog({ open: true, mode: "edit", line: l })} className="p-1.5 hover:bg-gray-100 rounded" data-testid={`edit-line-${l.id}`}><Edit2 className="w-3.5 h-3.5"/></button>
-                          <button onClick={() => onLineDelete(l.id)} className="p-1.5 hover:bg-red-50 text-red-600 rounded ml-1" data-testid={`delete-line-${l.id}`}><Trash2 className="w-3.5 h-3.5"/></button>
+                          <button onClick={() => setLineDialog({ open: true, mode: "edit", line: l })} className="p-1.5 hover:bg-gray-100 rounded" data-testid={`edit-line-${l.id}`}><AppIcon name="edit" size={14} decorative/></button>
+                          <button onClick={() => onLineDelete(l.id)} className="p-1.5 hover:bg-red-50 text-red-600 rounded ml-1" data-testid={`delete-line-${l.id}`}><AppIcon name="delete" size={14} decorative/></button>
                         </td>
                       </tr>
                     ))}
@@ -298,10 +299,10 @@ export default function QuoteEditor() {
 
             <div className="bg-white border border-gray-200 rounded p-6 space-y-2">
               <Button onClick={saveTopFields} variant="outline" className="w-full border-[#1F2A33] text-[#1F2A33] font-semibold h-11" data-testid="quote-save-draft">
-                <Save className="w-4 h-4 mr-2"/> Save draft
+                <AppIcon name="save" size={16} className="mr-2" decorative/> Save draft
               </Button>
               <Button onClick={onSend} className="w-full bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-11" data-testid="quote-save-send">
-                <Send className="w-4 h-4 mr-2"/> Save &amp; Send
+                <AppIcon name="send" size={16} className="mr-2" decorative/> Save &amp; Send
               </Button>
             </div>
           </div>

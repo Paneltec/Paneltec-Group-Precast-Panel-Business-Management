@@ -1,12 +1,13 @@
 import { Link } from "react-router-dom";
 import { ShieldAlert, ArrowLeft } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 
 export default function Forbidden({ requiredLabel = "" }) {
   return (
     <div className="min-h-screen bg-[#F5F6F7] flex items-center justify-center p-4" data-testid="forbidden-page">
       <div className="bg-white border border-gray-200 rounded-xl max-w-md w-full p-8 text-center shadow-sm">
         <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[#F5C518]/20 text-[#1F2A33] mb-4">
-          <ShieldAlert className="w-7 h-7" />
+          <AppIcon name="shield" size={28} decorative/>
         </div>
         <div className="overline text-[#3A6B8C] mb-1">403 · Access denied</div>
         <h1 className="text-2xl font-black tracking-tight text-[#1F2A33] mb-2">You don't have access to this page</h1>

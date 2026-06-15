@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, UserPlus, Search, KeyRound, ShieldCheck, Trash2, AlertTriangle, RotateCcw, Skull } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
@@ -72,7 +73,7 @@ export default function UsersPage() {
             <DialogTrigger asChild>
               <Button data-testid="open-create-user-btn"
                 className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-11 px-6">
-                <UserPlus className="w-4 h-4 mr-2" /> New user
+                <AppIcon name="add" size={16} className="mr-2" decorative/> New user
               </Button>
             </DialogTrigger>
             <UserFormDialog catalogue={catalogue} mode="create"
@@ -84,7 +85,7 @@ export default function UsersPage() {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <AppIcon name="search" size={16} decorative/>
           <Input className="pl-9 w-72" placeholder="Search name or email" value={search}
             onChange={(e) => setSearch(e.target.value)} data-testid="user-search"/>
         </div>
@@ -131,7 +132,7 @@ export default function UsersPage() {
                     <td className="px-4 py-3">
                       {u.is_super_admin ? (
                         <span className="text-[10px] font-bold uppercase tracking-wider bg-[#F5C518] text-[#1F2A33] px-2 py-0.5 rounded inline-flex items-center gap-1">
-                          <ShieldCheck className="w-3 h-3"/> Super
+                          <AppIcon name="roles_permissions" size={12} decorative/> Super
                         </span>
                       ) : (
                         <span className="text-[10px] text-gray-400">—</span>
@@ -144,12 +145,12 @@ export default function UsersPage() {
                         <div className="inline-flex gap-2 justify-end">
                           <button onClick={() => setRestoreTarget(u)} data-testid={`user-restore-${u.email}`}
                             className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33]">
-                            <RotateCcw className="w-3 h-3"/> Restore
+                            <AppIcon name="restore" size={12} decorative/> Restore
                           </button>
                           {isSuperAdmin && (
                             <button onClick={() => setPermDeleteTarget(u)} data-testid={`user-perm-delete-${u.email}`}
                               className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-red-900 hover:text-red-700">
-                              <Skull className="w-3 h-3"/> Permanently
+                              <AppIcon name="hard_deleted" size={12} decorative/> Permanently
                             </button>
                           )}
                         </div>
@@ -162,7 +163,7 @@ export default function UsersPage() {
                             <button onClick={() => setDeleteTarget(u)} data-testid={`user-delete-${u.email}`}
                               title="Delete user"
                               className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50">
-                              <Trash2 className="w-4 h-4"/>
+                              <AppIcon name="delete" size={16} decorative/>
                             </button>
                           )}
                         </div>
@@ -223,7 +224,7 @@ function DeleteConfirm({ target, onClose, onConfirmed }) {
       <DialogContent data-testid="delete-confirm-dialog" className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-red-700 inline-flex items-center gap-2">
-            <Trash2 className="w-5 h-5"/> Delete user?
+            <AppIcon name="delete" size={20} decorative/> Delete user?
           </DialogTitle>
           <DialogDescription className="pt-2 text-sm text-gray-700">
             This will soft-delete <strong>{target.name}</strong> ({target.email}). Their historical contributions
@@ -234,7 +235,7 @@ function DeleteConfirm({ target, onClose, onConfirmed }) {
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} data-testid="delete-cancel">Cancel</Button>
           <Button onClick={submit} disabled={busy} className="bg-red-600 text-white hover:bg-red-700" data-testid="delete-confirm">
-            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Trash2 className="w-4 h-4 mr-2"/>} Delete
+            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="delete" size={16} className="mr-2" decorative/>} Delete
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -286,7 +287,7 @@ function PermDeleteConfirm({ target, onClose, onConfirmed }) {
       <DialogContent data-testid="perm-delete-confirm-dialog" className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-red-900 inline-flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5"/> Permanently delete user — irreversible
+            <AppIcon name="warning" size={16} decorative/> Permanently delete user — irreversible
           </DialogTitle>
           <DialogDescription className="pt-2 text-sm text-gray-700">
             This permanently removes <strong>{target.name}</strong> ({target.email}) from the database.
@@ -319,7 +320,7 @@ function PermDeleteConfirm({ target, onClose, onConfirmed }) {
           <Button onClick={submit} disabled={busy || blocked || !emailMatches}
             className="bg-red-900 text-white hover:bg-red-800 disabled:opacity-40"
             data-testid="perm-delete-confirm">
-            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Skull className="w-4 h-4 mr-2"/>} Permanently delete
+            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="hard_deleted" size={16} className="mr-2" decorative/>} Permanently delete
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -348,7 +349,7 @@ function RestoreConfirm({ target, onClose, onConfirmed }) {
       <DialogContent data-testid="restore-confirm-dialog" className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-[#3A6B8C] inline-flex items-center gap-2">
-            <RotateCcw className="w-5 h-5"/> Restore user?
+            <AppIcon name="restore" size={20} decorative/> Restore user?
           </DialogTitle>
           <DialogDescription className="pt-2 text-sm text-gray-700">
             This reactivates <strong>{target.name}</strong> ({target.email}). They will be able to log in again
@@ -358,7 +359,7 @@ function RestoreConfirm({ target, onClose, onConfirmed }) {
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} data-testid="restore-cancel">Cancel</Button>
           <Button onClick={submit} disabled={busy} className="bg-[#3A6B8C] text-white hover:bg-[#1F2A33]" data-testid="restore-confirm">
-            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <RotateCcw className="w-4 h-4 mr-2"/>} Restore
+            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="restore" size={16} className="mr-2" decorative/>} Restore
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -570,7 +571,7 @@ function UserFormDialog({ catalogue, mode, initial, onDone }) {
           {isEdit ? (
             <button type="button" onClick={onResetPassword} data-testid="uf-reset-password-btn"
               className="text-xs font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33] inline-flex items-center gap-1">
-              <KeyRound className="w-3 h-3"/> Reset password
+              <AppIcon name="password_changed" size={12} decorative/> Reset password
             </button>
           ) : <span />}
           <Button type="submit" disabled={submitting} data-testid="uf-submit"

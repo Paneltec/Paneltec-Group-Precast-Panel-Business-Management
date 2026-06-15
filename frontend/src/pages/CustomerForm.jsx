@@ -128,7 +128,7 @@ export default function CustomerForm() {
             </Button>
             <Button variant="outline" onClick={onDelete} data-testid="delete-customer-btn"
               className="border-red-300 text-red-700 hover:bg-red-50">
-              <Trash2 className="w-4 h-4 mr-2"/> Delete
+              <AppIcon name="delete" size={16} className="mr-2" decorative/> Delete
             </Button>
           </div>
         )}
@@ -185,7 +185,7 @@ export default function CustomerForm() {
         <div className="flex justify-end">
           <Button type="submit" disabled={submitting} data-testid="cust-save-btn"
             className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-11 px-6">
-            {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Save className="w-4 h-4 mr-2"/>}
+            {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="save" size={16} className="mr-2" decorative/>}
             {isNew ? "Create customer" : "Save changes"}
           </Button>
         </div>

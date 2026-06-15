@@ -3,11 +3,11 @@
   "dashboard": "House",
   "calculator": "Abacus",
   "customers": "Busts in silhouette",
-  "projects": "Card index dividers",
+  "projects": "Clipboard",
   "quotes": "Page facing up",
   "jobs": "Hammer",
   "invoices": "Receipt",
-  "vehicles": "Articulated lorry",
+  "vehicles": "Delivery truck",
   "employees": {
     "folder": "Construction worker",
     "skin": "Default"
@@ -113,5 +113,10 @@
   "invoice_status_issued": "Envelope with arrow",
   "invoice_status_paid": "Money with wings",
   "invoice_status_overdue": "Warning",
-  "invoice_status_cancelled": "Prohibited"
+  "invoice_status_cancelled": "Prohibited",
+  "roles_permissions": "Shield",
+  "universal_actions": "Computer mouse",
+  "changelog": "Scroll",
+  "audit_trail": "Magnifying glass tilted left",
+  "help_book": "Open book"
 }

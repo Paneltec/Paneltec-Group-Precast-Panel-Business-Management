@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Printer, Loader2, AlertCircle, RefreshCw, Lock } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { formatAUD, formatNumber } from "../lib/format";
 import { Button } from "../components/ui/button";
@@ -139,7 +140,7 @@ export default function CalculatorPage() {
     return (
       <div className="bg-white border border-red-200 rounded p-6 max-w-xl">
         <div className="flex items-center gap-2 text-red-700 font-semibold">
-          <AlertCircle className="w-4 h-4" /> Could not load calculator options
+          <AppIcon name="warning" size={16} decorative/> Could not load calculator options
         </div>
         <p className="text-sm text-gray-600 mt-2">{pricingError}</p>
       </div>
@@ -169,7 +170,7 @@ export default function CalculatorPage() {
           data-testid="calc-reset-btn"
           className="border-[#1F2A33] text-[#1F2A33] hover:bg-gray-50 font-semibold"
         >
-          <RefreshCw className="w-4 h-4 mr-2" /> Reset
+          <AppIcon name="refresh" size={16} className="mr-2" decorative/> Reset
         </Button>
       </div>
 
@@ -388,7 +389,7 @@ function InternalCostPanel({ icb }) {
       <div className="flex items-center justify-between mb-3">
         <div>
           <div className="overline text-[#1F2A33] inline-flex items-center gap-1.5">
-            <Lock className="w-3.5 h-3.5"/> Internal — Cost &amp; Margin
+            <AppIcon name="locked" size={14} decorative/> Internal — Cost &amp; Margin
           </div>
           <div className="text-[10px] uppercase tracking-wider text-gray-500 mt-1">Not shown to customers</div>
         </div>
@@ -448,7 +449,7 @@ function ResultsPanel({ result }) {
             data-testid="calc-print-btn"
             className="no-print inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33]"
           >
-            <Printer className="w-3.5 h-3.5" /> Export / Print
+            <AppIcon name="print" size={14} decorative/> Export / Print
           </button>
         </div>
 

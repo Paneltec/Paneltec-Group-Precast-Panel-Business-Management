@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Download, Lock, Loader2 } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 import { api, tokenStore } from "../lib/api";
 import { Button } from "../components/ui/button";
@@ -69,7 +70,7 @@ export default function ReportDetail() {
         <div>
           <div className="overline">{isMargin ? "Internal · Margin" : "Report"}</div>
           <h1 className="text-3xl font-black tracking-tighter text-[#1F2A33] inline-flex items-center gap-2 capitalize">
-            {isMargin && <Lock className="w-6 h-6 text-[#3A6B8C]"/>} {key} report
+            {isMargin && <AppIcon name="locked" size={24} decorative/>} {key} report
           </h1>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -82,7 +83,7 @@ export default function ReportDetail() {
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40 h-9" data-testid="report-date-to"/>
           </div>
           <Button onClick={downloadCsv} data-testid="report-csv-btn" className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-9">
-            <Download className="w-4 h-4 mr-2"/> Export CSV
+            <AppIcon name="download" size={16} className="mr-2" decorative/> Export CSV
           </Button>
         </div>
       </div>

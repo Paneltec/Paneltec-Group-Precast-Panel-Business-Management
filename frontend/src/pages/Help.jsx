@@ -15,6 +15,7 @@ import { Search, Printer, BookOpen,
   Home, Rocket, ShieldCheck, Calculator, Users, FolderKanban, FileText, Hammer,
   Receipt, Truck, Settings, History, MousePointerClick, FlaskConical, LifeBuoy,
   GitBranch, BarChart3 } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { openPrintPopup } from "../lib/print";
@@ -30,6 +31,12 @@ const stripHtmlComments = (md) => md.replace(/<!--[\s\S]*?-->/g, "");
 // (mix of section colour + brand steel-blue + safety-yellow) + a dedicated banner image.
 const STEEL = "#3A6B8C";
 const YELLOW = "#F5C518";
+
+
+// Phase 9 Pass 4 — H2/TOC icons render as Fluent Emoji 3D via AppIcon.
+// ICON_MAP entries are still consulted for the banner image; the lucide
+// component & gradient stops are no longer used at render time.
+const CONCEPT_BY_KEY = {"welcome": "welcome", "getting-started": "rocket", "roles-permissions": "roles_permissions", "calculator": "calculator", "customers": "customers", "projects": "projects", "quotes": "quotes", "jobs": "jobs", "invoices": "invoices", "vehicles-employees": "vehicles", "settings": "settings", "audit-trail": "audit_trail", "universal-actions": "universal_actions", "mocked": "mocked", "troubleshooting": "troubleshooting", "version-changelog": "changelog", "reports": "reports"};
 
 export const ICON_MAP = {
   welcome:             { icon: Home,               color: "#F5C518", banner: "/manual/sections/01_welcome.jpg",            grad: ["#F5C518", STEEL, "#1F2A33"] },
@@ -185,9 +192,8 @@ export default function Help() {
             ))}
             <div id={id} className="manual-h2 scroll-mt-6 flex items-start gap-3 mt-4 mb-3 pl-3 border-l-4 border-[#F5C518] section-break"
                  style={{ pageBreakBefore: idx > 0 ? "always" : "auto" }}>
-              {Icon && (
-                <Icon className="w-7 h-7 shrink-0 mt-0.5"
-                      style={{ color, stroke: gradId ? `url(#${gradId})` : color }}/>
+              {key && CONCEPT_BY_KEY[key] && (
+                <AppIcon name={CONCEPT_BY_KEY[key]} size={32} decorative className="shrink-0 mt-0.5"/>
               )}
               <h2 className="text-2xl font-black text-[#1F2A33] tracking-tight">{<HighlightText text={text} q={query} />}</h2>
             </div>
@@ -228,7 +234,6 @@ export default function Help() {
 
   return (
     <div className="max-w-7xl" data-testid="help-page">
-      <IconGradientDefs/>
       <style>{`
         .manual-cover-wrap {
           width: 100%;
@@ -272,18 +277,18 @@ export default function Help() {
         <div>
           <div className="overline">Help &amp; Documentation</div>
           <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-[#1F2A33] inline-flex items-center gap-2">
-            <BookOpen className="w-8 h-8 text-[#3A6B8C]"/> User Manual
+            <AppIcon name="help_book" size={32} decorative/> User Manual
           </h1>
           <p className="text-sm text-gray-500 mt-1">{APP_VERSION} — your single source of truth for everything the app does.</p>
         </div>
         <div className="flex gap-2 items-center">
           <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+            <AppIcon name="search" size={16} decorative/>
             <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search manual…"
                    className="pl-9 h-10 w-56" data-testid="help-search"/>
           </div>
           <Button onClick={() => openPrintPopup("/help/print")} variant="outline" data-testid="help-print-btn">
-            <Printer className="w-4 h-4 mr-2"/> Print Manual
+            <AppIcon name="print" size={16} className="mr-2" decorative/> Print Manual
           </Button>
         </div>
       </div>
@@ -306,9 +311,8 @@ export default function Help() {
                               t.level === 2 ? "font-bold" : ""
                             } ${isActive ? "text-[#3A6B8C] border-l-[3px] border-[#F5C518]" : (t.level === 2 ? "text-[#1F2A33]" : "text-gray-600")}`}
                             data-testid={`toc-${t.id}`}>
-                      {Icon && (
-                        <Icon className="w-4 h-4 shrink-0"
-                              style={{ color: iconColor, stroke: gradId ? `url(#${gradId})` : iconColor }}/>
+                      {t.level === 2 && CONCEPT_BY_KEY[t.iconKey] && (
+                        <AppIcon name={CONCEPT_BY_KEY[t.iconKey]} size={16} decorative className="shrink-0"/>
                       )}
                       <span>{t.text}</span>
                     </button>

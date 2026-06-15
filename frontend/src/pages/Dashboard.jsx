@@ -185,7 +185,7 @@ export default function Dashboard() {
           <div className="bg-white border border-[#1F2A33]/20 rounded p-5" data-testid="kpi-margin-aud">
             <div className="flex items-center justify-between">
               <span className="text-xs uppercase tracking-wider text-gray-500 font-bold">This month — Quoted margin</span>
-              <TrendingUp className="w-4 h-4 text-[#3A6B8C]"/>
+              <AppIcon name="live" size={16} decorative/>
             </div>
             <div className="mt-3 text-3xl font-black text-[#1F2A33] tracking-tighter tabular-nums" data-testid="kpi-margin-aud-value">
               {formatAUD(kpis.quoted_margin_this_month_aud ?? 0)}
@@ -199,7 +199,7 @@ export default function Dashboard() {
               <div className="bg-white border border-[#1F2A33]/20 rounded p-5" data-testid="kpi-margin-pct">
                 <div className="flex items-center justify-between">
                   <span className="text-xs uppercase tracking-wider text-gray-500 font-bold">This month — Avg margin %</span>
-                  <Percent className="w-4 h-4 text-[#3A6B8C]"/>
+                  <AppIcon name="margin" size={16} decorative/>
                 </div>
                 <div className={`mt-3 text-3xl font-black tracking-tighter tabular-nums ${cls}`} data-testid="kpi-margin-pct-value">
                   {mp.toFixed(1)}%

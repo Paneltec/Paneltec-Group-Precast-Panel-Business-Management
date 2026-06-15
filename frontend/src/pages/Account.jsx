@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2, Save, KeyRound, ShieldCheck } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
@@ -85,7 +86,7 @@ export default function AccountPage() {
           <div className="md:col-span-2 flex justify-end">
             <Button type="submit" disabled={savingProfile || name.trim() === user.name} data-testid="account-save-profile"
               className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]">
-              {savingProfile ? <><Loader2 className="w-4 h-4 mr-2 animate-spin"/> Saving…</> : <><Save className="w-4 h-4 mr-2"/> Save profile</>}
+              {savingProfile ? <><Loader2 className="w-4 h-4 mr-2 animate-spin"/> Saving…</> : <><AppIcon name="save" size={16} className="mr-2" decorative/> Save profile</>}
             </Button>
           </div>
         </form>
@@ -101,7 +102,7 @@ export default function AccountPage() {
           <div className="md:col-span-3 flex justify-end">
             <Button type="submit" disabled={savingPwd} data-testid="account-save-pwd"
               className="bg-[#1F2A33] text-white font-bold hover:bg-[#3A6B8C]">
-              {savingPwd ? <><Loader2 className="w-4 h-4 mr-2 animate-spin"/> Updating…</> : <><KeyRound className="w-4 h-4 mr-2"/> Update password</>}
+              {savingPwd ? <><Loader2 className="w-4 h-4 mr-2 animate-spin"/> Updating…</> : <><AppIcon name="password_changed" size={16} className="mr-2" decorative/> Update password</>}
             </Button>
           </div>
         </form>
@@ -109,7 +110,7 @@ export default function AccountPage() {
 
       {/* Permission summary */}
       <section className="bg-white border border-gray-200 rounded p-6 space-y-4">
-        <h2 className="text-sm font-bold uppercase tracking-[0.15em] text-[#3A6B8C] flex items-center gap-2"><ShieldCheck className="w-4 h-4"/> What you can do</h2>
+        <h2 className="text-sm font-bold uppercase tracking-[0.15em] text-[#3A6B8C] flex items-center gap-2"><AppIcon name="roles_permissions" size={16} decorative/> What you can do</h2>
         {user.is_super_admin ? (
           <div className="rounded bg-[#F5C518]/15 border border-[#F5C518] text-[#1F2A33] text-sm px-4 py-3 font-semibold" data-testid="account-super-banner">
             You are a Super Admin — you can do everything across all modules.

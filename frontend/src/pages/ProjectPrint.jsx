@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Loader2, Printer } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api } from "../lib/api";
 import { formatAUD, formatDateTime } from "../lib/format";
 
@@ -32,7 +33,7 @@ export default function ProjectPrint() {
   return (
     <div className="min-h-screen bg-white text-[#1F2A33]" data-testid="project-print-page">
       <button onClick={() => window.print()} className="no-print fixed top-4 right-4 bg-[#1F2A33] text-white text-xs font-bold uppercase tracking-wider px-3 py-2 rounded">
-        <Printer className="w-3.5 h-3.5 inline mr-1"/> Print
+        <AppIcon name="print" size={14} className="mr-1" decorative/> Print
       </button>
       <div className="max-w-3xl mx-auto p-10 print-container">
         <header className="flex items-start justify-between border-b-4 border-[#1F2A33] pb-4 mb-6">

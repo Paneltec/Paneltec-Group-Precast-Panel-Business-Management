@@ -133,7 +133,7 @@ export default function JobDetail() {
           )}
           {canInvoice && hasPerm("invoices.create") && (
             <Button onClick={() => setGenOpen(true)} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-10" data-testid="job-generate-invoice-btn">
-              <FileText className="w-4 h-4 mr-2"/> Generate Invoice
+              <AppIcon name="quotes" size={16} className="mr-2" decorative/> Generate Invoice
             </Button>
           )}
           {job.status !== "cancelled" && job.status !== "completed" && hasPerm("jobs.cancel") && (
@@ -326,7 +326,7 @@ function NotesCard({ title, value, field, patch, testid }) {
       <Textarea value={local} onChange={(e) => setLocal(e.target.value)} rows={4} data-testid={testid}/>
       <div className="mt-2 text-right">
         <Button variant="outline" size="sm" onClick={() => patch({ [field]: local })} disabled={local === (value || "")}>
-          <Save className="w-3.5 h-3.5 mr-1"/> Save notes
+          <AppIcon name="save" size={16} className="mr-2" decorative/> Save notes
         </Button>
       </div>
     </section>

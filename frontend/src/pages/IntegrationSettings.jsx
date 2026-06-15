@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2, Save, FlaskConical } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -83,9 +84,9 @@ function CardShell({ title, help, configured, onSave, onTest, testid, children }
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">{children}</div>
       <div className="flex gap-2 justify-end">
-        <Button variant="outline" onClick={onTest} data-testid={`${testid}-test`}><FlaskConical className="w-4 h-4 mr-2"/> Test Connection</Button>
+        <Button variant="outline" onClick={onTest} data-testid={`${testid}-test`}><AppIcon name="mocked" size={16} className="mr-2" decorative/> Test Connection</Button>
         <Button onClick={onSave} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]" data-testid={`${testid}-save`}>
-          <Save className="w-4 h-4 mr-2"/> Save
+          <AppIcon name="save" size={16} className="mr-2" decorative/> Save
         </Button>
       </div>
     </section>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { Loader2, Plus, ArrowLeft, Save, Trash2 } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
@@ -38,7 +39,7 @@ export function EmployeesList() {
         </div>
         {hasPerm("employees.create") && (
           <Button onClick={() => navigate("/employees/new")} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-11" data-testid="new-employee-btn">
-            <Plus className="w-4 h-4 mr-2"/> New Employee
+            <AppIcon name="add" size={16} className="mr-1" decorative/> New Employee
           </Button>
         )}
       </div>
@@ -121,7 +122,7 @@ export function EmployeeForm() {
         </div>
         {!isNew && hasPerm("employees.delete") && !form.deleted_at && (
           <Button variant="outline" onClick={remove} className="border-red-300 text-red-700 hover:bg-red-50" data-testid="employee-delete-btn">
-            <Trash2 className="w-4 h-4 mr-2"/> Delete
+            <AppIcon name="delete" size={16} className="mr-2" decorative/> Delete
           </Button>
         )}
       </div>
@@ -136,7 +137,7 @@ export function EmployeeForm() {
         <div className="flex justify-end gap-2">
           {!isNew && <span className="text-xs text-gray-500 mr-auto">Source: <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${SOURCE_BADGE[form.source]||"bg-gray-100"}`}>{form.source}</span></span>}
           <Button type="submit" disabled={busy} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]" data-testid="emp-save">
-            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Save className="w-4 h-4 mr-2"/>} {isNew ? "Create" : "Save"}
+            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="save" size={16} className="mr-2" decorative/>} {isNew ? "Create" : "Save"}
           </Button>
         </div>
       </form>

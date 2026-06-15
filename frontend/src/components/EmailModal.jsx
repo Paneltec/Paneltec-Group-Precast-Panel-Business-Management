@@ -7,6 +7,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Copy, Send } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { toast } from "sonner";
 
@@ -97,10 +98,10 @@ export default function EmailModal({
           )}
         </div>
         <DialogFooter className="flex-wrap gap-2">
-          <Button variant="outline" onClick={copyRecipient} data-testid="email-copy-recipient"><Copy className="w-4 h-4 mr-2"/> Copy recipient</Button>
-          <Button variant="outline" onClick={copyContent} data-testid="email-copy-content"><Copy className="w-4 h-4 mr-2"/> Copy email content</Button>
+          <Button variant="outline" onClick={copyRecipient} data-testid="email-copy-recipient"><AppIcon name="copy" size={16} className="mr-2" decorative/> Copy recipient</Button>
+          <Button variant="outline" onClick={copyContent} data-testid="email-copy-content"><AppIcon name="copy" size={16} className="mr-2" decorative/> Copy email content</Button>
           <Button onClick={markSent} disabled={busy} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]" data-testid="email-mark-sent">
-            <Send className="w-4 h-4 mr-2"/>{busy ? "Saving…" : "Mark as Sent"}
+            <AppIcon name="send" size={16} className="mr-2" decorative/>{busy ? "Saving…" : "Mark as Sent"}
           </Button>
         </DialogFooter>
       </DialogContent>

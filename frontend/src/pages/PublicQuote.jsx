@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Loader2, Check, X, ShieldCheck } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import axios from "axios";
 import { formatAUD, formatDateTime } from "../lib/format";
 
@@ -207,7 +208,7 @@ export default function PublicQuote() {
         )}
 
         <div className="text-xs text-gray-500 flex items-center justify-center gap-1.5 pt-2">
-          <ShieldCheck className="w-3.5 h-3.5"/> Secured by single-use Paneltec magic link
+          <AppIcon name="roles_permissions" size={14} decorative/> Secured by single-use Paneltec magic link
         </div>
       </main>
     </div>

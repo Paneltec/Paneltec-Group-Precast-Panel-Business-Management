@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Plus, Search, Loader2, Upload } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -55,7 +56,7 @@ export default function CustomersList() {
                 <span>
                   <Button variant="outline" disabled data-testid="simpro-import-btn"
                     className="border-[#1F2A33] text-[#1F2A33] font-semibold h-11 px-5 opacity-50 cursor-not-allowed">
-                    <Upload className="w-4 h-4 mr-2" /> Import from Simpro
+                    <AppIcon name="upload" size={16} className="mr-2" decorative/> Import from Simpro
                   </Button>
                 </span>
               </TooltipTrigger>
@@ -64,14 +65,14 @@ export default function CustomersList() {
           </TooltipProvider>
           <Button onClick={() => navigate("/customers/new")} data-testid="new-customer-btn"
             className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-11 px-6">
-            <Plus className="w-4 h-4 mr-2" /> New customer
+            <AppIcon name="add" size={16} className="mr-1" decorative/> New customer
           </Button>
         </div>
       </div>
 
       <form onSubmit={onSearchSubmit} className="flex flex-wrap gap-2 items-center">
         <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <AppIcon name="search" size={16} decorative/>
           <Input value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="Search company, contact, ABN…" className="pl-9 h-10"
             data-testid="customers-search-input" />

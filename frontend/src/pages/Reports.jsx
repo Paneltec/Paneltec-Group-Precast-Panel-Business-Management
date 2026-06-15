@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Users, FileText, Briefcase, Receipt, Truck, Wrench, TrendingUp, BarChart3, Download, Database, AlertTriangle, Loader2, Plus, Copy, KeyRound, ShieldOff, Check } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { useAuth } from "../contexts/AuthContext";
 import { api, tokenStore, API_BASE } from "../lib/api";
 import { formatAUD } from "../lib/format";
@@ -40,7 +41,7 @@ export default function Reports() {
       <div>
         <div className="overline">Insights</div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-[#1F2A33] inline-flex items-center gap-2">
-          <BarChart3 className="w-8 h-8 text-[#3A6B8C]"/> Reports
+          <AppIcon name="reports" size={32} decorative/> Reports
         </h1>
         <p className="text-sm text-gray-500 mt-1">Operational insights, data export, BI integration.</p>
       </div>
@@ -168,7 +169,7 @@ function DataExportForm() {
   return (
     <div className="bg-white border border-gray-200 rounded p-6 space-y-5 mt-4" data-testid="data-export-form">
       <div className="flex items-start gap-3">
-        <Database className="w-6 h-6 text-[#3A6B8C] shrink-0 mt-1"/>
+        <AppIcon name="audit" size={24} decorative/>
         <div>
           <div className="text-base font-bold text-[#1F2A33]">Bulk CSV Export</div>
           <p className="text-xs text-gray-500 mt-1">Stream-download a flattened CSV dump of any entity module. Capped at 100,000 rows per request — a trailing cap marker row is appended when triggered.</p>
@@ -214,7 +215,7 @@ function DataExportForm() {
       <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
         <Button onClick={handleDownload} disabled={loading} data-testid="export-download-btn"
                 className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]">
-          {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Download className="w-4 h-4 mr-2"/>}
+          {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="download" size={16} className="mr-2" decorative/>}
           {loading ? "Preparing CSV…" : "Download CSV"}
         </Button>
         {result && !result.capped && (
@@ -224,7 +225,7 @@ function DataExportForm() {
         )}
         {result && result.capped && (
           <div className="text-xs text-amber-700 font-semibold inline-flex items-center gap-1" data-testid="export-result-capped">
-            <AlertTriangle className="w-4 h-4"/> Export capped at 100,000 rows — refine your date range to get more.
+            <AppIcon name="warning" size={16} decorative/> Export capped at 100,000 rows — refine your date range to get more.
           </div>
         )}
         {error && <div className="text-xs text-red-700 font-semibold" data-testid="export-error">{error}</div>}
@@ -260,7 +261,7 @@ function CopyButton({ value, testId }) {
   };
   return (
     <Button onClick={handle} size="sm" variant="outline" data-testid={testId}>
-      {copied ? <Check className="w-4 h-4 mr-1"/> : <Copy className="w-4 h-4 mr-1"/>}
+      {copied ? <Check className="w-4 h-4 mr-1"/> : <AppIcon name="copy" size={16} className="mr-1" decorative/>}
       {copied ? "Copied" : "Copy"}
     </Button>
   );
@@ -311,7 +312,7 @@ function BiIntegrationPanel() {
       {/* Section 1: Connection Guide */}
       <div className="bg-white border border-gray-200 rounded p-6 space-y-4">
         <div className="flex items-start gap-3">
-          <KeyRound className="w-6 h-6 text-[#3A6B8C] shrink-0 mt-1"/>
+          <AppIcon name="password_changed" size={24} decorative/>
           <div>
             <div className="text-base font-bold text-[#1F2A33]">Connect Power BI / Excel / Tableau</div>
             <p className="text-xs text-gray-500 mt-1">Long-lived API tokens give external BI tools read-only access to your data. Tokens are scoped to <code className="bg-gray-100 px-1 rounded">/api/reporting/v1/*</code> — they cannot read pricing/cost/margin internals.</p>
@@ -388,7 +389,7 @@ function BiIntegrationPanel() {
           </div>
           <Button onClick={() => setShowCreate(true)} data-testid="bi-create-token-btn"
                   className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]">
-            <Plus className="w-4 h-4 mr-1"/> Generate new token
+            <AppIcon name="add" size={16} className="mr-1" decorative/> Generate new token
           </Button>
         </div>
 
@@ -433,7 +434,7 @@ function BiIntegrationPanel() {
                           <Button size="sm" variant="outline" onClick={() => handleRevoke(t.id, t.name)}
                                   disabled={revokingId === t.id} data-testid={`bi-revoke-${t.id}`}
                                   className="text-red-700 hover:bg-red-50 border-red-200">
-                            <ShieldOff className="w-3 h-3 mr-1"/> Revoke
+                            <AppIcon name="locked" size={12} className="mr-1" decorative/> Revoke
                           </Button>
                         )}
                       </td>
@@ -476,7 +477,7 @@ function BiIntegrationPanel() {
         <DialogContent data-testid="bi-raw-token-modal" className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="inline-flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-amber-600"/> Save this token now
+              <AppIcon name="warning" size={20} decorative/> Save this token now
             </DialogTitle>
             <DialogDescription className="text-amber-700">
               This raw token value will <strong>never</strong> be shown again. Copy it now and paste it into your BI tool's credentials.

@@ -151,7 +151,7 @@ export default function QuoteDetail() {
             <code className="text-xs break-all text-[#3A6B8C]">{publicUrl}</code>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={async () => { await navigator.clipboard.writeText(publicUrl); toast.success("Link copied"); }} data-testid="copy-magic-link"><Copy className="w-3.5 h-3.5 mr-1"/> Copy</Button>
+            <Button variant="outline" size="sm" onClick={async () => { await navigator.clipboard.writeText(publicUrl); toast.success("Link copied"); }} data-testid="copy-magic-link"><AppIcon name="copy" size={14} className="mr-1" decorative/> Copy</Button>
             <button onClick={() => openCustomerPreviewPopup(publicUrl)} className="inline-flex items-center text-xs font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33] px-3" data-testid="preview-public-quote"><ExternalLink className="w-3.5 h-3.5 mr-1"/> Preview</button>
           </div>
         </div>
@@ -278,10 +278,10 @@ export default function QuoteDetail() {
           )}
           <DialogFooter className="flex-wrap gap-2">
             <Button variant="outline" onClick={async () => { await navigator.clipboard.writeText(magicUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); }} data-testid="send-copy-link">
-              <Copy className="w-4 h-4 mr-2"/>{copied ? "Copied!" : "Copy magic link"}
+              <AppIcon name="copy" size={16} className="mr-2" decorative/>{copied ? "Copied!" : "Copy magic link"}
             </Button>
             <Button variant="outline" onClick={async () => { await navigator.clipboard.writeText(`Subject: ${emailPreview?.subject}\n\n${emailPreview?.body}`); toast.success("Email content copied"); }} data-testid="send-copy-email">
-              <Copy className="w-4 h-4 mr-2"/> Copy email content
+              <AppIcon name="copy" size={16} className="mr-2" decorative/> Copy email content
             </Button>
             <Button onClick={() => setSendOpen(false)} className="bg-[#1F2A33] text-white hover:bg-[#3A6B8C]">Done</Button>
           </DialogFooter>
@@ -313,7 +313,7 @@ function InternalMarginCard({ quote }) {
               className="w-full flex items-center justify-between p-4 hover:bg-gray-50"
               data-testid="internal-margin-toggle">
         <div className="flex items-center gap-2">
-          <Lock className="w-4 h-4 text-[#3A6B8C]"/>
+          <AppIcon name="locked" size={16} decorative/>
           <span className="text-sm font-bold uppercase tracking-[0.15em] text-[#3A6B8C]">Internal — Margin Analysis</span>
           <span className={`text-xs font-bold tabular-nums ${marginColor(mp)}`} data-testid="margin-pill-collapsed">
             {formatAUD(quote.margin_aud ?? 0)} ({mp.toFixed(1)}%)

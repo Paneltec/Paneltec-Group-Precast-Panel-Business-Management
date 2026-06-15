@@ -292,16 +292,16 @@ export default function AuditPage() {
         <div>
           <div className="overline">Super Admin</div>
           <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-[#1F2A33] inline-flex items-center gap-2">
-            <FileSearch className="w-8 h-8 text-[#3A6B8C]"/> Audit Trail
+            <AppIcon name="audit" size={32} decorative/> Audit Trail
           </h1>
           <p className="text-sm text-gray-500 mt-1">Every business-critical action across the platform. Filter, inspect, export.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={load} data-testid="audit-refresh">
-            <RefreshCw className="w-4 h-4 mr-2"/> Refresh
+            <AppIcon name="refresh" size={16} className="mr-2" decorative/> Refresh
           </Button>
           <Button onClick={csvExport} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]" data-testid="audit-csv-export">
-            <Download className="w-4 h-4 mr-2"/> Export CSV
+            <AppIcon name="download" size={16} className="mr-2" decorative/> Export CSV
           </Button>
         </div>
       </div>

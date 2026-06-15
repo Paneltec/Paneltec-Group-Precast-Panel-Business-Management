@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2, Save } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -48,7 +49,7 @@ export default function CompanySettings() {
           <p className="text-sm text-gray-500 mt-1">These details appear on every quote and invoice. Changes apply immediately.</p>
         </div>
         <Button onClick={save} disabled={saving} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-11 px-6" data-testid="company-save-btn">
-          {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Save className="w-4 h-4 mr-2"/>}
+          {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="save" size={16} className="mr-2" decorative/>}
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>

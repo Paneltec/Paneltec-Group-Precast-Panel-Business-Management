@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, KeyRound, LogOut } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
@@ -40,7 +41,7 @@ export default function ForcePasswordChange() {
       <div className="w-full max-w-md bg-white rounded-xl shadow-xl border border-gray-200 p-8">
         <div className="flex items-center gap-3 mb-5">
           <div className="w-11 h-11 rounded-full bg-[#F5C518] text-[#1F2A33] flex items-center justify-center">
-            <KeyRound className="w-5 h-5" />
+            <AppIcon name="password_changed" size={20} decorative/>
           </div>
           <div>
             <div className="overline text-[#3A6B8C]">Action required</div>
@@ -66,7 +67,7 @@ export default function ForcePasswordChange() {
           {error && <div className="text-sm text-red-700" data-testid="fpc-error">{error}</div>}
           <div className="flex items-center justify-between gap-3 pt-2">
             <button type="button" onClick={onLogout} className="text-xs text-gray-500 hover:text-[#1F2A33] inline-flex items-center gap-1" data-testid="fpc-logout">
-              <LogOut className="w-3 h-3" /> Log out instead
+              <AppIcon name="logout" size={12} decorative/> Log out instead
             </button>
             <Button type="submit" disabled={submitting} data-testid="fpc-submit"
               className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-10 px-6">

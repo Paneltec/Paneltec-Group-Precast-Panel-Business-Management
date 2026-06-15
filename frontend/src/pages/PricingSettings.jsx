@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2, Save, Plus, Trash2, Lock } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -109,7 +110,7 @@ export default function PricingSettings() {
           data-testid="pricing-save-btn"
           className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-11 px-6"
         >
-          {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+          {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <AppIcon name="save" size={16} className="mr-2" decorative/>}
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>
@@ -198,7 +199,7 @@ export default function PricingSettings() {
       {/* Thickness options */}
       <Card title="Thickness options (mm)" action={
         <Button variant="outline" size="sm" onClick={addThickness} data-testid="add-thickness-btn">
-          <Plus className="w-3.5 h-3.5 mr-1" /> Add
+          <AppIcon name="add" size={14} className="mr-1" decorative/> Add
         </Button>
       }>
         <div className="flex flex-wrap gap-2">
@@ -212,7 +213,7 @@ export default function PricingSettings() {
                 data-testid={`thickness-${i}`}
               />
               <button onClick={() => rmThickness(i)} className="p-2 text-gray-400 hover:text-red-600" aria-label="Remove">
-                <Trash2 className="w-3.5 h-3.5" />
+                <AppIcon name="delete" size={14} decorative/>
               </button>
             </div>
           ))}
@@ -222,7 +223,7 @@ export default function PricingSettings() {
       {/* Concrete grades */}
       <Card title="Concrete grades" action={
         <Button variant="outline" size="sm" onClick={addGrade} data-testid="add-grade-btn">
-          <Plus className="w-3.5 h-3.5 mr-1" /> Add
+          <AppIcon name="add" size={14} className="mr-1" decorative/> Add
         </Button>
       }>
         <div className="flex flex-wrap gap-2">
@@ -235,7 +236,7 @@ export default function PricingSettings() {
                 data-testid={`grade-${i}`}
               />
               <button onClick={() => rmGrade(i)} className="p-2 text-gray-400 hover:text-red-600" aria-label="Remove">
-                <Trash2 className="w-3.5 h-3.5" />
+                <AppIcon name="delete" size={14} decorative/>
               </button>
             </div>
           ))}
@@ -275,7 +276,7 @@ export default function PricingSettings() {
 
         <TabsContent value="cost" className="space-y-6">
           <div className="bg-[#F5C518]/20 border border-[#F5C518] rounded p-4 text-sm text-[#1F2A33]" data-testid="cost-banner">
-            <Lock className="inline w-4 h-4 mr-1.5 mb-0.5"/>
+            <AppIcon name="locked" size={16} className="mr-1" decorative/>
             <span className="font-bold">These values are INTERNAL ONLY.</span> Used to calculate margin per quote. Never shown to customers on quotes or invoices. Adjust to match your actual costs.
           </div>
           <Card title="Material costs">

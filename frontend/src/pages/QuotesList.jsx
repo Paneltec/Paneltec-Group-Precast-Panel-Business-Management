@@ -58,14 +58,14 @@ export default function QuotesList() {
         </div>
         <Button onClick={() => navigate("/quotes/new")} data-testid="new-quote-btn"
           className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-11 px-6">
-          <Plus className="w-4 h-4 mr-2"/> New quote
+          <AppIcon name="add" size={16} className="mr-1" decorative/> New quote
         </Button>
       </div>
 
       <div className="flex flex-wrap gap-2 items-center">
         <form onSubmit={(e) => { e.preventDefault(); setPage(1); load(); }} className="flex gap-2 flex-1 max-w-md">
           <div className="relative flex-1">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+            <AppIcon name="search" size={16} decorative/>
             <Input value={search} onChange={(e) => setSearch(e.target.value)}
               placeholder="Q-2026-…" className="pl-9 h-10" data-testid="quotes-search-input"/>
           </div>

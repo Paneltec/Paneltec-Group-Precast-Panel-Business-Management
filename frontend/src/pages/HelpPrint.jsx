@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import manualMd from "../content/user-manual.md";
-import { ICON_MAP, IconGradientDefs, iconKeyFor, slugify } from "./Help";
+import AppIcon from "../components/AppIcon";
+import { ICON_MAP, iconKeyFor, slugify } from "./Help";
+
+
+const CONCEPT_BY_KEY = {"welcome": "welcome", "getting-started": "rocket", "roles-permissions": "roles_permissions", "calculator": "calculator", "customers": "customers", "projects": "projects", "quotes": "quotes", "jobs": "jobs", "invoices": "invoices", "vehicles-employees": "vehicles", "settings": "settings", "audit-trail": "audit_trail", "universal-actions": "universal_actions", "mocked": "mocked", "troubleshooting": "troubleshooting", "version-changelog": "changelog", "reports": "reports"};
 
 const stripHtmlComments = (md) => md.replace(/<!--[\s\S]*?-->/g, "");
 
@@ -22,7 +26,6 @@ export default function HelpPrint() {
 
   return (
     <div className="max-w-3xl mx-auto p-8 bg-white text-[#1F2A33]" data-testid="help-print-page">
-      <IconGradientDefs/>
       <style>{`
         .manual-cover-wrap {
           width: 100%; margin-bottom: 24px;
@@ -77,7 +80,7 @@ export default function HelpPrint() {
                 )}
                 <div id={id} className="flex items-start gap-2 mt-3 mb-2 pl-3 border-l-4 border-[#F5C518]"
                      style={{ pageBreakBefore: idx > 0 ? "always" : "auto" }}>
-                  {Icon && <Icon className="w-6 h-6 shrink-0 mt-0.5" style={{ color, stroke: gradId ? `url(#${gradId})` : color }}/>}
+                  {key && CONCEPT_BY_KEY[key] && <AppIcon name={CONCEPT_BY_KEY[key]} size={28} decorative className="shrink-0 mt-0.5"/>}
                   <h2 className="text-xl font-black text-[#1F2A33] tracking-tight m-0">{text}</h2>
                 </div>
               </>
