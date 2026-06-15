@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Loader2, Search } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -8,6 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { formatAUD, formatDateTime } from "../lib/format";
 import DeleteRowActions from "../components/DeleteRowActions";
 import { useAuth } from "../contexts/AuthContext";
+
+const STATUS_ICON = {
+  scheduled:"job_status_scheduled", in_production:"job_status_in_production",
+  ready_for_delivery:"job_status_ready_for_delivery", delivered:"job_status_delivered",
+  installed:"job_status_installed", completed:"job_status_completed",
+  cancelled:"job_status_cancelled",
+};
 
 const STATUS_STYLES = {
   scheduled: "bg-gray-100 text-gray-700",
@@ -108,7 +116,7 @@ export default function JobsList() {
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500 tabular-nums">{j.quote_number}</td>
                       <td className="px-4 py-3 text-gray-700">{j.customer_company_name}</td>
-                      <td className="px-4 py-3"><span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${STATUS_STYLES[j.status]}`}>{j.status.replace(/_/g," ")}</span></td>
+                      <td className="px-4 py-3"><span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-flex items-center gap-1 ${STATUS_STYLES[j.status]}`}><AppIcon name={STATUS_ICON[j.status]} size={14} decorative/>{j.status.replace(/_/g," ")}</span></td>
                       <td className="px-4 py-3 text-right font-semibold tabular-nums">{formatAUD(j.total)}</td>
                       <td className="px-4 py-3 text-right text-xs text-gray-500">{formatDateTime(j.created_from_quote_at)}</td>
                       <td className="px-4 py-3 text-right">

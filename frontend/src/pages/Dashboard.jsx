@@ -13,6 +13,20 @@ const STATUS_STYLES = {
   rejected: "bg-red-100 text-red-700",
   expired: "bg-amber-100 text-amber-800",
 };
+const ACTION_ICON = {
+  created:"created", updated:"updated", soft_deleted:"soft_deleted", hard_deleted:"hard_deleted",
+  restored:"restored", status_changed:"status_changed",
+  login_success:"login_success", login_failed:"login_failed",
+  password_changed:"password_changed", password_reset:"password_reset",
+  permission_changed:"permission_changed",
+  quote_sent:"quote_sent", quote_viewed:"quote_viewed",
+  quote_accepted:"quote_accepted", quote_rejected:"quote_rejected",
+  quote_revised:"quote_revised",
+  invoice_issued:"invoice_issued", invoice_paid:"invoice_paid",
+  invoice_pushed_xero:"invoice_pushed_xero",
+  email_sent:"email_sent", settings_changed:"settings_changed", viewed:"viewed",
+};
+
 const ACTION_COLOR = {
   created:"bg-green-100 text-green-800", updated:"bg-blue-100 text-blue-800",
   soft_deleted:"bg-red-100 text-red-700", restored:"bg-emerald-100 text-emerald-800",
@@ -132,7 +146,7 @@ export default function Dashboard() {
                     <Link to={`/admin/audit?focus=${e.id}`}
                           className="flex items-center gap-2 text-xs hover:bg-gray-50 -mx-2 px-2 py-1.5 rounded"
                           data-testid={`recent-activity-row-${e.id}`}>
-                      <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${ACTION_COLOR[e.action] || "bg-gray-100 text-gray-700"}`}>{e.action}</span>
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 inline-flex items-center gap-1 ${ACTION_COLOR[e.action] || "bg-gray-100 text-gray-700"}`}><AppIcon name={ACTION_ICON[e.action] || "info"} size={12} decorative/>{e.action}</span>
                       <span className="font-medium text-[#1F2A33] truncate max-w-[20ch]">{(e.actor_name || e.actor_email || "System").slice(0, 20)}</span>
                       <span className="text-gray-400">·</span>
                       <span className="font-mono text-gray-700 truncate flex-1">{e.entity_label || e.entity_type}</span>
@@ -149,7 +163,7 @@ export default function Dashboard() {
                   className="block bg-white border border-gray-200 rounded p-5 hover:border-[#F5C518] hover:shadow-md transition-all group">
               <div className="flex items-center justify-between">
                 <span className="text-xs uppercase tracking-wider text-gray-500 font-bold">Invoices awaiting Xero push</span>
-                <FileWarning className="w-4 h-4 text-[#F5C518]" />
+                <AppIcon name="xero_push" size={20} decorative/>
               </div>
               <div className="mt-3 text-4xl font-black text-[#1F2A33] tracking-tighter tabular-nums" data-testid="xero-pending-count">
                 {kpis ? kpis.invoices_awaiting_xero_push ?? 0 : <Loader2 className="w-6 h-6 animate-spin"/>}

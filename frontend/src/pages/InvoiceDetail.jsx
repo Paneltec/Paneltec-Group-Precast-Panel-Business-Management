@@ -14,6 +14,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { openPrintPopup } from "../lib/print";
 import UserBadge from "../components/UserBadge";
 
+const STATUS_ICON = {draft:"invoice_status_draft",issued:"invoice_status_issued",paid:"invoice_status_paid",overdue:"invoice_status_overdue",cancelled:"invoice_status_cancelled"};
 const STATUS_STYLES = {
   draft:"bg-gray-100 text-gray-700",issued:"bg-blue-100 text-blue-800",
   paid:"bg-green-100 text-green-800",overdue:"bg-red-100 text-red-700",
@@ -75,7 +76,7 @@ export default function InvoiceDetail() {
           <Link to="/invoices" className="inline-flex items-center text-xs uppercase tracking-wider text-[#3A6B8C] font-bold mb-2 hover:text-[#1F2A33]"><ArrowLeft className="w-3 h-3 mr-1"/> Back to invoices</Link>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-[#1F2A33] tabular-nums">{inv.invoice_number}</h1>
-            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded ${STATUS_STYLES[inv.status]}`} data-testid="invoice-status">{inv.status}</span>
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded inline-flex items-center gap-1 ${STATUS_STYLES[inv.status]}`} data-testid="invoice-status"><AppIcon name={STATUS_ICON[inv.status]} size={14} decorative/>{inv.status}</span>
           </div>
           <p className="text-sm text-gray-500 mt-1">
             <Link to={`/customers/${customer.id}`} className="font-semibold text-[#3A6B8C] hover:text-[#1F2A33]">{customer.company_name}</Link>

@@ -15,6 +15,12 @@ import DeleteRowActions from "../components/DeleteRowActions";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 
+const STATUS_ICON = {
+  draft:"invoice_status_draft", issued:"invoice_status_issued",
+  paid:"invoice_status_paid", overdue:"invoice_status_overdue",
+  cancelled:"invoice_status_cancelled",
+};
+
 const STATUS_STYLES = {
   draft: "bg-gray-100 text-gray-700",
   issued: "bg-blue-100 text-blue-800",
@@ -226,7 +232,7 @@ export default function InvoicesList() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-gray-700">{i.customer_company_name}</td>
-                      <td className="px-4 py-3"><span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${STATUS_STYLES[i.status]}`}>{i.status}</span></td>
+                      <td className="px-4 py-3"><span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-flex items-center gap-1 ${STATUS_STYLES[i.status]}`}><AppIcon name={STATUS_ICON[i.status]} size={14} decorative/>{i.status}</span></td>
                       <td className="px-4 py-3">
                         {pushedAlready ? (
                           <span className="text-[10px] font-bold uppercase tracking-wider bg-[#F5C518]/30 text-[#1F2A33] px-1.5 py-0.5 rounded"

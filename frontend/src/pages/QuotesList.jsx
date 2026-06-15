@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Plus, Search, Loader2 } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -8,6 +9,12 @@ import { formatAUD, formatDateTime } from "../lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import DeleteRowActions from "../components/DeleteRowActions";
 import { useAuth } from "../contexts/AuthContext";
+
+const STATUS_ICON = {
+  draft:"quote_status_draft", sent:"quote_status_sent",
+  accepted:"quote_status_accepted", rejected:"quote_status_rejected",
+  expired:"quote_status_expired",
+};
 
 const STATUS_STYLES = {
   draft: "bg-gray-100 text-gray-700",
@@ -123,7 +130,7 @@ export default function QuotesList() {
                       </td>
                       <td className="px-4 py-3 text-gray-700">{q.customer_company_name}</td>
                       <td className="px-4 py-3">
-                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${STATUS_STYLES[q.status] || "bg-gray-100"}`}>{q.status}</span>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-flex items-center gap-1 ${STATUS_STYLES[q.status] || "bg-gray-100"}`}><AppIcon name={STATUS_ICON[q.status]} size={14} decorative/>{q.status}</span>
                       </td>
                       <td className="px-4 py-3 text-gray-700 tabular-nums">{q.valid_until}</td>
                       <td className="px-4 py-3 text-right tabular-nums">{q.line_items?.length || 0}</td>

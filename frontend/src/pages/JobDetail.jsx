@@ -17,6 +17,7 @@ import { openPrintPopup } from "../lib/print";
 import UserBadge from "../components/UserBadge";
 
 const ORDER = ["scheduled","in_production","ready_for_delivery","delivered","installed","completed"];
+const STATUS_ICON = {scheduled:"job_status_scheduled",in_production:"job_status_in_production",ready_for_delivery:"job_status_ready_for_delivery",delivered:"job_status_delivered",installed:"job_status_installed",completed:"job_status_completed",cancelled:"job_status_cancelled"};
 const STATUS_STYLES = {
   scheduled:"bg-gray-100 text-gray-700",in_production:"bg-blue-100 text-blue-800",
   ready_for_delivery:"bg-amber-100 text-amber-800",delivered:"bg-cyan-100 text-cyan-800",
@@ -108,7 +109,7 @@ export default function JobDetail() {
           <Link to="/jobs" className="inline-flex items-center text-xs uppercase tracking-wider text-[#3A6B8C] font-bold mb-2 hover:text-[#1F2A33]"><ArrowLeft className="w-3 h-3 mr-1"/> Back to jobs</Link>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-[#1F2A33] tabular-nums">{job.job_number}</h1>
-            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded ${STATUS_STYLES[job.status]}`} data-testid="job-status">{job.status.replace(/_/g," ")}</span>
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded inline-flex items-center gap-1 ${STATUS_STYLES[job.status]}`} data-testid="job-status"><AppIcon name={STATUS_ICON[job.status]} size={14} decorative/>{job.status.replace(/_/g," ")}</span>
           </div>
           <p className="text-sm text-gray-500 mt-1">
             <Link to={`/customers/${customer.id}`} className="font-semibold text-[#3A6B8C] hover:text-[#1F2A33]">{customer.company_name}</Link>

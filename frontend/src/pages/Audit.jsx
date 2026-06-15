@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Loader2, RefreshCw, Download, FileSearch, ArrowRight, ExternalLink, X } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail, tokenStore } from "../lib/api";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
@@ -19,6 +20,20 @@ const ACTIONS = ["created","updated","soft_deleted","hard_deleted","restored","s
   "invoice_issued","invoice_paid","invoice_pushed_xero","email_sent","settings_changed"];
 const ENTITIES = ["customer","project","quote","job","invoice","vehicle","employee","user",
   "pricing_settings","company_settings","integration_settings","system"];
+
+const ACTION_ICON = {
+  created:"created", updated:"updated", soft_deleted:"soft_deleted", hard_deleted:"hard_deleted",
+  restored:"restored", status_changed:"status_changed",
+  login_success:"login_success", login_failed:"login_failed",
+  password_changed:"password_changed", password_reset:"password_reset",
+  permission_changed:"permission_changed",
+  quote_sent:"quote_sent", quote_viewed:"quote_viewed",
+  quote_accepted:"quote_accepted", quote_rejected:"quote_rejected",
+  quote_revised:"quote_revised",
+  invoice_issued:"invoice_issued", invoice_paid:"invoice_paid",
+  invoice_pushed_xero:"invoice_pushed_xero",
+  email_sent:"email_sent", settings_changed:"settings_changed", viewed:"viewed",
+};
 
 const ACTION_COLOR = {
   created:"bg-green-100 text-green-800", updated:"bg-blue-100 text-blue-800",
@@ -357,7 +372,7 @@ export default function AuditPage() {
                       <div className="text-gray-400">{e.actor_email}</div>
                     </td>
                     <td className="px-3 py-2">
-                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${ACTION_COLOR[e.action] || "bg-gray-100 text-gray-700"}`}>{e.action}</span>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-flex items-center gap-1 ${ACTION_COLOR[e.action] || "bg-gray-100 text-gray-700"}`}><AppIcon name={ACTION_ICON[e.action] || "info"} size={14} decorative/>{e.action}</span>
                     </td>
                     <td className="px-3 py-2 text-xs text-gray-600">{e.entity_type}</td>
                     <td className="px-3 py-2 text-xs font-mono">{e.entity_label}</td>
@@ -388,8 +403,8 @@ export default function AuditPage() {
             <div className="flex flex-col h-full">
               <SheetHeader className="p-5 border-b border-gray-200 bg-gray-50">
                 <SheetTitle className="flex items-center gap-2 text-base">
-                  <span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded ${ACTION_COLOR[drawer.action] || "bg-gray-100 text-gray-700"}`}
-                        data-testid="drawer-action-badge">{drawer.action}</span>
+                  <span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded inline-flex items-center gap-1.5 ${ACTION_COLOR[drawer.action] || "bg-gray-100 text-gray-700"}`}
+                        data-testid="drawer-action-badge"><AppIcon name={ACTION_ICON[drawer.action] || "info"} size={16} decorative/>{drawer.action}</span>
                   <span className="font-mono text-[#1F2A33] truncate">{drawer.entity_label || "—"}</span>
                 </SheetTitle>
                 <SheetDescription className="text-xs">

@@ -12,6 +12,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "../components/ui/dialog";
 
+const STATUS_ICON = {draft:"quote_status_draft",sent:"quote_status_sent",accepted:"quote_status_accepted",rejected:"quote_status_rejected",expired:"quote_status_expired"};
 const STATUS_STYLES = {
   draft: "bg-gray-100 text-gray-700",
   sent: "bg-blue-100 text-blue-800",
@@ -100,7 +101,7 @@ export default function QuoteDetail() {
           <Link to="/quotes" className="inline-flex items-center text-xs uppercase tracking-wider text-[#3A6B8C] font-bold mb-2 hover:text-[#1F2A33]"><ArrowLeft className="w-3 h-3 mr-1"/> Back to quotes</Link>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-[#1F2A33] tabular-nums">{quote.quote_number}</h1>
-            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded ${STATUS_STYLES[quote.status] || "bg-gray-100"}`} data-testid="quote-status">{quote.status}</span>
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded inline-flex items-center gap-1 ${STATUS_STYLES[quote.status] || "bg-gray-100"}`} data-testid="quote-status"><AppIcon name={STATUS_ICON[quote.status]} size={14} decorative/>{quote.status}</span>
           </div>
           <p className="text-sm text-gray-500 mt-1">For <Link to={`/customers/${customer.id}`} className="font-semibold text-[#3A6B8C] hover:text-[#1F2A33]">{customer.company_name}</Link>
             {project && <> · {project.project_name}</>} · Valid until {quote.valid_until}</p>
