@@ -310,3 +310,14 @@ Next: Phase 7 — Pricing model upgrade (Cost vs Sell + labour per panel type & 
 - `/app/frontend/src/pages/QuoteEditor.jsx` (Add Line error message regression fix)
 
 ### Phase 7 — COMPLETE
+
+
+## In-app User Manual (2026-06-15)
+
+- New route `/help` (any logged-in user) — two-pane layout (sticky TOC + scrollable Markdown), substring search highlight, "Print Manual" docked-popup at `/help/print`.
+- Sidebar shows new "Help" link at the bottom (above Logout); `BookOpen` icon.
+- Single source of truth: `/app/frontend/src/content/user-manual.md` — Markdown rendered via `react-markdown`.
+- Sections 1–16 cover the full shipped scope (Phases 1–7), with §14 listing what's still MOCKED and §16 a chronological change log.
+
+### Process rule (enforced going forward)
+**User manual updates: every new phase MUST include a corresponding update to `/app/frontend/src/content/user-manual.md` and bump the "Last updated" date in §16.** The file itself carries an HTML comment reminder at the top so future contributors see it on open.

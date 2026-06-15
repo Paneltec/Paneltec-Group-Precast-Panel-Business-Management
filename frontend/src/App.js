@@ -31,6 +31,8 @@ import Account from "./pages/Account";
 import ForcePasswordChange from "./pages/ForcePasswordChange";
 import Forbidden from "./pages/Forbidden";
 import Audit from "./pages/Audit";
+import Help from "./pages/Help";
+import HelpPrint from "./pages/HelpPrint";
 
 function App() {
   return (
@@ -49,6 +51,7 @@ function App() {
                 <Route path="/customers/:id/print" element={<ProtectedRoute permission="customers.view"><CustomerPrint /></ProtectedRoute>} />
                 <Route path="/projects/:id/print" element={<ProtectedRoute permission="projects.view"><ProjectPrint /></ProtectedRoute>} />
                 <Route path="/jobs/:id/print" element={<ProtectedRoute permission="jobs.view"><JobPrint /></ProtectedRoute>} />
+                <Route path="/help/print" element={<ProtectedRoute><HelpPrint /></ProtectedRoute>} />
                 <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/account" element={<Account />} />
@@ -75,6 +78,7 @@ function App() {
                   <Route path="/settings/integrations" element={<ProtectedRoute permission="integrations.view"><IntegrationSettings /></ProtectedRoute>} />
                   <Route path="/users" element={<ProtectedRoute permission="users.view"><UsersPage /></ProtectedRoute>} />
                   <Route path="/admin/audit" element={<ProtectedRoute permission="audit.view"><Audit /></ProtectedRoute>} />
+                  <Route path="/help" element={<Help />} />
                 </Route>
                 <Route path="*" element={<Login />} />
               </Routes>
