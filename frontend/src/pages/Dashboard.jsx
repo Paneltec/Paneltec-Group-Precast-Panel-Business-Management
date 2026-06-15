@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Calculator, FileText, Briefcase, Receipt, UserSquare2, Loader2, Activity, FileWarning, TrendingUp, Percent } from "lucide-react";
+import { ArrowRight, Loader2, FileWarning, TrendingUp, Percent } from "lucide-react";
+import AppIcon from "../components/AppIcon";
 import { useAuth } from "../contexts/AuthContext";
 import { api } from "../lib/api";
 import { formatAUD, formatDateTime } from "../lib/format";
@@ -64,10 +65,10 @@ export default function Dashboard() {
   }, [canAudit]);
 
   const kpiCards = kpis ? [
-    { label: "Customers Active", value: kpis.customers_active, note: "All time", icon: UserSquare2 },
-    { label: "Quotes Sent", value: kpis.quotes_sent, note: "Awaiting decision", icon: FileText },
-    { label: "Quotes Accepted", value: kpis.quotes_accepted, note: "All time", icon: Briefcase },
-    { label: "Quoted This Month", value: formatAUD(kpis.quoted_this_month_aud), note: "AUD inc GST", icon: Receipt, isCurrency: true },
+    { label: "Customers Active", value: kpis.customers_active, note: "All time", icon: "customers" },
+    { label: "Quotes Sent", value: kpis.quotes_sent, note: "Awaiting decision", icon: "quote_sent" },
+    { label: "Quotes Accepted", value: kpis.quotes_accepted, note: "All time", icon: "quote_accepted" },
+    { label: "Quoted This Month", value: formatAUD(kpis.quoted_this_month_aud), note: "AUD inc GST", icon: "money", isCurrency: true },
   ] : null;
 
   return (
@@ -87,11 +88,11 @@ export default function Dashboard() {
             <div className="mt-6 flex flex-wrap gap-3">
               <Link to="/quotes/new" data-testid="dash-new-quote-cta"
                 className="inline-flex items-center gap-2 bg-[#F5C518] text-[#1F2A33] font-bold px-5 py-2.5 rounded hover:bg-[#E0B416] transition-colors">
-                <FileText className="w-4 h-4" /> New Quote <ArrowRight className="w-4 h-4" />
+                <AppIcon name="quotes" size={18} decorative /> New Quote <ArrowRight className="w-4 h-4" />
               </Link>
               <Link to="/calculator" data-testid="dash-calc-cta"
                 className="inline-flex items-center gap-2 border border-[#1F2A33] text-[#1F2A33] font-semibold px-5 py-2.5 rounded hover:bg-gray-50 transition-colors">
-                <Calculator className="w-4 h-4" /> Open Calculator
+                <AppIcon name="calculator" size={18} decorative /> Open Calculator
               </Link>
             </div>
           </div>
@@ -115,7 +116,7 @@ export default function Dashboard() {
             <div className="bg-white border border-gray-200 rounded p-5 lg:col-span-2" data-testid="recent-activity-card">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-[#3A6B8C]"/>
+                  <AppIcon name="audit" size={18} decorative/>
                   <h2 className="text-sm font-bold uppercase tracking-[0.15em] text-[#3A6B8C]">Recent Activity</h2>
                 </div>
                 <Link to="/admin/audit" className="text-xs font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33]" data-testid="recent-activity-view-all">
@@ -209,7 +210,7 @@ export default function Dashboard() {
                   data-testid={`kpi-${k.label.toLowerCase().replace(/\s+/g, "-")}`}>
                   <div className="flex items-center justify-between">
                     <span className="text-xs uppercase tracking-wider text-gray-500 font-bold">{k.label}</span>
-                    <k.icon className="w-4 h-4 text-[#3A6B8C]" />
+                    <AppIcon name={k.icon} size={28} decorative />
                   </div>
                   <div className={`mt-3 ${k.isCurrency ? "text-2xl" : "text-3xl"} font-black text-[#1F2A33] tracking-tighter tabular-nums`}>
                     {k.value}

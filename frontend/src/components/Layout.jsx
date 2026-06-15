@@ -1,34 +1,32 @@
 import { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
-import {
-  LayoutDashboard, Calculator, Settings, Users, Briefcase, FileText, Wrench, Receipt, BookOpen, BarChart3,
-  Truck, UserSquare2, LogOut, ChevronDown, Menu, X, Plug, Building2, UserCog, Layers,
-} from "lucide-react";
+import { ChevronDown, Menu, X } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { FileSearch } from "lucide-react";
+import AppIcon from "./AppIcon";
 
 // Sidebar items — each gated by a permission OR superAdminOnly.
+// `icon` is now a Fluent Emoji concept key (see /components/icon-map.json).
 const NAV_ITEMS = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" },
-  { to: "/calculator", label: "Calculator", icon: Calculator, testid: "nav-calculator" },
-  { to: "/customers", label: "Customers", icon: UserSquare2, perm: "customers.view", testid: "nav-customers" },
-  { to: "/projects", label: "Projects", icon: Layers, perm: "projects.view", testid: "nav-projects", hidden: true /* no dedicated list yet */ },
-  { to: "/quotes", label: "Quotes", icon: FileText, perm: "quotes.view", testid: "nav-quotes" },
-  { to: "/jobs", label: "Jobs", icon: Briefcase, perm: "jobs.view", testid: "nav-jobs" },
-  { to: "/invoices", label: "Invoices", icon: Receipt, perm: "invoices.view", testid: "nav-invoices" },
-  { to: "/vehicles", label: "Vehicles", icon: Truck, perm: "vehicles.view", testid: "nav-vehicles" },
-  { to: "/employees", label: "Employees", icon: Wrench, perm: "employees.view", testid: "nav-employees" },
-  { to: "/settings/pricing", label: "Pricing", icon: Settings, perm: "pricing.view", testid: "nav-settings" },
-  { to: "/settings/company", label: "Company", icon: Building2, perm: "company.view", testid: "nav-company-settings" },
-  { to: "/settings/integrations", label: "Integrations", icon: Plug, perm: "integrations.view", testid: "nav-integrations" },
-  { to: "/users", label: "Users", icon: Users, perm: "users.view", testid: "nav-users" },
-  { to: "/admin/audit", label: "Audit Trail", icon: FileSearch, perm: "audit.view", testid: "nav-audit" },
-  { to: "/reports", label: "Reports", icon: BarChart3, testid: "nav-reports" },
-  { to: "/help", label: "Help", icon: BookOpen, testid: "nav-help" },
+  { to: "/", label: "Dashboard", icon: "dashboard", testid: "nav-dashboard" },
+  { to: "/calculator", label: "Calculator", icon: "calculator", testid: "nav-calculator" },
+  { to: "/customers", label: "Customers", icon: "customers", perm: "customers.view", testid: "nav-customers" },
+  { to: "/projects", label: "Projects", icon: "projects", perm: "projects.view", testid: "nav-projects", hidden: true /* no dedicated list yet */ },
+  { to: "/quotes", label: "Quotes", icon: "quotes", perm: "quotes.view", testid: "nav-quotes" },
+  { to: "/jobs", label: "Jobs", icon: "jobs", perm: "jobs.view", testid: "nav-jobs" },
+  { to: "/invoices", label: "Invoices", icon: "invoices", perm: "invoices.view", testid: "nav-invoices" },
+  { to: "/vehicles", label: "Vehicles", icon: "vehicles", perm: "vehicles.view", testid: "nav-vehicles" },
+  { to: "/employees", label: "Employees", icon: "employees", perm: "employees.view", testid: "nav-employees" },
+  { to: "/settings/pricing", label: "Pricing", icon: "pricing", perm: "pricing.view", testid: "nav-settings" },
+  { to: "/settings/company", label: "Company", icon: "company", perm: "company.view", testid: "nav-company-settings" },
+  { to: "/settings/integrations", label: "Integrations", icon: "integrations", perm: "integrations.view", testid: "nav-integrations" },
+  { to: "/users", label: "Users", icon: "users", perm: "users.view", testid: "nav-users" },
+  { to: "/admin/audit", label: "Audit Trail", icon: "audit", perm: "audit.view", testid: "nav-audit" },
+  { to: "/reports", label: "Reports", icon: "reports", testid: "nav-reports" },
+  { to: "/help", label: "Help", icon: "help", testid: "nav-help" },
 ];
 
 export default function Layout() {
@@ -78,7 +76,7 @@ export default function Layout() {
                     }`
                   }
                 >
-                  <item.icon className="w-4 h-4" />
+                  <AppIcon name={item.icon} size={20} decorative />
                   <span>{item.label}</span>
                 </NavLink>
               </li>
@@ -136,12 +134,12 @@ export default function Layout() {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate("/account")} data-testid="account-menu-link"
                 className="cursor-pointer">
-                <UserCog className="w-4 h-4 mr-2" /> My account
+                <AppIcon name="account" size={16} className="mr-2" decorative /> My account
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem data-testid="logout-btn" onClick={handleLogout}
                 className="text-red-600 focus:text-red-700 cursor-pointer">
-                <LogOut className="w-4 h-4 mr-2" /> Logout
+                <AppIcon name="logout" size={16} className="mr-2" decorative /> Logout
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
