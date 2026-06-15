@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Loader2, Save, Plus, Trash2 } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, Lock } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
 import { toast, Toaster } from "sonner";
 
 export default function PricingSettings() {
@@ -64,10 +65,19 @@ export default function PricingSettings() {
           material_per_m2: Number(p.material_per_m2),
           manufacturing_per_m2: Number(p.manufacturing_per_m2),
           transport_install_per_m2: Number(p.transport_install_per_m2),
+          manufacturing_labour_per_m2: Number(p.manufacturing_labour_per_m2 ?? 0),
         })),
         thickness_options_mm: data.thickness_options_mm.map((t) => parseInt(t, 10)).filter((n) => n > 0),
         concrete_grades: data.concrete_grades.map((g) => String(g).trim()).filter(Boolean),
-        finishes: data.finishes.map((f) => ({ ...f, multiplier: Number(f.multiplier) })),
+        finishes: data.finishes.map((f) => ({
+          ...f,
+          multiplier: Number(f.multiplier),
+          finishing_labour_per_m2: Number(f.finishing_labour_per_m2 ?? 0),
+        })),
+        concrete_cost_per_m3: Number(data.concrete_cost_per_m3 ?? 0),
+        steel_cost_per_kg: Number(data.steel_cost_per_kg ?? 0),
+        transport_cost_per_m2: Number(data.transport_cost_per_m2 ?? 0),
+        overhead_pct: Number(data.overhead_pct ?? 0),
       };
       const { data: saved } = await api.put("/settings/pricing", payload);
       setData(saved);
@@ -105,6 +115,13 @@ export default function PricingSettings() {
       </div>
 
       {/* Global */}
+      <Tabs defaultValue="sell" className="space-y-6">
+        <TabsList data-testid="pricing-tabs">
+          <TabsTrigger value="sell" data-testid="tab-sell">Sell Prices</TabsTrigger>
+          <TabsTrigger value="cost" data-testid="tab-cost">Cost Inputs (internal)</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="sell" className="space-y-6">
       <Card title="Global">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <NumberField label="Concrete density (kg/m³)" value={data.concrete_density}
@@ -254,6 +271,69 @@ export default function PricingSettings() {
           </table>
         </div>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="cost" className="space-y-6">
+          <div className="bg-[#F5C518]/20 border border-[#F5C518] rounded p-4 text-sm text-[#1F2A33]" data-testid="cost-banner">
+            <Lock className="inline w-4 h-4 mr-1.5 mb-0.5"/>
+            <span className="font-bold">These values are INTERNAL ONLY.</span> Used to calculate margin per quote. Never shown to customers on quotes or invoices. Adjust to match your actual costs.
+          </div>
+          <Card title="Material costs">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <NumberField label="Concrete cost ($/m³)" value={data.concrete_cost_per_m3 ?? 180}
+                onChange={(v) => update("concrete_cost_per_m3", v)} testid="cost-concrete-per-m3" />
+              <NumberField label="Steel cost ($/kg)" value={data.steel_cost_per_kg ?? 1.5}
+                onChange={(v) => update("steel_cost_per_kg", v)} testid="cost-steel-per-kg" />
+              <NumberField label="Transport cost ($/m²)" value={data.transport_cost_per_m2 ?? 25}
+                onChange={(v) => update("transport_cost_per_m2", v)} testid="cost-transport-per-m2" />
+              <NumberField label="Overhead (%)" value={data.overhead_pct ?? 12}
+                onChange={(v) => update("overhead_pct", v)} testid="cost-overhead-pct" />
+            </div>
+          </Card>
+          <Card title="Manufacturing labour per panel type · AUD per m²">
+            <table className="w-full text-sm border border-gray-200 rounded overflow-hidden">
+              <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider">
+                <tr><th className="px-3 py-2 text-left">Panel Type</th><th className="px-3 py-2 text-right">Labour $/m²</th></tr>
+              </thead>
+              <tbody>
+                {(data.panel_types ?? []).map((p, i) => (
+                  <tr key={p.key} className="border-t border-gray-200">
+                    <td className="px-3 py-2 text-[#1F2A33] font-medium">{p.label}</td>
+                    <td className="px-3 py-1">
+                      <Input type="number" step="0.01"
+                        value={p.manufacturing_labour_per_m2 ?? 0}
+                        onChange={(e) => update(`panel_types.${i}.manufacturing_labour_per_m2`, e.target.value)}
+                        data-testid={`cost-mfg-labour-${p.key}`}
+                        className="h-9 text-right tabular-nums w-32 ml-auto"/>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+          <Card title="Finishing labour per finish · AUD per m²">
+            <table className="w-full text-sm border border-gray-200 rounded overflow-hidden">
+              <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider">
+                <tr><th className="px-3 py-2 text-left">Finish</th><th className="px-3 py-2 text-right">Labour $/m²</th></tr>
+              </thead>
+              <tbody>
+                {(data.finishes ?? []).map((f, i) => (
+                  <tr key={f.key} className="border-t border-gray-200">
+                    <td className="px-3 py-2 text-[#1F2A33] font-medium">{f.label}</td>
+                    <td className="px-3 py-1">
+                      <Input type="number" step="0.01"
+                        value={f.finishing_labour_per_m2 ?? 0}
+                        onChange={(e) => update(`finishes.${i}.finishing_labour_per_m2`, e.target.value)}
+                        data-testid={`cost-fin-labour-${f.key}`}
+                        className="h-9 text-right tabular-nums w-32 ml-auto"/>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

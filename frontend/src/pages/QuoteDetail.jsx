@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { Loader2, ArrowLeft, Send, Edit, Printer, Copy, Check, X, ExternalLink } from "lucide-react";
+import { Loader2, ArrowLeft, Send, Edit, Printer, Copy, Check, X, ExternalLink, Lock, ChevronDown, ChevronUp } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { formatAUD, formatNumber, formatDateTime } from "../lib/format";
@@ -217,6 +217,8 @@ export default function QuoteDetail() {
         </div>
       </section>
 
+      <InternalMarginCard quote={quote} />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <section className="bg-white border border-gray-200 rounded p-6 lg:col-span-2 space-y-4">
           <div>
@@ -284,5 +286,71 @@ export default function QuoteDetail() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+
+function marginColor(pct) {
+  if (pct >= 30) return "text-green-700";
+  if (pct >= 15) return "text-amber-700";
+  return "text-red-700";
+}
+function marginBg(pct) {
+  if (pct >= 30) return "bg-green-50 border-green-200";
+  if (pct >= 15) return "bg-amber-50 border-amber-200";
+  return "bg-red-50 border-red-200";
+}
+
+function InternalMarginCard({ quote }) {
+  const [open, setOpen] = useState(false);
+  if (quote.total_cost_aud === undefined || quote.total_cost_aud === null) return null;
+  const mp = quote.margin_pct ?? 0;
+  return (
+    <section className="bg-white border border-[#1F2A33]/20 rounded no-print" data-testid="internal-margin-card">
+      <button type="button" onClick={() => setOpen(o => !o)}
+              className="w-full flex items-center justify-between p-4 hover:bg-gray-50"
+              data-testid="internal-margin-toggle">
+        <div className="flex items-center gap-2">
+          <Lock className="w-4 h-4 text-[#3A6B8C]"/>
+          <span className="text-sm font-bold uppercase tracking-[0.15em] text-[#3A6B8C]">Internal — Margin Analysis</span>
+          <span className={`text-xs font-bold tabular-nums ${marginColor(mp)}`} data-testid="margin-pill-collapsed">
+            {formatAUD(quote.margin_aud ?? 0)} ({mp.toFixed(1)}%)
+          </span>
+        </div>
+        {open ? <ChevronUp className="w-4 h-4 text-gray-500"/> : <ChevronDown className="w-4 h-4 text-gray-500"/>}
+      </button>
+      {open && (
+        <div className="p-5 border-t border-gray-200 space-y-4" data-testid="internal-margin-expanded">
+          <table className="w-full text-sm border border-gray-200 rounded overflow-hidden">
+            <thead className="bg-[#1F2A33] text-[#F5C518] uppercase text-[10px] tracking-wider">
+              <tr>
+                <th className="px-3 py-2 text-left">Line</th>
+                <th className="px-3 py-2 text-right">Sell</th>
+                <th className="px-3 py-2 text-right">Cost</th>
+                <th className="px-3 py-2 text-right">Margin</th>
+                <th className="px-3 py-2 text-right">Margin %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(quote.line_items ?? []).map((l) => (
+                <tr key={l.id} className="border-t border-gray-200">
+                  <td className="px-3 py-2 text-[#1F2A33]">{l.description || l.panel_type_label}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatAUD(l.subtotal_aud)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatAUD(l.total_cost_aud ?? 0)}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums font-semibold ${marginColor(l.margin_pct ?? 0)}`}>{formatAUD(l.margin_aud ?? 0)}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums font-semibold ${marginColor(l.margin_pct ?? 0)}`}>{(l.margin_pct ?? 0).toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 border-2 rounded p-4 ${marginBg(mp)}`}>
+            <div><div className="text-[10px] uppercase font-bold tracking-wider text-gray-500">Total sell</div><div className="text-base font-black tabular-nums text-[#1F2A33]" data-testid="rollup-sell">{formatAUD(quote.subtotal)}</div></div>
+            <div><div className="text-[10px] uppercase font-bold tracking-wider text-gray-500">Total cost</div><div className="text-base font-black tabular-nums text-[#1F2A33]" data-testid="rollup-cost">{formatAUD(quote.total_cost_aud ?? 0)}</div></div>
+            <div><div className="text-[10px] uppercase font-bold tracking-wider text-gray-500">Margin AUD</div><div className={`text-base font-black tabular-nums ${marginColor(mp)}`} data-testid="rollup-margin-aud">{formatAUD(quote.margin_aud ?? 0)}</div></div>
+            <div><div className="text-[10px] uppercase font-bold tracking-wider text-gray-500">Margin %</div><div className={`text-base font-black tabular-nums ${marginColor(mp)}`} data-testid="rollup-margin-pct">{mp.toFixed(1)}%</div></div>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Printer, Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import { Printer, Loader2, AlertCircle, RefreshCw, Lock } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { formatAUD, formatNumber } from "../lib/format";
 import { Button } from "../components/ui/button";
@@ -12,6 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
+
+function marginColor(pct) {
+  if (pct >= 30) return { bg: "bg-green-100", text: "text-green-800", border: "border-green-300" };
+  if (pct >= 15) return { bg: "bg-amber-100", text: "text-amber-800", border: "border-amber-300" };
+  return { bg: "bg-red-100", text: "text-red-800", border: "border-red-300" };
+}
 
 const REINFORCEMENT_OPTIONS = [
   { value: "light", label: "Light (mesh)" },
@@ -373,8 +379,60 @@ function Field({ label, htmlFor, error, children }) {
   );
 }
 
+function InternalCostPanel({ icb }) {
+  if (!icb) return null;
+  const col = marginColor(icb.margin_pct ?? 0);
+  return (
+    <section className="bg-white border border-[#1F2A33]/20 rounded p-6 results-card no-print"
+             data-testid="calc-internal-cost-panel">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <div className="overline text-[#1F2A33] inline-flex items-center gap-1.5">
+            <Lock className="w-3.5 h-3.5"/> Internal — Cost &amp; Margin
+          </div>
+          <div className="text-[10px] uppercase tracking-wider text-gray-500 mt-1">Not shown to customers</div>
+        </div>
+      </div>
+      <table className="w-full text-sm border border-gray-200 rounded overflow-hidden">
+        <thead className="bg-[#1F2A33] text-[#F5C518] uppercase text-[10px] tracking-wider">
+          <tr><th className="px-3 py-2 text-left">Cost item</th><th className="px-3 py-2 text-right">AUD</th></tr>
+        </thead>
+        <tbody className="bg-white tabular-nums">
+          <Row label="Concrete" value={icb.concrete_cost_aud ?? 0} testid="cost-row-concrete" />
+          <Row label="Steel" value={icb.steel_cost_aud ?? 0} testid="cost-row-steel" />
+          <Row label="Mfg labour" value={icb.manufacturing_labour_aud ?? 0} testid="cost-row-mfg-labour" />
+          <Row label="Finishing labour" value={icb.finishing_labour_aud ?? 0} testid="cost-row-fin-labour" />
+          <Row label="Transport" value={icb.transport_cost_aud ?? 0} testid="cost-row-transport" />
+          <tr className="border-t border-gray-200 font-semibold">
+            <td className="px-3 py-2.5">Subtotal cost</td>
+            <td className="px-3 py-2.5 text-right" data-testid="cost-row-subtotal">{formatAUD(icb.subtotal_cost_aud ?? 0)}</td>
+          </tr>
+          <tr><td className="px-3 py-2 text-[#3A6B8C]">Overhead ({icb.overhead_pct ?? 0}%)</td>
+              <td className="px-3 py-2 text-right" data-testid="cost-row-overhead">{formatAUD(icb.overhead_aud ?? 0)}</td></tr>
+          <tr className="border-t-2 border-[#1F2A33] bg-gray-50">
+            <td className="px-3 py-3 font-bold uppercase text-xs tracking-wider text-[#1F2A33]">Total cost</td>
+            <td className="px-3 py-3 text-right font-black tabular-nums text-[#1F2A33] text-base" data-testid="cost-row-total">
+              {formatAUD(icb.total_cost_aud ?? 0)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div className={`mt-4 ${col.bg} ${col.border} border-2 rounded p-4 flex items-baseline justify-between`}
+           data-testid="margin-pill">
+        <div className={`text-[10px] font-bold uppercase tracking-[0.2em] ${col.text}`}>Margin</div>
+        <div className="flex items-baseline gap-2">
+          <span className={`text-2xl font-black tabular-nums ${col.text}`} data-testid="margin-aud">{formatAUD(icb.margin_aud ?? 0)}</span>
+          <span className={`text-base font-bold tabular-nums ${col.text}`} data-testid="margin-pct">
+            ({(icb.margin_pct ?? 0).toFixed(1)}%)
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ResultsPanel({ result }) {
-  const { per_panel, totals, cost_breakdown, inputs, panel_type, finish } = result;
+  const { per_panel, totals, cost_breakdown, inputs, panel_type, finish, internal_cost_breakdown } = result;
   return (
     <div className="space-y-4">
       <div className="bg-white border border-gray-200 rounded p-6 results-card" data-testid="results-card">
@@ -447,6 +505,8 @@ function ResultsPanel({ result }) {
         </div>
         <div className="mt-1 text-xs text-[#1F2A33]/70">AUD · {totals.quantity} panel(s) · GST 10% included</div>
       </div>
+
+      <InternalCostPanel icb={internal_cost_breakdown} />
 
       <div className="print-only">
         <h2 className="text-lg font-bold mt-4">Paneltec Group — Calculator Export</h2>

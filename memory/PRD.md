@@ -257,3 +257,56 @@ Backend curl 16/16 (incl. setup): soft delete + restore + login block + self-pro
 ### Phase 6 — COMPLETE
 Next: Phase 7 — Pricing model upgrade (Cost vs Sell + labour per panel type & finish + margin display on calculator and quote builder).
 
+
+
+## Phase 7 — Pricing Upgrade Complete (2026-06-15)
+
+### Pass 1 (backend foundation, zero-leak verified) + Pass 2 (frontend UI)
+
+**New permission**: `pricing.view_costs` (under `pricing` module; OFF in all presets; super-admin bypasses).
+
+**Pricing settings cost fields** (defaults seeded; idempotent backfill on startup):
+- Globals: `concrete_cost_per_m3=180`, `steel_cost_per_kg=1.50`, `transport_cost_per_m2=25`, `overhead_pct=12`
+- Per panel type `manufacturing_labour_per_m2`: 35 / 42 / 40 / 32 / 65 / 55
+- Per finish `finishing_labour_per_m2`: 5 / 18 / 20 / 15 / 25
+
+**Calculator**: response now returns `internal_cost_breakdown` block (key chosen to avoid collision with the pre-existing sell-side `cost_breakdown`). Block contains concrete / steel / mfg-labour / finishing-labour / transport / subtotal / overhead / total / margin / margin_pct. Stripped when caller lacks perm.
+
+**Quote line snapshot**: 9 frozen cost fields per line (`cost_concrete_aud`, `cost_steel_aud`, `cost_manufacturing_labour_aud`, `cost_finishing_labour_aud`, `cost_transport_aud`, `cost_overhead_aud`, `total_cost_aud`, `margin_aud`, `margin_pct`) + quote-level rollups (`total_cost_aud`, `margin_aud`, `margin_pct`).
+
+**Zero-leak strip** at 4 surfaces (with helper `_strip_internal_costs_from_quote`):
+- `POST /api/calculator/calculate` — strips `internal_cost_breakdown` without perm
+- `GET /api/quotes/{id}` and `GET /api/quotes` — strip top-level + line-item cost/margin fields
+- `GET /api/public/quotes/by-token/{token}` — `_public_quote` whitelists fields with explicit "PHASE 7 ZERO-LEAK GUARANTEE" comment
+
+**Dashboard KPIs**: `quoted_margin_this_month_aud` + `quoted_margin_this_month_pct` (weighted by subtotal across sent/accepted, current month) — absent for users without perm.
+
+**Frontend UI**:
+- Pricing Settings → 2-tab layout with **Sell Prices** + **Cost Inputs (internal)** (yellow banner + 4 cost globals + per-type labour + per-finish labour)
+- Calculator → `InternalCostPanel` with lock icon, full breakdown table, colour-coded margin pill (green ≥30, amber 15-30, red <15)
+- Quote detail → `InternalMarginCard` collapsible (closed by default) with per-line and rollup margin, same colour rules
+- Dashboard → 2 KPI cards (`Quoted margin` + `Avg margin %`) — colour-coded
+
+**Regression fix (bundled in Pass 1)**: "Something went wrong" misleading error on Add Line modal — the catch handler now surfaces `ex.message` when the exception isn't an axios response (e.g. `Error("Pick a customer first")`).
+
+### Self-tested 10/10 PASS
+1. Pricing tabs visible; Cost Inputs tab with banner + 180/1.5/25/12 defaults ✓
+2. Calculator (admin): margin $3,053.16 / 59.7% **green** pill — all 9 numbers exactly match brief ✓
+3. Calculator (estimator): cost panel + margin pill **absent from DOM** ✓
+4. Quote detail (admin): collapsible card renders with sell $5,112 / cost $2,058.84 / margin $3,053.16 / 59.7% ✓
+5. Quote detail (estimator): margin card **absent from DOM** ✓
+6. Quote print view: no cost/margin words or test-ids in rendered HTML ✓
+7. Public magic-link (no auth): zero `cost_*` / `margin_*` / `internal_cost_breakdown` keys — curl-verified in Pass 1 ✓
+8. Dashboard (admin): both margin KPI cards visible; estimator dashboard: **absent** ✓
+9. Colour coding live-verified: 59.7% green, 6.2% red ✓
+10. No regressions: $5,623.20 Phase 1 total intact; bulk Xero, delete modals, public magic-link accept all unaffected ✓
+
+### Files touched
+- `/app/backend/server.py` (Pass 1: permission + defaults + migration + models + compute + snapshot + rollup + strips at 4 surfaces + dashboard KPIs)
+- `/app/frontend/src/pages/PricingSettings.jsx` (tabbed UI + Cost Inputs tab)
+- `/app/frontend/src/pages/Calculator.jsx` (InternalCostPanel + margin pill colour gating)
+- `/app/frontend/src/pages/QuoteDetail.jsx` (InternalMarginCard collapsible)
+- `/app/frontend/src/pages/Dashboard.jsx` (margin KPI row)
+- `/app/frontend/src/pages/QuoteEditor.jsx` (Add Line error message regression fix)
+
+### Phase 7 — COMPLETE

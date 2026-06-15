@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Calculator, FileText, Briefcase, Receipt, UserSquare2, Loader2, Activity, FileWarning } from "lucide-react";
+import { ArrowRight, Calculator, FileText, Briefcase, Receipt, UserSquare2, Loader2, Activity, FileWarning, TrendingUp, Percent } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { api } from "../lib/api";
 import { formatAUD, formatDateTime } from "../lib/format";
@@ -161,6 +161,38 @@ export default function Dashboard() {
               </div>
             </Link>
           )}
+        </section>
+      )}
+
+      {/* Margin KPIs — gated on pricing.view_costs (presence of fields in API response) */}
+      {kpis && kpis.quoted_margin_this_month_aud !== undefined && (
+        <section className="grid grid-cols-1 sm:grid-cols-2 gap-4" data-testid="margin-kpi-row">
+          <div className="bg-white border border-[#1F2A33]/20 rounded p-5" data-testid="kpi-margin-aud">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wider text-gray-500 font-bold">This month — Quoted margin</span>
+              <TrendingUp className="w-4 h-4 text-[#3A6B8C]"/>
+            </div>
+            <div className="mt-3 text-3xl font-black text-[#1F2A33] tracking-tighter tabular-nums" data-testid="kpi-margin-aud-value">
+              {formatAUD(kpis.quoted_margin_this_month_aud ?? 0)}
+            </div>
+            <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Sent &amp; accepted quotes</div>
+          </div>
+          {(() => {
+            const mp = kpis.quoted_margin_this_month_pct ?? 0;
+            const cls = mp >= 30 ? "text-green-700" : mp >= 15 ? "text-amber-700" : "text-red-700";
+            return (
+              <div className="bg-white border border-[#1F2A33]/20 rounded p-5" data-testid="kpi-margin-pct">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-wider text-gray-500 font-bold">This month — Avg margin %</span>
+                  <Percent className="w-4 h-4 text-[#3A6B8C]"/>
+                </div>
+                <div className={`mt-3 text-3xl font-black tracking-tighter tabular-nums ${cls}`} data-testid="kpi-margin-pct-value">
+                  {mp.toFixed(1)}%
+                </div>
+                <div className="mt-1 text-[10px] uppercase tracking-wider text-gray-400">Weighted by subtotal</div>
+              </div>
+            );
+          })()}
         </section>
       )}
 
