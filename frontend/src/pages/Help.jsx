@@ -26,26 +26,48 @@ const APP_VERSION = "v1.0 · Phase 8";
 // but a stray `<!-- ... -->` here would render as literal text via react-markdown.
 const stripHtmlComments = (md) => md.replace(/<!--[\s\S]*?-->/g, "");
 
-const ICON_MAP = {
-  welcome:             { icon: Home,               color: "#F5C518" },
-  "getting-started":   { icon: Rocket,             color: "#2E7D5B" },
-  "roles-permissions": { icon: ShieldCheck,        color: "#3A6B8C" },
-  calculator:          { icon: Calculator,         color: "#1F2A33" },
-  customers:           { icon: Users,              color: "#7B3F9E" },
-  projects:            { icon: FolderKanban,       color: "#C2613A" },
-  quotes:              { icon: FileText,           color: "#2C7BB6" },
-  jobs:                { icon: Hammer,             color: "#C95F2A" },
-  invoices:            { icon: Receipt,            color: "#2E7D5B" },
-  "vehicles-employees":{ icon: Truck,              color: "#4A6741" },
-  settings:            { icon: Settings,           color: "#566573" },
-  "audit-trail":       { icon: History,            color: "#B22F2F" },
-  "universal-actions": { icon: MousePointerClick,  color: "#D4318A" },
-  mocked:              { icon: FlaskConical,       color: "#B8860B" },
-  troubleshooting:     { icon: LifeBuoy,           color: "#B22F2F" },
-  "version-changelog": { icon: GitBranch,          color: "#4B4F8C" },
-  reports:             { icon: BarChart3,          color: "#2E7D5B" },
+// Each H2 section gets: lucide icon + section colour (for the left accent) + gradient stops
+// (mix of section colour + brand steel-blue + safety-yellow) + a dedicated banner image.
+const STEEL = "#3A6B8C";
+const YELLOW = "#F5C518";
+
+export const ICON_MAP = {
+  welcome:             { icon: Home,               color: "#F5C518", banner: "/manual/sections/01_welcome.jpg",            grad: ["#F5C518", STEEL, "#1F2A33"] },
+  "getting-started":   { icon: Rocket,             color: "#2E7D5B", banner: "/manual/sections/02_getting_started.jpg",    grad: ["#2E7D5B", STEEL, YELLOW] },
+  "roles-permissions": { icon: ShieldCheck,        color: "#3A6B8C", banner: "/manual/sections/03_roles_permissions.jpg",  grad: ["#1F2A33", STEEL, YELLOW] },
+  calculator:          { icon: Calculator,         color: "#1F2A33", banner: "/manual/sections/04_calculator.jpg",         grad: ["#1F2A33", STEEL, YELLOW] },
+  customers:           { icon: Users,              color: "#7B3F9E", banner: "/manual/sections/05_customers.jpg",          grad: ["#7B3F9E", STEEL, YELLOW] },
+  projects:            { icon: FolderKanban,       color: "#C2613A", banner: "/manual/sections/06_projects.jpg",           grad: ["#C2613A", STEEL, YELLOW] },
+  quotes:              { icon: FileText,           color: "#2C7BB6", banner: "/manual/sections/07_quotes.jpg",             grad: ["#2C7BB6", STEEL, YELLOW] },
+  jobs:                { icon: Hammer,             color: "#C95F2A", banner: "/manual/sections/08_jobs.jpg",               grad: ["#C95F2A", STEEL, YELLOW] },
+  invoices:            { icon: Receipt,            color: "#2E7D5B", banner: "/manual/sections/09_invoices.jpg",           grad: ["#2E7D5B", STEEL, YELLOW] },
+  "vehicles-employees":{ icon: Truck,              color: "#4A6741", banner: "/manual/sections/10_vehicles_employees.jpg", grad: ["#4A6741", STEEL, YELLOW] },
+  settings:            { icon: Settings,           color: "#566573", banner: "/manual/sections/11_settings.jpg",           grad: ["#566573", STEEL, YELLOW] },
+  "audit-trail":       { icon: History,            color: "#B22F2F", banner: "/manual/sections/12_audit_trail.jpg",        grad: ["#B22F2F", STEEL, YELLOW] },
+  "universal-actions": { icon: MousePointerClick,  color: "#D4318A", banner: "/manual/sections/13_universal_actions.jpg",  grad: ["#D4318A", STEEL, YELLOW] },
+  mocked:              { icon: FlaskConical,       color: "#B8860B", banner: "/manual/sections/14_mocked.jpg",             grad: ["#B8860B", STEEL, YELLOW] },
+  troubleshooting:     { icon: LifeBuoy,           color: "#B22F2F", banner: "/manual/sections/15_troubleshooting.jpg",    grad: ["#B22F2F", STEEL, YELLOW] },
+  "version-changelog": { icon: GitBranch,          color: "#4B4F8C", banner: "/manual/sections/16_changelog.jpg",          grad: ["#4B4F8C", STEEL, YELLOW] },
+  reports:             { icon: BarChart3,          color: "#2E7D5B", banner: "/manual/sections/17_reports.jpg",            grad: ["#2E7D5B", STEEL, YELLOW] },
 };
-function iconKeyFor(text) {
+
+// Inline <defs> sprite — one <linearGradient> per section, referenced via stroke="url(#grad-…)".
+export function IconGradientDefs() {
+  return (
+    <svg width="0" height="0" style={{ position: "absolute", width: 0, height: 0 }} aria-hidden="true" focusable="false">
+      <defs>
+        {Object.entries(ICON_MAP).map(([key, v]) => (
+          <linearGradient key={key} id={`grad-${key}`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%"   stopColor={v.grad[0]}/>
+            <stop offset="55%"  stopColor={v.grad[1]}/>
+            <stop offset="100%" stopColor={v.grad[2]}/>
+          </linearGradient>
+        ))}
+      </defs>
+    </svg>
+  );
+}
+export function iconKeyFor(text) {
   const t = String(text).toLowerCase();
   if (t.includes("welcome")) return "welcome";
   if (t.includes("getting")) return "getting-started";
@@ -67,7 +89,7 @@ function iconKeyFor(text) {
   return null;
 }
 
-const slugify = (s) =>
+export const slugify = (s) =>
   String(s).toLowerCase().trim()
     .replace(/[^\w\s-]/g, "")
     .replace(/\s+/g, "-")
@@ -144,19 +166,29 @@ export default function Help() {
       h2: ({ children }) => {
         const text = stringify(children);
         const id = slugify(text);
-        const entry = ICON_MAP[iconKeyFor(text)];
+        const key = iconKeyFor(text);
+        const entry = ICON_MAP[key];
         const Icon = entry?.icon;
         const color = entry?.color || "#3A6B8C";
+        const banner = entry?.banner;
+        const gradId = key ? `grad-${key}` : null;
         const idx = h2Count++;
         return (
           <>
-            {idx > 0 && (
+            {banner ? (
+              <div className="manual-section-banner no-print-bg" data-testid={`banner-${id}`}>
+                <img src={banner} alt="" aria-hidden="true"/>
+              </div>
+            ) : (idx > 0 && (
               <img src="/manual/divider.png" alt="" aria-hidden="true"
                    className="manual-divider w-full no-print" style={{height:"32px", objectFit:"cover", opacity:0.9, margin:"32px 0"}}/>
-            )}
+            ))}
             <div id={id} className="manual-h2 scroll-mt-6 flex items-start gap-3 mt-4 mb-3 pl-3 border-l-4 border-[#F5C518] section-break"
                  style={{ pageBreakBefore: idx > 0 ? "always" : "auto" }}>
-              {Icon && <Icon className="w-7 h-7 shrink-0 mt-0.5" style={{ color }}/>}
+              {Icon && (
+                <Icon className="w-7 h-7 shrink-0 mt-0.5"
+                      style={{ color, stroke: gradId ? `url(#${gradId})` : color }}/>
+              )}
               <h2 className="text-2xl font-black text-[#1F2A33] tracking-tight">{<HighlightText text={text} q={query} />}</h2>
             </div>
           </>
@@ -196,6 +228,7 @@ export default function Help() {
 
   return (
     <div className="max-w-7xl" data-testid="help-page">
+      <IconGradientDefs/>
       <style>{`
         .manual-cover-wrap {
           width: 100%;
@@ -211,6 +244,24 @@ export default function Help() {
           height: 100%;
           object-fit: contain;
           display: block;
+        }
+        .manual-section-banner {
+          width: 100%;
+          aspect-ratio: 3 / 2;
+          max-height: 200px;
+          border-radius: 8px;
+          overflow: hidden;
+          margin: 36px 0 16px 0;
+          background: #1F2A33;
+        }
+        .manual-section-banner img {
+          width: 100%; height: 100%;
+          object-fit: cover; object-position: center;
+          display: block;
+        }
+        @supports not (aspect-ratio: 3 / 2) {
+          .manual-section-banner { padding-top: 66.6%; position: relative; height: 0; }
+          .manual-section-banner img { position: absolute; inset: 0; }
         }
         @supports not (aspect-ratio: 3 / 2) {
           .manual-cover-wrap { padding-top: 66.6%; position: relative; height: 0; }
@@ -246,6 +297,7 @@ export default function Help() {
                 const entry = t.level === 2 ? ICON_MAP[t.iconKey] : null;
                 const Icon = entry?.icon;
                 const iconColor = entry?.color || "#3A6B8C";
+                const gradId = t.level === 2 && t.iconKey ? `grad-${t.iconKey}` : null;
                 const isActive = activeId === t.id;
                 return (
                   <li key={t.id} className={t.level === 3 ? "ml-5" : ""}>
@@ -254,7 +306,10 @@ export default function Help() {
                               t.level === 2 ? "font-bold" : ""
                             } ${isActive ? "text-[#3A6B8C] border-l-[3px] border-[#F5C518]" : (t.level === 2 ? "text-[#1F2A33]" : "text-gray-600")}`}
                             data-testid={`toc-${t.id}`}>
-                      {Icon && <Icon className="w-4 h-4 shrink-0" style={{ color: iconColor }}/>}
+                      {Icon && (
+                        <Icon className="w-4 h-4 shrink-0"
+                              style={{ color: iconColor, stroke: gradId ? `url(#${gradId})` : iconColor }}/>
+                      )}
                       <span>{t.text}</span>
                     </button>
                   </li>
