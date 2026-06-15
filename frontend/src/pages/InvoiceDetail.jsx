@@ -124,7 +124,7 @@ export default function InvoiceDetail() {
               <tr><th className="px-3 py-2 text-left">Description</th><th className="px-3 py-2 text-left">Panel</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2 text-right">Total</th></tr>
             </thead>
             <tbody>
-              {inv.line_items.map(l => (
+              {(inv.line_items ?? []).map(l => (
                 <tr key={l.id} className="border-b border-gray-100">
                   <td className="px-3 py-2.5">{l.description || "—"}</td>
                   <td className="px-3 py-2.5 text-gray-700">{l.panel_type_label}</td>

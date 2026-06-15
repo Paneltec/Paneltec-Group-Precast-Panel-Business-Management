@@ -198,7 +198,7 @@ export default function QuoteDetail() {
               </tr>
             </thead>
             <tbody>
-              {quote.line_items.map((l) => (
+              {(quote.line_items ?? []).map((l) => (
                 <tr key={l.id} className="border-b border-gray-100">
                   <td className="px-3 py-2.5 text-[#1F2A33]">{l.description || "—"}</td>
                   <td className="px-3 py-2.5 text-gray-700">{l.panel_type_label}<div className="text-[10px] text-gray-500">{l.finish_label} · {l.reinforcement_label}</div></td>

@@ -46,7 +46,7 @@ export default function JobDetail() {
         api.get("/vehicles"),
         api.get("/employees"),
       ]);
-      setCustomer(c); setVehicles(v.items); setEmployees(e.items);
+      setCustomer(c); setVehicles(Array.isArray(v) ? v : (v?.items ?? [])); setEmployees(Array.isArray(e) ? e : (e?.items ?? []));
       // Find invoice for this job
       try {
         const { data: inv } = await api.get("/invoices", { params: { customer_id: data.customer_id, page_size: 100 } });
@@ -187,14 +187,14 @@ export default function JobDetail() {
               <SelectTrigger className="mt-1 h-10" data-testid="job-vehicle-select"><SelectValue placeholder="—"/></SelectTrigger>
               <SelectContent>
                 <SelectItem value="_none">— None —</SelectItem>
-                {vehicles.map(v => <SelectItem key={v.id} value={v.id}>{v.id} · {v.name} ({v.rego}) · {v.capacity_tonnes}t</SelectItem>)}
+                {(vehicles ?? []).map(v => <SelectItem key={v.id} value={v.id}>{v.id} · {v.name} ({v.rego}) · {v.capacity_tonnes}t</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
           <div>
             <Label className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">Crew (employees)</Label>
             <div className="mt-2 flex flex-wrap gap-2">
-              {employees.map(e => {
+              {(employees ?? []).map(e => {
                 const on = (job.assigned_employee_ids || []).includes(e.id);
                 return (
                   <button key={e.id} type="button"
@@ -224,7 +224,7 @@ export default function JobDetail() {
               <tr><th className="px-3 py-2 text-left">Description</th><th className="px-3 py-2 text-left">Panel</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2 text-right">Total</th></tr>
             </thead>
             <tbody>
-              {job.line_items.map(l => (
+              {(job.line_items ?? []).map(l => (
                 <tr key={l.id} className="border-b border-gray-100">
                   <td className="px-3 py-2.5">{l.description || "—"}</td>
                   <td className="px-3 py-2.5 text-gray-700">{l.panel_type_label}<div className="text-[10px] text-gray-500">{l.length_m}×{l.height_m}×{l.thickness_mm}mm</div></td>

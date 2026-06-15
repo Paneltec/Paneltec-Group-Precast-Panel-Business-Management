@@ -297,7 +297,7 @@ function ProjectsCard({ customerId, projects, onChanged, customerSiteAddress, re
             <tr><th className="text-left py-2">Name</th><th className="text-left">Status</th><th className="text-left">Created</th><th className="text-right"></th></tr>
           </thead>
           <tbody>
-            {projects.map(p => (
+            {(projects ?? []).map(p => (
               <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="py-2.5 font-semibold text-[#1F2A33]">{p.project_name}<div className="text-xs text-gray-500 font-normal">{p.description}</div></td>
                 <td><span className="text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{p.status}</span></td>
