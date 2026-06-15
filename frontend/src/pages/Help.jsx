@@ -1,12 +1,45 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Search, Printer, BookOpen } from "lucide-react";
+import { Search, Printer, BookOpen,
+  Home, Rocket, ShieldCheck, Calculator, Users, FolderKanban, FileText, Hammer,
+  Receipt, Truck, Settings, History, MousePointerClick, FlaskConical, LifeBuoy,
+  GitBranch, BarChart3 } from "lucide-react";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { openPrintPopup } from "../lib/print";
 import manualMd from "../content/user-manual.md";
 
 const APP_VERSION = "v1.0 · Phase 7";
+
+const ICON_MAP = {
+  welcome: Home, "getting-started": Rocket, "roles-permissions": ShieldCheck,
+  calculator: Calculator, customers: Users, projects: FolderKanban,
+  quotes: FileText, jobs: Hammer, invoices: Receipt,
+  "vehicles-employees": Truck, settings: Settings, "audit-trail": History,
+  "universal-actions": MousePointerClick, mocked: FlaskConical,
+  troubleshooting: LifeBuoy, "version-changelog": GitBranch, reports: BarChart3,
+};
+function iconKeyFor(text) {
+  const t = String(text).toLowerCase();
+  if (t.includes("welcome")) return "welcome";
+  if (t.includes("getting")) return "getting-started";
+  if (t.includes("roles") || t.includes("permission")) return "roles-permissions";
+  if (t.includes("calculator")) return "calculator";
+  if (t.includes("customers") && !t.includes("vehicles")) return "customers";
+  if (t.includes("projects")) return "projects";
+  if (t.includes("quotes")) return "quotes";
+  if (t.includes("jobs")) return "jobs";
+  if (t.includes("invoices")) return "invoices";
+  if (t.includes("vehicles") || t.includes("employees")) return "vehicles-employees";
+  if (t.includes("settings")) return "settings";
+  if (t.includes("audit")) return "audit-trail";
+  if (t.includes("universal")) return "universal-actions";
+  if (t.includes("mocked") || t.includes("what's")) return "mocked";
+  if (t.includes("trouble")) return "troubleshooting";
+  if (t.includes("version") || t.includes("change log") || t.includes("changelog")) return "version-changelog";
+  if (t.includes("reports") || t.includes("data export")) return "reports";
+  return null;
+}
 
 const slugify = (s) =>
   String(s).toLowerCase().trim()
@@ -19,7 +52,7 @@ function buildToc(md) {
   md.split("\n").forEach((line) => {
     const h2 = /^##\s+(.+)/.exec(line);
     const h3 = /^###\s+(.+)/.exec(line);
-    if (h2) toc.push({ level: 2, text: h2[1].trim(), id: slugify(h2[1]) });
+    if (h2) toc.push({ level: 2, text: h2[1].trim(), id: slugify(h2[1]), iconKey: iconKeyFor(h2[1]) });
     else if (h3) toc.push({ level: 3, text: h3[1].trim(), id: slugify(h3[1]) });
   });
   return toc;
@@ -55,7 +88,24 @@ export default function Help() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const [activeId, setActiveId] = useState("");
+
+  // Scroll-spy: track which H2 is currently in view
+  useEffect(() => {
+    if (!md) return;
+    const t = setTimeout(() => {
+      const els = contentRef.current?.querySelectorAll("h2[id]") || [];
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach((e) => { if (e.isIntersecting) setActiveId(e.target.id); });
+      }, { rootMargin: "-10% 0px -70% 0px", threshold: 0 });
+      els.forEach((el) => obs.observe(el));
+      return () => obs.disconnect();
+    }, 400);
+    return () => clearTimeout(t);
+  }, [md]);
+
   const renderers = useMemo(() => {
+    let h2Count = 0;
     const stringify = (children) => {
       if (children == null) return "";
       if (typeof children === "string") return children;
@@ -67,11 +117,28 @@ export default function Help() {
       h1: ({ children }) => <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-[#1F2A33] mb-4">{children}</h1>,
       h2: ({ children }) => {
         const text = stringify(children);
-        return <h2 id={slugify(text)} className="text-2xl font-black text-[#1F2A33] tracking-tight mt-10 mb-3 scroll-mt-6">{<HighlightText text={text} q={query} />}</h2>;
+        const id = slugify(text);
+        const Icon = ICON_MAP[iconKeyFor(text)];
+        const idx = h2Count++;
+        return (
+          <>
+            {idx > 0 && (
+              <img src="/manual/divider.png" alt="" aria-hidden="true"
+                   className="manual-divider w-full no-print" style={{height:"32px", objectFit:"cover", opacity:0.9, margin:"32px 0"}}/>
+            )}
+            <div id={id} className="manual-h2 scroll-mt-6 flex items-start gap-3 mt-4 mb-3 pl-3 border-l-4 border-[#F5C518] section-break"
+                 style={{ pageBreakBefore: idx > 0 ? "always" : "auto" }}>
+              {Icon && <Icon className="w-7 h-7 text-[#3A6B8C] shrink-0 mt-0.5"/>}
+              <h2 className="text-2xl font-black text-[#1F2A33] tracking-tight">{<HighlightText text={text} q={query} />}</h2>
+            </div>
+          </>
+        );
       },
       h3: ({ children }) => {
         const text = stringify(children);
-        return <h3 id={slugify(text)} className="text-lg font-bold text-[#3A6B8C] tracking-tight mt-6 mb-2 scroll-mt-6">{<HighlightText text={text} q={query} />}</h3>;
+        return <h3 id={slugify(text)} className="text-lg font-bold text-[#3A6B8C] tracking-tight mt-6 mb-2 pb-2 scroll-mt-6 border-b-2 border-[#3A6B8C]/30">
+          {<HighlightText text={text} q={query} />}
+        </h3>;
       },
       h4: ({ children }) => <h4 className="text-base font-bold text-[#1F2A33] mt-4 mb-1.5">{children}</h4>,
       p: ({ children }) => {
@@ -126,21 +193,30 @@ export default function Help() {
           <div className="lg:sticky lg:top-6 bg-white border border-gray-200 rounded p-4 max-h-[calc(100vh-8rem)] overflow-y-auto">
             <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-2">Contents</div>
             <ul className="space-y-1">
-              {toc.map((t) => (
-                <li key={t.id} className={t.level === 3 ? "ml-3" : ""}>
-                  <button type="button" onClick={() => scrollTo(t.id)}
-                          className={`text-left w-full text-xs hover:text-[#1F2A33] ${t.level === 2 ? "font-bold text-[#1F2A33]" : "text-gray-600"}`}
-                          data-testid={`toc-${t.id}`}>
-                    {t.text}
-                  </button>
-                </li>
-              ))}
+              {toc.map((t) => {
+                const Icon = t.level === 2 ? ICON_MAP[t.iconKey] : null;
+                const isActive = activeId === t.id;
+                return (
+                  <li key={t.id} className={t.level === 3 ? "ml-5" : ""}>
+                    <button type="button" onClick={() => scrollTo(t.id)}
+                            className={`text-left w-full text-xs hover:text-[#1F2A33] flex items-center gap-1.5 py-0.5 pl-1.5 ${
+                              t.level === 2 ? "font-bold" : ""
+                            } ${isActive ? "text-[#3A6B8C] border-l-[3px] border-[#F5C518]" : (t.level === 2 ? "text-[#1F2A33]" : "text-gray-600")}`}
+                            data-testid={`toc-${t.id}`}>
+                      {Icon && <Icon className="w-4 h-4 text-[#3A6B8C] shrink-0"/>}
+                      <span>{t.text}</span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </nav>
 
         <article ref={contentRef} className="lg:col-span-9 bg-white border border-gray-200 rounded p-6 lg:p-10 prose-paneltec"
                  data-testid="help-content">
+          <img src="/manual/cover.png" alt="Paneltec Group — User Manual" data-testid="help-cover"
+               className="w-full mb-6 rounded" style={{maxHeight:"280px", objectFit:"cover"}}/>
           {md ? <ReactMarkdown components={renderers}>{md}</ReactMarkdown>
               : <p className="text-sm text-gray-400">Loading manual…</p>}
         </article>
