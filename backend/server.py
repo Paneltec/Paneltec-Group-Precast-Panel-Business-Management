@@ -103,7 +103,7 @@ PERMISSION_MODULES = [
     {"key": "invoices",  "label": "Invoices",  "permissions": ["invoices.view", "invoices.create", "invoices.issue", "invoices.mark_paid", "invoices.push_xero", "invoices.delete"]},
     {"key": "vehicles",  "label": "Vehicles",  "permissions": ["vehicles.view", "vehicles.create", "vehicles.edit", "vehicles.delete"]},
     {"key": "employees", "label": "Employees", "permissions": ["employees.view", "employees.create", "employees.edit", "employees.delete"]},
-    {"key": "pricing",   "label": "Pricing",   "permissions": ["pricing.view", "pricing.edit"]},
+    {"key": "pricing",   "label": "Pricing",   "permissions": ["pricing.view", "pricing.edit", "pricing.view_costs"]},
     {"key": "company",   "label": "Company",   "permissions": ["company.view", "company.edit"]},
     {"key": "integrations","label":"Integrations","permissions": ["integrations.view", "integrations.edit"]},
     {"key": "users",     "label": "Users",     "permissions": ["users.view", "users.manage"]},
@@ -244,14 +244,23 @@ class ResetPasswordRequest(BaseModel):
 class PanelTypePricing(BaseModel):
     key: str; label: str; thickness_mm: int
     material_per_m2: float; manufacturing_per_m2: float; transport_install_per_m2: float
+    # Phase 7 — internal cost only (optional for backward compat on PUT bodies)
+    manufacturing_labour_per_m2: float = 0.0
 class ReinforcementDensities(BaseModel):
     light: float; standard: float; heavy: float; prestressed: float
 class FinishMultiplier(BaseModel):
     key: str; label: str; multiplier: float
+    # Phase 7 — internal cost only
+    finishing_labour_per_m2: float = 0.0
 class PricingSettings(BaseModel):
     concrete_density: float = 2500.0; gst_rate: float = 10.0
     reinforcement_densities: ReinforcementDensities; panel_types: List[PanelTypePricing]
     thickness_options_mm: List[int]; concrete_grades: List[str]; finishes: List[FinishMultiplier]
+    # Phase 7 — internal cost inputs (optional in body; migration ensures defaults exist server-side)
+    concrete_cost_per_m3: float = 180.0
+    steel_cost_per_kg: float = 1.50
+    transport_cost_per_m2: float = 25.0
+    overhead_pct: float = 12.0
 class CalculateRequest(BaseModel):
     panel_type_key: str; length_m: float = Field(gt=0); height_m: float = Field(gt=0)
     thickness_mm: int = Field(gt=0); concrete_grade: str; quantity: int = Field(ge=1)
@@ -450,6 +459,38 @@ def compute_calculation(payload: CalculateRequest, pricing: Dict[str, Any]) -> D
     gst_rate = float(pricing["gst_rate"]) / 100.0
     gst = subtotal_all * gst_rate
     total_inc_gst = subtotal_all + gst
+    # Phase 7 — internal cost computation (always computed; stripped at endpoint per permission)
+    mfg_labour_rate = float(panel.get("manufacturing_labour_per_m2") or 0.0)
+    fin_labour_rate = float(finish.get("finishing_labour_per_m2") or 0.0)
+    transport_rate = float(pricing.get("transport_cost_per_m2") or 0.0)
+    overhead_pct = float(pricing.get("overhead_pct") or 0.0)
+    concrete_cost_rate = float(pricing.get("concrete_cost_per_m3") or 0.0)
+    steel_cost_rate = float(pricing.get("steel_cost_per_kg") or 0.0)
+    total_steel_kg = steel_weight * qty
+    net_area_total = net_area * qty
+    cost_concrete = total_volume * concrete_cost_rate
+    cost_steel = total_steel_kg * steel_cost_rate
+    cost_mfg_labour = net_area_total * mfg_labour_rate
+    cost_fin_labour = net_area_total * fin_labour_rate
+    cost_transport = net_area_total * transport_rate
+    cost_subtotal = cost_concrete + cost_steel + cost_mfg_labour + cost_fin_labour + cost_transport
+    cost_overhead = cost_subtotal * (overhead_pct / 100.0)
+    cost_total = cost_subtotal + cost_overhead
+    margin_aud = subtotal_all - cost_total
+    margin_pct = (margin_aud / subtotal_all * 100.0) if subtotal_all > 0 else 0.0
+    internal_cost_breakdown = {
+        "concrete_cost_aud": _round2(cost_concrete),
+        "steel_cost_aud": _round2(cost_steel),
+        "manufacturing_labour_aud": _round2(cost_mfg_labour),
+        "finishing_labour_aud": _round2(cost_fin_labour),
+        "transport_cost_aud": _round2(cost_transport),
+        "subtotal_cost_aud": _round2(cost_subtotal),
+        "overhead_aud": _round2(cost_overhead),
+        "overhead_pct": overhead_pct,
+        "total_cost_aud": _round2(cost_total),
+        "margin_aud": _round2(margin_aud),
+        "margin_pct": round(margin_pct, 1),
+    }
     return {
         "inputs": payload.model_dump(), "panel_type": panel, "finish": finish,
         "per_panel": {
@@ -469,11 +510,14 @@ def compute_calculation(payload: CalculateRequest, pricing: Dict[str, Any]) -> D
             "subtotal": _round2(subtotal_all), "gst_rate_pct": pricing["gst_rate"],
             "gst": _round2(gst), "total_inc_gst": _round2(total_inc_gst),
         },
+        # Phase 7 — internal-only block; the endpoint strips this for users without pricing.view_costs
+        "internal_cost_breakdown": internal_cost_breakdown,
     }
 
 def build_quote_line(payload: QuoteLineInput, pricing: Dict[str, Any]) -> Dict[str, Any]:
     calc_req = CalculateRequest(**payload.model_dump(exclude={"description"}))
     result = compute_calculation(calc_req, pricing)
+    icb = result.get("internal_cost_breakdown") or {}
     return {
         "id": str(uuid.uuid4()), "description": payload.description.strip(),
         "panel_type_key": result["panel_type"]["key"], "panel_type_label": result["panel_type"]["label"],
@@ -494,17 +538,52 @@ def build_quote_line(payload: QuoteLineInput, pricing: Dict[str, Any]) -> Dict[s
         "gst_aud": result["cost_breakdown"]["gst"],
         "total_aud": result["cost_breakdown"]["total_inc_gst"],
         "gst_rate_pct": result["cost_breakdown"]["gst_rate_pct"],
+        # Phase 7 — frozen internal cost snapshot. Stripped on read for users without pricing.view_costs.
+        "cost_concrete_aud": icb.get("concrete_cost_aud", 0.0),
+        "cost_steel_aud": icb.get("steel_cost_aud", 0.0),
+        "cost_manufacturing_labour_aud": icb.get("manufacturing_labour_aud", 0.0),
+        "cost_finishing_labour_aud": icb.get("finishing_labour_aud", 0.0),
+        "cost_transport_aud": icb.get("transport_cost_aud", 0.0),
+        "cost_overhead_aud": icb.get("overhead_aud", 0.0),
+        "total_cost_aud": icb.get("total_cost_aud", 0.0),
+        "margin_aud": icb.get("margin_aud", 0.0),
+        "margin_pct": icb.get("margin_pct", 0.0),
     }
 
 def recompute_totals(lines: List[Dict[str, Any]]) -> Dict[str, float]:
+    sell_subtotal = _round2(sum(float(l["subtotal_aud"]) for l in lines))
+    total_cost = _round2(sum(float(l.get("total_cost_aud") or 0.0) for l in lines))
+    margin = _round2(sell_subtotal - total_cost)
+    margin_pct = round((margin / sell_subtotal * 100.0), 1) if sell_subtotal > 0 else 0.0
     return {
-        "subtotal": _round2(sum(float(l["subtotal_aud"]) for l in lines)),
+        "subtotal": sell_subtotal,
         "gst": _round2(sum(float(l["gst_aud"]) for l in lines)),
         "total": _round2(sum(float(l["total_aud"]) for l in lines)),
         "total_volume_m3": round(sum(float(l["total_volume_m3"]) for l in lines), 4),
         "total_weight_kg": _round2(sum(float(l["total_weight_kg"]) for l in lines)),
         "total_weight_tonnes": round(sum(float(l["total_weight_kg"]) for l in lines)/1000.0, 3),
+        # Phase 7 — quote-level cost/margin rollup (stored on the doc; stripped on read per perm)
+        "total_cost_aud": total_cost,
+        "margin_aud": margin,
+        "margin_pct": margin_pct,
     }
+
+
+# Phase 7 — keys to scrub from quote responses when caller lacks pricing.view_costs
+_QUOTE_COST_KEYS_TOPLEVEL = {"total_cost_aud", "margin_aud", "margin_pct"}
+_QUOTE_LINE_COST_KEYS = {
+    "cost_concrete_aud", "cost_steel_aud", "cost_manufacturing_labour_aud",
+    "cost_finishing_labour_aud", "cost_transport_aud", "cost_overhead_aud",
+    "total_cost_aud", "margin_aud", "margin_pct",
+}
+
+def _strip_internal_costs_from_quote(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove every internal cost/margin key from a quote doc + its line_items in-place."""
+    if not doc: return doc
+    for k in _QUOTE_COST_KEYS_TOPLEVEL: doc.pop(k, None)
+    for line in (doc.get("line_items") or []):
+        for k in _QUOTE_LINE_COST_KEYS: line.pop(k, None)
+    return doc
 
 
 # ---------------------------------------------------------------------------
@@ -532,27 +611,38 @@ DEFAULT_PRICING = {
     "reinforcement_densities": {"light":25.0,"standard":45.0,"heavy":70.0,"prestressed":100.0},
     "panel_types": [
         {"key":"wall_standard","label":"Wall Standard (150mm)","thickness_mm":150,
-         "material_per_m2":97.0,"manufacturing_per_m2":112.0,"transport_install_per_m2":75.0},
+         "material_per_m2":97.0,"manufacturing_per_m2":112.0,"transport_install_per_m2":75.0,
+         "manufacturing_labour_per_m2":35.0},
         {"key":"wall_load_bearing","label":"Wall Load-Bearing (200mm)","thickness_mm":200,
-         "material_per_m2":127.0,"manufacturing_per_m2":135.0,"transport_install_per_m2":92.0},
+         "material_per_m2":127.0,"manufacturing_per_m2":135.0,"transport_install_per_m2":92.0,
+         "manufacturing_labour_per_m2":42.0},
         {"key":"floor_slab","label":"Floor Slab (250mm)","thickness_mm":250,
-         "material_per_m2":152.0,"manufacturing_per_m2":147.0,"transport_install_per_m2":105.0},
+         "material_per_m2":152.0,"manufacturing_per_m2":147.0,"transport_install_per_m2":105.0,
+         "manufacturing_labour_per_m2":40.0},
         {"key":"hollow_core","label":"Hollow Core (200mm)","thickness_mm":200,
-         "material_per_m2":110.0,"manufacturing_per_m2":122.0,"transport_install_per_m2":85.0},
+         "material_per_m2":110.0,"manufacturing_per_m2":122.0,"transport_install_per_m2":85.0,
+         "manufacturing_labour_per_m2":32.0},
         {"key":"architectural_facade","label":"Architectural Facade","thickness_mm":150,
-         "material_per_m2":185.0,"manufacturing_per_m2":230.0,"transport_install_per_m2":115.0},
+         "material_per_m2":185.0,"manufacturing_per_m2":230.0,"transport_install_per_m2":115.0,
+         "manufacturing_labour_per_m2":65.0},
         {"key":"prestressed","label":"Prestressed","thickness_mm":200,
-         "material_per_m2":160.0,"manufacturing_per_m2":175.0,"transport_install_per_m2":110.0},
+         "material_per_m2":160.0,"manufacturing_per_m2":175.0,"transport_install_per_m2":110.0,
+         "manufacturing_labour_per_m2":55.0},
     ],
     "thickness_options_mm": [100, 150, 200, 250, 300],
     "concrete_grades": ["C25/30","C30/37","C35/45","C40/50","C50/60"],
     "finishes": [
-        {"key":"smooth","label":"Smooth (Troweled)","multiplier":1.00},
-        {"key":"exposed_aggregate","label":"Exposed Aggregate","multiplier":1.15},
-        {"key":"acid_etched","label":"Acid-Etched","multiplier":1.20},
-        {"key":"sandblasted","label":"Sandblasted","multiplier":1.18},
-        {"key":"patterned","label":"Patterned/Embedded","multiplier":1.30},
+        {"key":"smooth","label":"Smooth (Troweled)","multiplier":1.00,"finishing_labour_per_m2":5.0},
+        {"key":"exposed_aggregate","label":"Exposed Aggregate","multiplier":1.15,"finishing_labour_per_m2":18.0},
+        {"key":"acid_etched","label":"Acid-Etched","multiplier":1.20,"finishing_labour_per_m2":20.0},
+        {"key":"sandblasted","label":"Sandblasted","multiplier":1.18,"finishing_labour_per_m2":15.0},
+        {"key":"patterned","label":"Patterned/Embedded","multiplier":1.30,"finishing_labour_per_m2":25.0},
     ],
+    # Phase 7 — internal cost inputs (never customer-facing)
+    "concrete_cost_per_m3": 180.0,
+    "steel_cost_per_kg": 1.50,
+    "transport_cost_per_m2": 25.0,
+    "overhead_pct": 12.0,
 }
 
 DEFAULT_COMPANY = {
@@ -712,6 +802,34 @@ async def seed_database():
     if await db.settings.find_one({"key": "pricing"}) is None:
         await db.settings.insert_one({"key":"pricing", **DEFAULT_PRICING, "updated_at": now_iso()})
         logger.info("Seeded pricing")
+    else:
+        # Phase 7 — backfill cost-input fields on existing pricing doc without overwriting any user edits
+        existing = await db.settings.find_one({"key": "pricing"}, {"_id":0}) or {}
+        patch: Dict[str, Any] = {}
+        for k in ("concrete_cost_per_m3","steel_cost_per_kg","transport_cost_per_m2","overhead_pct"):
+            if k not in existing: patch[k] = DEFAULT_PRICING[k]
+        # panel_types: add manufacturing_labour_per_m2 if missing on any entry
+        default_pt = {p["key"]: p for p in DEFAULT_PRICING["panel_types"]}
+        existing_pts = existing.get("panel_types") or []
+        pt_changed = False
+        for pt in existing_pts:
+            if "manufacturing_labour_per_m2" not in pt:
+                pt["manufacturing_labour_per_m2"] = float((default_pt.get(pt.get("key"), {}) or {}).get("manufacturing_labour_per_m2", 0.0))
+                pt_changed = True
+        if pt_changed: patch["panel_types"] = existing_pts
+        # finishes: add finishing_labour_per_m2 if missing
+        default_fin = {f["key"]: f for f in DEFAULT_PRICING["finishes"]}
+        existing_fins = existing.get("finishes") or []
+        fin_changed = False
+        for fin in existing_fins:
+            if "finishing_labour_per_m2" not in fin:
+                fin["finishing_labour_per_m2"] = float((default_fin.get(fin.get("key"), {}) or {}).get("finishing_labour_per_m2", 0.0))
+                fin_changed = True
+        if fin_changed: patch["finishes"] = existing_fins
+        if patch:
+            patch["updated_at"] = now_iso()
+            await db.settings.update_one({"key": "pricing"}, {"$set": patch})
+            logger.info(f"Backfilled pricing cost fields: {list(patch.keys())}")
     if await db.settings.find_one({"key": "company"}) is None:
         await db.settings.insert_one({"key":"company", **DEFAULT_COMPANY, "updated_at": now_iso()})
         logger.info("Seeded company settings")
@@ -1641,10 +1759,14 @@ async def calculator_options(_user: dict = Depends(get_current_user)):
     }
 
 @api_router.post("/calculator/calculate")
-async def calculator_calculate(payload: CalculateRequest, _user: dict = Depends(get_current_user)):
+async def calculator_calculate(payload: CalculateRequest, user: dict = Depends(get_current_user)):
     pricing = await db.settings.find_one({"key":"pricing"}, {"_id":0,"key":0})
     if not pricing: raise HTTPException(status_code=500, detail="Pricing not initialized")
-    return compute_calculation(payload, pricing)
+    result = compute_calculation(payload, pricing)
+    # Phase 7 zero-leak: strip internal_cost_breakdown unless caller has pricing.view_costs
+    if not has_permission(user, "pricing.view_costs"):
+        result.pop("internal_cost_breakdown", None)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1775,6 +1897,10 @@ async def _get_quote_or_404(qid: str) -> dict:
     return doc
 
 def _public_quote(doc: dict, customer: Optional[dict]) -> dict:
+    # PHASE 7 ZERO-LEAK GUARANTEE — this is the public magic-link surface seen by customers.
+    # We deliberately whitelist fields here and NEVER spread `doc`. No `cost_*`, `margin_*`,
+    # `total_cost_aud`, `internal_cost_breakdown`, or any other internal field can leak.
+    # If a new sell-side field is needed by the customer, add it explicitly to this dict.
     return {
         "quote_number": doc["quote_number"], "status": doc["status"], "valid_until": doc["valid_until"],
         "customer":{"company_name":customer["company_name"]} if customer else None,
@@ -1787,7 +1913,7 @@ def _public_quote(doc: dict, customer: Optional[dict]) -> dict:
     }
 
 @api_router.get("/quotes")
-async def list_quotes(_user: dict = Depends(require_permission("quotes.view")),
+async def list_quotes(user: dict = Depends(require_permission("quotes.view")),
                        status_filter: Optional[str] = Query(None, alias="status"),
                        customer_id: Optional[str] = None, search: Optional[str] = Query(None),
                        lifecycle: str = Query("active"),
@@ -1806,7 +1932,11 @@ async def list_quotes(_user: dict = Depends(require_permission("quotes.view")),
     cust_ids = list({d["customer_id"] for d in docs})
     customers = await db.customers.find({"id":{"$in":cust_ids}}, {"_id":0,"id":1,"company_name":1}).to_list(500)
     name_by_id = {c["id"]:c["company_name"] for c in customers}
-    for d in docs: d["customer_company_name"] = name_by_id.get(d["customer_id"],"")
+    can_see_costs = has_permission(user, "pricing.view_costs")
+    for d in docs:
+        d["customer_company_name"] = name_by_id.get(d["customer_id"],"")
+        if not can_see_costs:
+            _strip_internal_costs_from_quote(d)
     return {"items":docs,"total":total,"page":page,"page_size":page_size}
 
 @api_router.post("/quotes", status_code=201)
@@ -1831,9 +1961,13 @@ async def create_quote(payload: QuoteCreate, user: dict = Depends(require_permis
     await db.quotes.insert_one(doc); doc.pop("_id",None); return doc
 
 @api_router.get("/quotes/{qid}")
-async def get_quote(qid: str, _user: dict = Depends(require_permission("quotes.view"))):
+async def get_quote(qid: str, user: dict = Depends(require_permission("quotes.view"))):
     q = await _get_quote_or_404(qid)
-    return await populate_user_refs(q, _USER_REF_FIELDS["quote"])
+    await populate_user_refs(q, _USER_REF_FIELDS["quote"])
+    # Phase 7 zero-leak: strip internal cost/margin fields unless caller has pricing.view_costs
+    if not has_permission(user, "pricing.view_costs"):
+        _strip_internal_costs_from_quote(q)
+    return q
 
 @api_router.patch("/quotes/{qid}")
 async def update_quote(qid: str, payload: QuoteUpdate, _user: dict = Depends(require_permission("quotes.edit"))):
@@ -2426,7 +2560,7 @@ async def dashboard_kpis(_user: dict = Depends(get_current_user)):
     recent_jobs = [{"id":r["id"],"job_number":r["job_number"],"status":r["status"],
                     "total":r["total"],"created_from_quote_at":r["created_from_quote_at"],
                     "customer_company_name":name_by_id.get(r["customer_id"],"")} for r in recent_j]
-    return {
+    out = {
         "quotes_draft":quotes_draft,"quotes_sent":quotes_sent,"quotes_accepted":quotes_accepted,
         "customers_active":customers_active,
         "quoted_this_month_aud":_round2(quoted_this_month),
@@ -2437,6 +2571,28 @@ async def dashboard_kpis(_user: dict = Depends(get_current_user)):
         "outstanding_aud":_round2(outstanding), "paid_this_month_aud":_round2(paid_this_month),
         "recent_quotes":recent_quotes, "recent_jobs":recent_jobs,
     }
+    # Phase 7 — margin KPIs (only for users with pricing.view_costs)
+    if has_permission(_user, "pricing.view_costs"):
+        margin_total = 0.0
+        margin_weighted_pct_num = 0.0  # sum(margin_pct * subtotal) / sum(subtotal)
+        margin_weighted_pct_den = 0.0
+        async for d in db.quotes.find(
+            {"status": {"$in": ["sent", "accepted"]},
+             "created_at": {"$gte": start_of_month},
+             "deleted_at": {"$in": [None]}},
+            {"_id":0, "margin_aud":1, "margin_pct":1, "subtotal":1}
+        ):
+            ma = float(d.get("margin_aud") or 0.0)
+            margin_total += ma
+            sub = float(d.get("subtotal") or 0.0)
+            mp = float(d.get("margin_pct") or 0.0)
+            if sub > 0:
+                margin_weighted_pct_num += mp * sub
+                margin_weighted_pct_den += sub
+        avg_margin_pct = (margin_weighted_pct_num / margin_weighted_pct_den) if margin_weighted_pct_den > 0 else 0.0
+        out["quoted_margin_this_month_aud"] = _round2(margin_total)
+        out["quoted_margin_this_month_pct"] = round(avg_margin_pct, 1)
+    return out
 
 
 # ---------------------------------------------------------------------------

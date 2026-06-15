@@ -375,7 +375,10 @@ function LineDialogContent({ mode, line, options, onSubmit }) {
     try {
       await onSubmit(form);
     } catch (ex) {
-      setErr(formatApiErrorDetail(ex.response?.data?.detail) || ex.message);
+      // Prefer the message from a plain thrown Error (e.g. "Pick a customer first")
+      // over the generic "Something went wrong" fallback.
+      if (ex && !ex.response && ex.message) setErr(ex.message);
+      else setErr(formatApiErrorDetail(ex.response?.data?.detail) || ex.message);
     } finally {
       setSubmitting(false);
     }
