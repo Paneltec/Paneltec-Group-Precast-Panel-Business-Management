@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, Calculator, Settings, Users, Briefcase, FileText, Wrench, Receipt, BookOpen,
+  LayoutDashboard, Calculator, Settings, Users, Briefcase, FileText, Wrench, Receipt, BookOpen, BarChart3,
   Truck, UserSquare2, LogOut, ChevronDown, Menu, X, Plug, Building2, UserCog, Layers,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
@@ -27,6 +27,7 @@ const NAV_ITEMS = [
   { to: "/settings/integrations", label: "Integrations", icon: Plug, perm: "integrations.view", testid: "nav-integrations" },
   { to: "/users", label: "Users", icon: Users, perm: "users.view", testid: "nav-users" },
   { to: "/admin/audit", label: "Audit Trail", icon: FileSearch, perm: "audit.view", testid: "nav-audit" },
+  { to: "/reports", label: "Reports", icon: BarChart3, testid: "nav-reports" },
   { to: "/help", label: "Help", icon: BookOpen, testid: "nav-help" },
 ];
 

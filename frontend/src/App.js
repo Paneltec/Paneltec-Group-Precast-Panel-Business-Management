@@ -31,6 +31,8 @@ import Account from "./pages/Account";
 import ForcePasswordChange from "./pages/ForcePasswordChange";
 import Forbidden from "./pages/Forbidden";
 import Audit from "./pages/Audit";
+import Reports from "./pages/Reports";
+import ReportDetail from "./pages/ReportDetail";
 import Help from "./pages/Help";
 import HelpPrint from "./pages/HelpPrint";
 
@@ -78,6 +80,8 @@ function App() {
                   <Route path="/settings/integrations" element={<ProtectedRoute permission="integrations.view"><IntegrationSettings /></ProtectedRoute>} />
                   <Route path="/users" element={<ProtectedRoute permission="users.view"><UsersPage /></ProtectedRoute>} />
                   <Route path="/admin/audit" element={<ProtectedRoute permission="audit.view"><Audit /></ProtectedRoute>} />
+                  <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+                  <Route path="/reports/:key" element={<ProtectedRoute><ReportDetail /></ProtectedRoute>} />
                   <Route path="/help" element={<Help />} />
                 </Route>
                 <Route path="*" element={<Login />} />

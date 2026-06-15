@@ -2676,6 +2676,410 @@ async def health(): return {"status":"ok","time":now_iso()}
 # ---------------------------------------------------------------------------
 # App lifecycle
 # ---------------------------------------------------------------------------
+
+# ===========================================================================
+# Phase 8 Pass 1 — Reports backend (7 reports + CSV exports)
+# ===========================================================================
+REPORT_PERMS = {
+    "customers": "customers.view", "quotes": "quotes.view", "jobs": "jobs.view",
+    "invoices": "invoices.view", "vehicles": "vehicles.view", "employees": "employees.view",
+    "margin": "pricing.view_costs",
+}
+
+def _date_range_iso(date_from: Optional[str], date_to: Optional[str], default_days: int = 90):
+    today = now_utc()
+    if date_from: df = date_from
+    else: df = (today - timedelta(days=default_days)).date().isoformat()
+    dt = date_to or today.date().isoformat()
+    df_iso = df + "T00:00:00+00:00" if "T" not in df else df
+    dt_iso = dt + "T23:59:59+00:00" if "T" not in dt else dt
+    return df_iso, dt_iso
+
+def _months_back(n: int):
+    """Yields (year, month, label) tuples going back n months including current."""
+    today = now_utc()
+    out = []
+    y, m = today.year, today.month
+    for _ in range(n):
+        out.append((y, m, f"{y}-{m:02d}"))
+        m -= 1
+        if m == 0: m = 12; y -= 1
+    return list(reversed(out))
+
+async def _report_customers(date_from, date_to, _filters):
+    df, dt = _date_range_iso(date_from, date_to)
+    state = (_filters or {}).get("state")
+    active = (_filters or {}).get("active", "all")
+    base: Dict[str, Any] = {"deleted_at": {"$in": [None]}}
+    if state: base["billing_address.state"] = state
+    if active == "active": base["active"] = True
+    elif active == "inactive": base["active"] = False
+    new_cnt = await db.customers.count_documents({**base, "created_at": {"$gte": df, "$lte": dt}})
+    active_cnt = await db.customers.count_documents({"deleted_at": {"$in": [None]}, "active": True})
+    # Top 10 by quoted value
+    pipeline = [
+        {"$match": {"deleted_at": {"$in": [None]}}},
+        {"$group": {"_id": "$customer_id", "total_quoted": {"$sum": "$total"},
+                    "total_accepted": {"$sum": {"$cond": [{"$eq": ["$status", "accepted"]}, "$total", 0]}},
+                    "quotes_count": {"$sum": 1}}},
+        {"$sort": {"total_quoted": -1}}, {"$limit": 10},
+    ]
+    top = await db.quotes.aggregate(pipeline).to_list(10)
+    cids = [t["_id"] for t in top]
+    cust_map = {c["id"]: c for c in await db.customers.find({"id": {"$in": cids}}, {"_id":0,"id":1,"company_name":1,"billing_address":1}).to_list(20)}
+    top_rows = [{"customer": cust_map.get(t["_id"], {}).get("company_name", "(deleted)"),
+                 "total_quoted": _round2(t["total_quoted"]), "quotes_count": t["quotes_count"]} for t in top]
+    # New customers per month (last 12)
+    months = _months_back(12)
+    new_per_month = []
+    for y, m, label in months:
+        start = f"{y}-{m:02d}-01T00:00:00+00:00"
+        ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
+        end = f"{ny}-{nm:02d}-01T00:00:00+00:00"
+        n = await db.customers.count_documents({"created_at": {"$gte": start, "$lt": end}, "deleted_at": {"$in": [None]}})
+        new_per_month.append({"month": label, "new_customers": n})
+    # Table
+    docs = await db.customers.find(base, {"_id":0}).sort("created_at", -1).limit(500).to_list(500)
+    qcnt = await db.quotes.aggregate([{"$group":{"_id":"$customer_id","cnt":{"$sum":1},"accepted":{"$sum":{"$cond":[{"$eq":["$status","accepted"]},1,0]}}}}]).to_list(10000)
+    qmap = {q["_id"]: q for q in qcnt}
+    inv_aud = await db.invoices.aggregate([{"$group":{"_id":"$customer_id","total":{"$sum":"$total"}}}]).to_list(10000)
+    imap = {i["_id"]: i["total"] for i in inv_aud}
+    rows = []
+    for c in docs:
+        qx = qmap.get(c["id"], {})
+        rows.append({"company_name": c["company_name"], "state": (c.get("billing_address") or {}).get("state",""),
+                     "total_quotes": qx.get("cnt", 0), "total_accepted": qx.get("accepted", 0),
+                     "total_invoiced_aud": _round2(imap.get(c["id"], 0)),
+                     "last_activity_at": c.get("updated_at") or c.get("created_at")})
+    avg_qpc = (sum(r["total_quotes"] for r in rows) / len(rows)) if rows else 0
+    top_rev = max((r["total_invoiced_aud"] for r in rows), default=0)
+    return {"kpis": {"active_customers": active_cnt, "new_in_range": new_cnt,
+                     "avg_quotes_per_customer": round(avg_qpc, 1), "top_customer_revenue_aud": top_rev},
+            "charts": {"top_customers_by_quoted": top_rows, "new_customers_per_month": new_per_month},
+            "table": {"columns":["company_name","state","total_quotes","total_accepted","total_invoiced_aud","last_activity_at"],
+                      "rows": rows, "total": len(rows)}}
+
+async def _report_quotes(date_from, date_to, _filters):
+    df, dt = _date_range_iso(date_from, date_to)
+    status = (_filters or {}).get("status")
+    customer_id = (_filters or {}).get("customer_id")
+    q: Dict[str, Any] = {"deleted_at": {"$in": [None]}, "created_at": {"$gte": df, "$lte": dt}}
+    if status: q["status"] = {"$in": status.split(",")}
+    if customer_id: q["customer_id"] = customer_id
+    cnt_sent = await db.quotes.count_documents({**q, "status": {"$in": ["sent","accepted","rejected"]}})
+    total_value = sum(d["total"] for d in await db.quotes.find(q, {"_id":0,"total":1}).to_list(100000))
+    accepted_docs = await db.quotes.find({**q, "status": "accepted"}, {"_id":0,"sent_at":1,"accepted_at":1,"total":1}).to_list(100000)
+    sent_docs = await db.quotes.find({**q, "status": {"$in": ["sent","accepted","rejected"]}}, {"_id":0,"status":1}).to_list(100000)
+    win_rate = (sum(1 for s in sent_docs if s["status"]=="accepted") / len(sent_docs) * 100) if sent_docs else 0
+    def days_between(a, b):
+        try: return (datetime.fromisoformat(b.replace("Z","+00:00")) - datetime.fromisoformat(a.replace("Z","+00:00"))).days
+        except Exception: return None
+    avg_days = [days_between(d["sent_at"], d["accepted_at"]) for d in accepted_docs if d.get("sent_at") and d.get("accepted_at")]
+    avg_days = [x for x in avg_days if x is not None]
+    avg_days_to_accept = round(sum(avg_days)/len(avg_days), 1) if avg_days else 0
+    # Charts
+    months = _months_back(6)
+    win_by_month = []
+    for y, m, label in months:
+        start = f"{y}-{m:02d}-01T00:00:00+00:00"
+        ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
+        end = f"{ny}-{nm:02d}-01T00:00:00+00:00"
+        mq = {"deleted_at": {"$in": [None]}, "created_at": {"$gte": start, "$lt": end}, "status": {"$in":["sent","accepted","rejected"]}}
+        sent = await db.quotes.count_documents(mq)
+        acc = await db.quotes.count_documents({**mq, "status": "accepted"})
+        win_by_month.append({"month": label, "win_rate": round((acc/sent*100) if sent else 0, 1)})
+    funnel = [{"stage": s, "count": await db.quotes.count_documents({"deleted_at": {"$in": [None]}, "status": s, "created_at": {"$gte": df, "$lte": dt}})}
+              for s in ["draft","sent","accepted","rejected"]]
+    value_by_month = []
+    for y, m, label in months[-6:]:
+        start = f"{y}-{m:02d}-01T00:00:00+00:00"
+        ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
+        end = f"{ny}-{nm:02d}-01T00:00:00+00:00"
+        row = {"month": label}
+        for s in ["draft","sent","accepted","rejected"]:
+            total = sum(d["total"] for d in await db.quotes.find({"deleted_at":{"$in":[None]},"created_at":{"$gte":start,"$lt":end},"status":s},{"_id":0,"total":1}).to_list(10000))
+            row[s] = _round2(total)
+        value_by_month.append(row)
+    # Table
+    docs = await db.quotes.find(q, {"_id":0}).sort("created_at", -1).limit(500).to_list(500)
+    cmap = {c["id"]: c["company_name"] for c in await db.customers.find({"id":{"$in":[d["customer_id"] for d in docs]}}, {"_id":0,"id":1,"company_name":1}).to_list(2000)}
+    rows = [{"quote_number": d["quote_number"], "customer": cmap.get(d["customer_id"], ""),
+             "total_aud": _round2(d["total"]), "status": d["status"], "sent_at": d.get("sent_at",""),
+             "accepted_at": d.get("accepted_at",""),
+             "days_to_accept": days_between(d.get("sent_at",""), d.get("accepted_at","")) if d.get("accepted_at") and d.get("sent_at") else None} for d in docs]
+    return {"kpis": {"quotes_sent": cnt_sent, "total_quoted_aud": _round2(total_value),
+                     "win_rate_pct": round(win_rate, 1), "avg_days_to_accept": avg_days_to_accept},
+            "charts": {"win_rate_trend": win_by_month, "funnel": funnel, "value_by_month_stacked": value_by_month},
+            "table": {"columns":["quote_number","customer","total_aud","status","sent_at","accepted_at","days_to_accept"], "rows": rows, "total": len(rows)}}
+
+async def _report_jobs(date_from, date_to, _filters):
+    df, dt = _date_range_iso(date_from, date_to)
+    q: Dict[str, Any] = {"deleted_at": {"$in": [None]}, "created_at": {"$gte": df, "$lte": dt}}
+    if (_filters or {}).get("status"): q["status"] = {"$in": _filters["status"].split(",")}
+    if (_filters or {}).get("customer_id"): q["customer_id"] = _filters["customer_id"]
+    active_cnt = await db.jobs.count_documents({"deleted_at": {"$in":[None]}, "status": {"$nin":["completed","cancelled"]}})
+    completed_in_range = await db.jobs.count_documents({**q, "status":"completed"})
+    docs = await db.jobs.find(q, {"_id":0}).sort("created_from_quote_at", -1).limit(1000).to_list(1000)
+    cmap = {c["id"]: c["company_name"] for c in await db.customers.find({"id":{"$in":[d["customer_id"] for d in docs]}}, {"_id":0,"id":1,"company_name":1}).to_list(2000)}
+    def cycle_days(j):
+        sh = j.get("status_history") or []
+        sched = next((h["at"] for h in sh if h["to"] == "scheduled"), j.get("created_from_quote_at"))
+        deliv = next((h["at"] for h in sh if h["to"] == "delivered"), None)
+        if not sched or not deliv: return None
+        try: return (datetime.fromisoformat(deliv.replace("Z","+00:00")) - datetime.fromisoformat(sched.replace("Z","+00:00"))).days
+        except Exception: return None
+    cycle = [cycle_days(j) for j in docs if j.get("status") in ("delivered","installed","completed")]
+    cycle = [c for c in cycle if c is not None]
+    avg_cycle = round(sum(cycle)/len(cycle), 1) if cycle else 0
+    on_time = 0; on_time_total = 0
+    for j in docs:
+        sd = j.get("scheduled_delivery_date")
+        ad = next((h["at"][:10] for h in (j.get("status_history") or []) if h["to"] == "delivered"), None)
+        if sd and ad:
+            on_time_total += 1
+            if ad <= sd: on_time += 1
+    on_time_pct = round((on_time/on_time_total*100) if on_time_total else 0, 1)
+    # Charts
+    by_status = []
+    for s in ["scheduled","in_production","ready_for_delivery","delivered","installed","completed","cancelled"]:
+        by_status.append({"status": s, "count": await db.jobs.count_documents({"deleted_at":{"$in":[None]},"status": s})})
+    months = _months_back(6)
+    completed_per_month = []
+    for y, m, label in months:
+        start = f"{y}-{m:02d}-01T00:00:00+00:00"
+        ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
+        end = f"{ny}-{nm:02d}-01T00:00:00+00:00"
+        c = await db.jobs.count_documents({"deleted_at":{"$in":[None]}, "status":"completed", "created_from_quote_at":{"$gte":start,"$lt":end}})
+        completed_per_month.append({"month": label, "completed": c})
+    buckets = {"0-7": 0, "8-14": 0, "15-30": 0, "31-60": 0, "60+": 0}
+    for d in cycle:
+        if d <= 7: buckets["0-7"] += 1
+        elif d <= 14: buckets["8-14"] += 1
+        elif d <= 30: buckets["15-30"] += 1
+        elif d <= 60: buckets["31-60"] += 1
+        else: buckets["60+"] += 1
+    cycle_hist = [{"bucket": k, "count": v} for k, v in buckets.items()]
+    rows = []
+    for d in docs:
+        ad = next((h["at"] for h in (d.get("status_history") or []) if h["to"] == "delivered"), None)
+        rows.append({"job_number": d["job_number"], "customer": cmap.get(d["customer_id"],""),
+                     "status": d["status"], "scheduled_delivery_date": d.get("scheduled_delivery_date",""),
+                     "actual_delivered_at": ad or "", "cycle_days": cycle_days(d) or ""})
+    return {"kpis": {"active_jobs": active_cnt, "completed_in_range": completed_in_range,
+                     "avg_cycle_days": avg_cycle, "on_time_delivery_pct": on_time_pct},
+            "charts": {"by_status": by_status, "completed_per_month": completed_per_month, "cycle_histogram": cycle_hist},
+            "table": {"columns":["job_number","customer","status","scheduled_delivery_date","actual_delivered_at","cycle_days"],"rows": rows,"total":len(rows)}}
+
+async def _report_invoices(date_from, date_to, _filters):
+    df, dt = _date_range_iso(date_from, date_to)
+    q: Dict[str, Any] = {"deleted_at": {"$in":[None]}, "created_at": {"$gte": df, "$lte": dt}}
+    if (_filters or {}).get("status"): q["status"] = {"$in": _filters["status"].split(",")}
+    if (_filters or {}).get("customer_id"): q["customer_id"] = _filters["customer_id"]
+    docs = await db.invoices.find(q, {"_id":0}).sort("created_at", -1).limit(2000).to_list(2000)
+    today_iso = now_utc().date().isoformat()
+    def days_overdue(d):
+        due = d.get("due_date")
+        if not due or d.get("status") == "paid": return 0
+        try: return max(0, (datetime.fromisoformat(today_iso) - datetime.fromisoformat(due)).days)
+        except Exception: return 0
+    outstanding = sum(d["total"] for d in docs if d.get("status") in ("issued","overdue"))
+    paid_in_range = sum(d["total"] for d in docs if d.get("status") == "paid")
+    paid_days = []
+    for d in docs:
+        if d.get("status") == "paid" and d.get("issue_date") and d.get("paid_at"):
+            try:
+                pd_ = datetime.fromisoformat(d["paid_at"].replace("Z","+00:00")).date()
+                id_ = datetime.fromisoformat(d["issue_date"]).date() if "T" not in d["issue_date"] else datetime.fromisoformat(d["issue_date"].replace("Z","+00:00")).date()
+                paid_days.append((pd_ - id_).days)
+            except Exception: pass
+    avg_days_to_pay = round(sum(paid_days)/len(paid_days), 1) if paid_days else 0
+    overdue_cnt = sum(1 for d in docs if days_overdue(d) > 0)
+    # Aging buckets
+    buckets = {"0-30":0,"31-60":0,"61-90":0,"90+":0}
+    for d in docs:
+        if d.get("status") not in ("issued","overdue"): continue
+        ov = days_overdue(d)
+        amt = d["total"]
+        if ov <= 30: buckets["0-30"] += amt
+        elif ov <= 60: buckets["31-60"] += amt
+        elif ov <= 90: buckets["61-90"] += amt
+        else: buckets["90+"] += amt
+    aging = [{"bucket": k, "amount_aud": _round2(v)} for k, v in buckets.items()]
+    months = _months_back(6)
+    issued_vs_paid = []
+    avg_dtp_trend = []
+    for y, m, label in months:
+        start = f"{y}-{m:02d}-01T00:00:00+00:00"
+        ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
+        end = f"{ny}-{nm:02d}-01T00:00:00+00:00"
+        iss = sum(x["total"] for x in await db.invoices.find({"deleted_at":{"$in":[None]},"status":{"$in":["issued","paid","overdue"]},"issue_date":{"$gte":start[:10],"$lt":end[:10]}}, {"_id":0,"total":1}).to_list(10000))
+        pd_ = sum(x["total"] for x in await db.invoices.find({"deleted_at":{"$in":[None]},"status":"paid","paid_at":{"$gte":start,"$lt":end}}, {"_id":0,"total":1}).to_list(10000))
+        issued_vs_paid.append({"month": label, "issued": _round2(iss), "paid": _round2(pd_)})
+        m_paid_days = []
+        for d2 in await db.invoices.find({"deleted_at":{"$in":[None]},"status":"paid","paid_at":{"$gte":start,"$lt":end}}, {"_id":0,"issue_date":1,"paid_at":1}).to_list(10000):
+            try:
+                pd2 = datetime.fromisoformat(d2["paid_at"].replace("Z","+00:00")).date()
+                id2 = datetime.fromisoformat(d2["issue_date"]).date() if "T" not in d2["issue_date"] else datetime.fromisoformat(d2["issue_date"].replace("Z","+00:00")).date()
+                m_paid_days.append((pd2 - id2).days)
+            except Exception: pass
+        avg_dtp_trend.append({"month": label, "avg_days": round(sum(m_paid_days)/len(m_paid_days),1) if m_paid_days else 0})
+    cmap = {c["id"]: c["company_name"] for c in await db.customers.find({"id":{"$in":[d["customer_id"] for d in docs]}}, {"_id":0,"id":1,"company_name":1}).to_list(2000)}
+    rows = [{"invoice_number": d["invoice_number"], "customer": cmap.get(d["customer_id"],""),
+             "total": _round2(d["total"]), "status": d["status"], "issue_date": d.get("issue_date",""),
+             "due_date": d.get("due_date",""), "days_overdue": days_overdue(d),
+             "xero_push_status": d.get("xero_push_status","not_pushed")} for d in docs]
+    return {"kpis": {"total_outstanding_aud": _round2(outstanding), "paid_in_range_aud": _round2(paid_in_range),
+                     "avg_days_to_pay": avg_days_to_pay, "overdue_count": overdue_cnt},
+            "charts": {"aging_buckets": aging, "issued_vs_paid": issued_vs_paid, "avg_days_to_pay_trend": avg_dtp_trend},
+            "table": {"columns":["invoice_number","customer","total","status","issue_date","due_date","days_overdue","xero_push_status"],
+                      "rows": rows, "total": len(rows)}}
+
+async def _report_vehicles(date_from, date_to, _filters):
+    docs = await db.vehicles.find({"deleted_at": {"$in":[None]}}, {"_id":0}).to_list(1000)
+    if (_filters or {}).get("status"):
+        docs = [d for d in docs if d.get("status") == _filters["status"]]
+    # Jobs assignments
+    jobs = await db.jobs.find({"deleted_at": {"$in":[None]}, "assigned_vehicle_id":{"$ne":None}}, {"_id":0,"assigned_vehicle_id":1}).to_list(50000)
+    counts: Dict[str,int] = {}
+    for j in jobs: counts[j["assigned_vehicle_id"]] = counts.get(j["assigned_vehicle_id"], 0) + 1
+    by_vehicle = []
+    total_cap = 0
+    rows = []
+    for v in docs:
+        total_cap += float(v.get("capacity_tonnes") or 0)
+        c = counts.get(v["id"], 0)
+        by_vehicle.append({"vehicle": v.get("vehicle_code") or v.get("name",""), "assignments": c})
+        rows.append({"vehicle_code": v.get("vehicle_code"), "rego": v.get("rego",""),
+                     "make_model": v.get("make_model") or v.get("name",""),
+                     "capacity_tonnes": v.get("capacity_tonnes"), "status": v.get("status"),
+                     "total_jobs_assigned": c})
+    by_vehicle.sort(key=lambda r: -r["assignments"])
+    status_dist = {}
+    for v in docs: status_dist[v.get("status","unknown")] = status_dist.get(v.get("status","unknown"), 0) + 1
+    most_used = by_vehicle[0]["vehicle"] if by_vehicle else "—"
+    active = sum(1 for v in docs if v.get("status") == "active")
+    return {"kpis": {"total_vehicles": len(docs), "active_vehicles": active,
+                     "total_capacity_tonnes": round(total_cap, 1), "most_used_vehicle": most_used},
+            "charts": {"assignments_per_vehicle": by_vehicle, "status_distribution": [{"status":k,"count":v} for k,v in status_dist.items()]},
+            "table": {"columns":["vehicle_code","rego","make_model","capacity_tonnes","status","total_jobs_assigned"],"rows":rows,"total":len(rows)}}
+
+async def _report_employees(date_from, date_to, _filters):
+    docs = await db.employees.find({"deleted_at": {"$in":[None]}}, {"_id":0}).to_list(2000)
+    if (_filters or {}).get("active") in ("true","false"):
+        flag = _filters["active"] == "true"
+        docs = [d for d in docs if bool(d.get("is_active", True)) == flag]
+    if (_filters or {}).get("role"):
+        docs = [d for d in docs if d.get("role") == _filters["role"]]
+    jobs = await db.jobs.find({"deleted_at":{"$in":[None]},"assigned_employee_ids":{"$ne":None}}, {"_id":0,"assigned_employee_ids":1,"created_from_quote_at":1}).to_list(50000)
+    counts: Dict[str,int] = {}
+    last_at: Dict[str,str] = {}
+    for j in jobs:
+        for eid in (j.get("assigned_employee_ids") or []):
+            counts[eid] = counts.get(eid,0)+1
+            at = j.get("created_from_quote_at","")
+            if at > last_at.get(eid,""): last_at[eid] = at
+    rows = []; by_emp = []; role_dist = {}
+    total_asg = 0
+    for e in docs:
+        c = counts.get(e["id"], 0); total_asg += c
+        rows.append({"name": e.get("name"), "role": e.get("role"), "active": bool(e.get("is_active", True)),
+                     "total_jobs_assigned": c, "last_assigned_at": last_at.get(e["id"],"")})
+        by_emp.append({"employee": e.get("name",""), "assignments": c})
+        role_dist[e.get("role","unknown")] = role_dist.get(e.get("role","unknown"),0)+1
+    by_emp.sort(key=lambda r: -r["assignments"])
+    most_active = by_emp[0]["employee"] if by_emp else "—"
+    avg_per = round(total_asg/len(docs), 1) if docs else 0
+    active = sum(1 for e in docs if e.get("is_active", True))
+    return {"kpis":{"active_employees":active,"total_assignments":total_asg,
+                    "avg_assignments_per_employee":avg_per,"most_active_employee":most_active},
+            "charts":{"assignments_per_employee":by_emp,
+                      "role_distribution":[{"role":k,"count":v} for k,v in role_dist.items()]},
+            "table":{"columns":["name","role","active","total_jobs_assigned","last_assigned_at"],"rows":rows,"total":len(rows)}}
+
+async def _report_margin(date_from, date_to, _filters):
+    df, dt = _date_range_iso(date_from, date_to)
+    panel_filter = (_filters or {}).get("panel_type_key")
+    q: Dict[str, Any] = {"deleted_at": {"$in":[None]}, "created_at": {"$gte": df, "$lte": dt},
+                         "status": {"$in":["sent","accepted"]}}
+    docs = await db.quotes.find(q, {"_id":0}).to_list(10000)
+    pt_stats: Dict[str, Dict[str, float]] = {}
+    fin_stats: Dict[str, Dict[str, float]] = {}
+    total_margin = 0.0; total_cost = 0.0; total_sell = 0.0; total_lines = 0
+    months_back = _months_back(6)
+    margin_trend: Dict[str, List[float]] = {label: [] for _, _, label in months_back}
+    for q_ in docs:
+        for l in (q_.get("line_items") or []):
+            if panel_filter and l.get("panel_type_key") != panel_filter: continue
+            sell = float(l.get("subtotal_aud") or 0); cost = float(l.get("total_cost_aud") or 0)
+            margin = sell - cost
+            mpct = float(l.get("margin_pct") or 0)
+            pt = l.get("panel_type_label","")
+            fk = l.get("finish_label","")
+            for sk_map, key in [(pt_stats, pt), (fin_stats, fk)]:
+                d_ = sk_map.setdefault(key, {"sell":0,"cost":0,"margin":0,"margin_pct_sum":0,"n":0})
+                d_["sell"] += sell; d_["cost"] += cost; d_["margin"] += margin
+                d_["margin_pct_sum"] += mpct; d_["n"] += 1
+            total_margin += margin; total_cost += cost; total_sell += sell; total_lines += 1
+            ca = q_.get("created_at","")[:7]
+            label = ca.replace("-", "-")  # already YYYY-MM
+            if label in margin_trend: margin_trend[label].append(mpct)
+    def avg(group):
+        out = []
+        for k, v in group.items():
+            n = v["n"] or 1
+            out.append({"key": k, "line_count": v["n"], "avg_sell_aud": _round2(v["sell"]/n),
+                        "avg_cost_aud": _round2(v["cost"]/n), "avg_margin_aud": _round2(v["margin"]/n),
+                        "avg_margin_pct": round(v["margin_pct_sum"]/n, 1)})
+        out.sort(key=lambda r: -r["avg_margin_pct"]); return out
+    by_panel = avg(pt_stats); by_finish = avg(fin_stats)
+    margin_trend_arr = [{"month": label, "avg_margin_pct": round(sum(margin_trend[label])/len(margin_trend[label]),1) if margin_trend[label] else 0} for _,_,label in months_back]
+    avg_margin_pct = round((total_margin/total_sell*100), 1) if total_sell else 0
+    highest_panel = by_panel[0]["key"] if by_panel else "—"
+    return {"kpis":{"avg_margin_pct":avg_margin_pct,"highest_margin_panel":highest_panel,
+                    "total_quoted_margin_aud":_round2(total_margin),"total_cost_aud":_round2(total_cost)},
+            "charts":{"avg_margin_pct_by_panel":by_panel,"avg_margin_pct_by_finish":by_finish,
+                      "margin_trend":margin_trend_arr},
+            "table":{"columns":["panel_type","line_count","avg_sell_aud","avg_cost_aud","avg_margin_aud","avg_margin_pct"],
+                     "rows":[{"panel_type":r["key"],**{k:v for k,v in r.items() if k!="key"}} for r in by_panel],
+                     "total":len(by_panel)}}
+
+_REPORT_FNS = {"customers":_report_customers,"quotes":_report_quotes,"jobs":_report_jobs,
+               "invoices":_report_invoices,"vehicles":_report_vehicles,"employees":_report_employees,
+               "margin":_report_margin}
+
+@api_router.get("/reports/{key}")
+async def get_report(key: str, user: dict = Depends(get_current_user),
+                     date_from: Optional[str] = None, date_to: Optional[str] = None,
+                     status: Optional[str] = None, customer_id: Optional[str] = None,
+                     state: Optional[str] = None, active: Optional[str] = None,
+                     role: Optional[str] = None, panel_type_key: Optional[str] = None):
+    if key not in _REPORT_FNS: raise HTTPException(status_code=404, detail="Unknown report")
+    perm = REPORT_PERMS[key]
+    if not has_permission(user, perm): raise HTTPException(status_code=403, detail=f"Missing {perm} permission")
+    filters = {k:v for k,v in {"status":status,"customer_id":customer_id,"state":state,"active":active,
+                                "role":role,"panel_type_key":panel_type_key}.items() if v}
+    return await _REPORT_FNS[key](date_from, date_to, filters)
+
+@api_router.get("/reports/{key}/export.csv")
+async def export_report(key: str, user: dict = Depends(get_current_user),
+                        date_from: Optional[str] = None, date_to: Optional[str] = None,
+                        status: Optional[str] = None, customer_id: Optional[str] = None,
+                        state: Optional[str] = None, active: Optional[str] = None,
+                        role: Optional[str] = None, panel_type_key: Optional[str] = None):
+    if key not in _REPORT_FNS: raise HTTPException(status_code=404, detail="Unknown report")
+    perm = REPORT_PERMS[key]
+    if not has_permission(user, perm): raise HTTPException(status_code=403, detail=f"Missing {perm} permission")
+    import csv, io
+    filters = {k:v for k,v in {"status":status,"customer_id":customer_id,"state":state,"active":active,
+                                "role":role,"panel_type_key":panel_type_key}.items() if v}
+    data = await _REPORT_FNS[key](date_from, date_to, filters)
+    buf = io.StringIO(); w = csv.writer(buf)
+    cols = data["table"]["columns"]; w.writerow(cols)
+    for r in data["table"]["rows"]: w.writerow([r.get(c, "") for c in cols])
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={key}-report.csv"})
+
+
 app.include_router(api_router)
 app.add_middleware(CORSMiddleware,
     allow_credentials=True, allow_origins=os.environ.get('CORS_ORIGINS','*').split(','),
