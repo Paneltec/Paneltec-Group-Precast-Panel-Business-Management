@@ -9,6 +9,7 @@ export default function RootLayout() {
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="force-password-change" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="quotes/[id]" options={{ headerShown: true, title: 'Quote Detail', headerStyle: { backgroundColor: '#1F2A33' }, headerTintColor: '#F5C518', headerTitleStyle: { fontWeight: '700' } }} />
         <Stack.Screen name="jobs/[id]" options={{ headerShown: true, title: 'Job Detail', headerStyle: { backgroundColor: '#1F2A33' }, headerTintColor: '#F5C518', headerTitleStyle: { fontWeight: '700' } }} />

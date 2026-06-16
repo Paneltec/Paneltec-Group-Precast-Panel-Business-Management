@@ -4,6 +4,7 @@ import {
   ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
 import { formatAUD, formatNumber } from '../../src/lib/format';
 import { Colors } from '../../src/lib/colors';
@@ -256,6 +257,9 @@ export default function CalculatorScreen() {
 
         {/* Results */}
         {result && <ResultsPanel result={result} />}
+        {result?.internal_cost_breakdown && (
+          <InternalCostPanel icb={result.internal_cost_breakdown} />
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -319,6 +323,54 @@ function StatItem({ label, value, testID }: { label: string; value: string; test
 }
 
 function CostRow({ label, value, testID, bold }: { label: string; value: number; testID: string; bold?: boolean }) {
+  return (
+    <View style={styles.costRow}>
+      <Text style={[styles.costLabel, bold && styles.costBold]}>{label}</Text>
+      <Text style={[styles.costValue, bold && styles.costBold]} testID={testID}>{formatAUD(value)}</Text>
+    </View>
+  );
+}
+
+function InternalCostPanel({ icb }: { icb: any }) {
+  const marginPct = icb.margin_pct ?? 0;
+  const marginColor = marginPct >= 30 ? '#166534' : marginPct >= 15 ? '#92400E' : '#991B1B';
+  const marginBg = marginPct >= 30 ? '#DCFCE7' : marginPct >= 15 ? '#FEF3C7' : '#FEE2E2';
+
+  return (
+    <View style={styles.icbCard} testID="calc-internal-cost-panel">
+      <View style={styles.icbHeader}>
+        <Ionicons name="lock-closed" size={14} color={Colors.charcoal} />
+        <Text style={styles.icbTitle}>Internal — Cost & Margin</Text>
+      </View>
+      <Text style={styles.icbSubtitle}>Not shown to customers</Text>
+
+      <ICBRow label="Concrete" value={icb.concrete_cost_aud ?? 0} testID="cost-row-concrete" />
+      <ICBRow label="Steel" value={icb.steel_cost_aud ?? 0} testID="cost-row-steel" />
+      <ICBRow label="Mfg labour" value={icb.manufacturing_labour_aud ?? 0} testID="cost-row-mfg-labour" />
+      <ICBRow label="Finishing labour" value={icb.finishing_labour_aud ?? 0} testID="cost-row-fin-labour" />
+      <ICBRow label="Transport" value={icb.transport_cost_aud ?? 0} testID="cost-row-transport" />
+      <View style={styles.costSeparator} />
+      <ICBRow label="Subtotal cost" value={icb.subtotal_cost_aud ?? 0} testID="cost-row-subtotal" bold />
+      <ICBRow label={`Overhead (${icb.overhead_pct ?? 0}%)`} value={icb.overhead_aud ?? 0} testID="cost-row-overhead" />
+      <View style={[styles.costSeparator, { height: 2, backgroundColor: Colors.charcoal }]} />
+      <ICBRow label="Total cost" value={icb.total_cost_aud ?? 0} testID="cost-row-total" bold />
+
+      <View style={[styles.marginPill, { backgroundColor: marginBg }]} testID="margin-pill">
+        <Text style={[styles.marginLabel, { color: marginColor }]}>MARGIN</Text>
+        <View style={styles.marginValues}>
+          <Text style={[styles.marginAud, { color: marginColor }]} testID="margin-aud">
+            {formatAUD(icb.margin_aud ?? 0)}
+          </Text>
+          <Text style={[styles.marginPct, { color: marginColor }]} testID="margin-pct">
+            ({(icb.margin_pct ?? 0).toFixed(1)}%)
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function ICBRow({ label, value, testID, bold }: { label: string; value: number; testID: string; bold?: boolean }) {
   return (
     <View style={styles.costRow}>
       <Text style={[styles.costLabel, bold && styles.costBold]}>{label}</Text>
@@ -431,4 +483,28 @@ const styles = StyleSheet.create({
     letterSpacing: -1,
   },
   totalNote: { fontSize: 11, color: 'rgba(31,42,51,0.6)', marginTop: 4 },
+  icbCard: {
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 8,
+    padding: 16,
+    marginTop: 12,
+    marginBottom: 12,
+  },
+  icbHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  icbTitle: { fontSize: 10, fontWeight: '700', letterSpacing: 1.5, color: Colors.charcoal, textTransform: 'uppercase' },
+  icbSubtitle: { fontSize: 10, color: Colors.textMuted, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 12 },
+  marginPill: {
+    marginTop: 16,
+    borderRadius: 8,
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  marginLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 2 },
+  marginValues: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  marginAud: { fontSize: 22, fontWeight: '900', fontVariant: ['tabular-nums'] as any },
+  marginPct: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] as any },
 });

@@ -45,6 +45,12 @@ export async function api(path: string, options: RequestOptions = {}) {
 
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
+
+    // Intercept 403 with password_change_required code
+    if (res.status === 403 && errData.code === 'password_change_required') {
+      _passwordChangeListeners.forEach(fn => fn());
+    }
+
     const err: any = new Error(formatApiErrorDetail(errData.detail));
     err.status = res.status;
     err.data = errData;
@@ -52,6 +58,14 @@ export async function api(path: string, options: RequestOptions = {}) {
   }
 
   return res.json();
+}
+
+/* --- Password change event bus ------------------------------------------ */
+type Listener = () => void;
+const _passwordChangeListeners: Set<Listener> = new Set();
+export function onPasswordChangeRequired(fn: Listener) {
+  _passwordChangeListeners.add(fn);
+  return () => { _passwordChangeListeners.delete(fn); };
 }
 
 export function formatApiErrorDetail(detail: any): string {

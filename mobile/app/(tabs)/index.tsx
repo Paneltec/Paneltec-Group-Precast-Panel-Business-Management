@@ -93,6 +93,24 @@ export default function DashboardScreen() {
             </View>
           </View>
 
+          {/* Margin KPIs — only shown when backend returns them (pricing.view_costs) */}
+          {kpis.quoted_margin_this_month_aud !== undefined && (
+            <View style={styles.kpiRow} testID="margin-kpi-row">
+              <KPICard
+                label="Quoted Margin"
+                value={formatAUD(kpis.quoted_margin_this_month_aud ?? 0)}
+                note="Sent & accepted"
+                testID="kpi-margin-aud"
+              />
+              <KPICard
+                label="Avg Margin %"
+                value={`${(kpis.quoted_margin_this_month_pct ?? 0).toFixed(1)}%`}
+                note="Weighted by subtotal"
+                testID="kpi-margin-pct"
+              />
+            </View>
+          )}
+
           {/* Recent Quotes */}
           <View style={styles.section} testID="recent-quotes">
             <View style={styles.sectionHeader}>

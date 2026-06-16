@@ -11,6 +11,7 @@ export default function TabLayout() {
 
   if (loading) return <LoadingScreen />;
   if (!user) return <Redirect href="/login" />;
+  if (user.must_change_password) return <Redirect href="/force-password-change" />;
 
   return (
     <Tabs

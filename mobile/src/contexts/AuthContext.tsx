@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { api, tokenStore } from '../lib/api';
+import { api, tokenStore, onPasswordChangeRequired } from '../lib/api';
 
 type User = {
   id: string;
@@ -52,6 +52,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fetchMe();
   }, [fetchMe]);
 
+  // Listen for 403 password_change_required from any API call
+  useEffect(() => {
+    const unsub = onPasswordChangeRequired(() => {
+      setUser(prev => prev ? { ...prev, must_change_password: true } : prev);
+    });
+    return unsub;
+  }, []);
+
   const login = async (email: string, password: string) => {
     try {
       const data = await api('/auth/login', {
@@ -100,4 +108,9 @@ export const useAuth = () => {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used inside AuthProvider');
   return ctx;
+};
+
+export const usePermission = (key: string): boolean => {
+  const { hasPerm } = useAuth();
+  return hasPerm(key);
 };
