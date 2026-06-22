@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system';
-import { api, apiUpload, tokenStore, API_BASE } from './api';
+import { api, apiUpload } from './api';
 
 const DB_NAME = 'paneltec_outbox.db';
 let _db: SQLite.SQLiteDatabase | null = null;
@@ -120,6 +120,8 @@ export async function processQueue(): Promise<{ synced: number; failed: number }
           }
         }
         await apiUpload(item.url, fd);
+        // Cleanup file
+        FileSystem.deleteAsync(item.file_path, { idempotent: true }).catch(() => {});
       } else if (item.body_json) {
         // JSON operation
         await api(item.url, {
@@ -127,31 +129,25 @@ export async function processQueue(): Promise<{ synced: number; failed: number }
           body: JSON.parse(item.body_json),
         });
       }
-      // Success — mark done and clean up file
+      // Success — mark done
       await db.runAsync("UPDATE outbox SET status = 'done' WHERE id = ?", [item.id]);
-      if (item.file_path) {
-        FileSystem.deleteAsync(item.file_path, { idempotent: true }).catch(() => {});
-      }
       synced++;
     } catch (e: any) {
       const status = e.status || 0;
       const newRetries = (item.retries || 0) + 1;
       if (status >= 400 && status < 500) {
-        // Client error — mark failed, won't retry
         await db.runAsync(
           "UPDATE outbox SET status = 'failed', last_error = ?, retries = ? WHERE id = ?",
           [e.message, newRetries, item.id]
         );
         failed++;
       } else if (newRetries >= (item.max_retries || 5)) {
-        // Max retries exceeded
         await db.runAsync(
           "UPDATE outbox SET status = 'failed', last_error = ?, retries = ? WHERE id = ?",
           [`Max retries (${item.max_retries}) exceeded: ${e.message}`, newRetries, item.id]
         );
         failed++;
       } else {
-        // Server error — leave pending for retry
         await db.runAsync(
           "UPDATE outbox SET status = 'pending', last_error = ?, retries = ? WHERE id = ?",
           [e.message, newRetries, item.id]
