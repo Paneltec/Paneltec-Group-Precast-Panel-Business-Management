@@ -22,6 +22,7 @@ const CARDS = [
   { key:"vehicles",  title:"Vehicles",  desc:"Fleet utilisation",                   icon:Truck,      perm:"vehicles.view",   kpi:(k)=>[`Total: ${k.total_vehicles}`, `Active: ${k.active_vehicles}`]},
   { key:"employees", title:"Employees", desc:"Workload & assignment trends",        icon:Wrench,     perm:"employees.view",  kpi:(k)=>[`Active: ${k.active_employees}`, `Assignments: ${k.total_assignments}`]},
   { key:"margin",    title:"Pricing & Margin", desc:"Margin by panel, finish, month — INTERNAL", icon:TrendingUp, perm:"pricing.view_costs", kpi:(k)=>[`Avg ${k.avg_margin_pct}%`, `Quoted: ${formatAUD(k.total_quoted_margin_aud||0)}`]},
+  { key:"compliance",title:"Compliance",desc:"QC forms, NCR rate, QA sign-off pipeline",icon:BarChart3,perm:"forms.view",kpi:(k)=>[`Awaiting QA: ${k.awaiting_qa_signoff||0}`,`NCR ${k.ncr_rate_pct||0}%`]},
 ];
 
 export default function Reports() {

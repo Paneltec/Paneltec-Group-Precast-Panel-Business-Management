@@ -26,8 +26,10 @@ const STATUS_STYLES = {
 };
 
 export default function JobDetail() {
+  const [jobForms, setJobForms] = useState([]);
   const { hasPerm } = useAuth();
   const { id } = useParams();
+  useEffect(() => { api.get(`/compliance-forms?job_id=${id || params?.id}`).then(r => setJobForms(r.data.items || [])).catch(() => {}); }, [id]); // eslint-disable-line
   const navigate = useNavigate();
   const [job, setJob] = useState(null);
   const [customer, setCustomer] = useState(null);
@@ -313,6 +315,30 @@ export default function JobDetail() {
         endpoint={`/jobs/${id}/email-sent`}
         onSent={load}
       />
+
+      {/* Phase 10: Compliance forms linked to this job */}
+      <div className="bg-white border border-gray-200 rounded p-5 mt-4" data-testid="job-forms-card">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-bold uppercase tracking-[0.15em] text-[#3A6B8C]">
+            <AppIcon name="compliance_forms" size={18} decorative className="inline mr-1"/> Compliance Forms
+          </h2>
+          <Link to={`/forms?job_id=${id || params?.id}`} className="text-xs text-[#3A6B8C] hover:underline">View all →</Link>
+        </div>
+        {jobForms.length === 0 ? (
+          <div className="text-xs text-gray-500 italic">No compliance forms linked to this job yet.</div>
+        ) : (
+          <ul className="space-y-1.5">
+            {jobForms.map(f => (
+              <li key={f.id} className="text-xs flex items-center justify-between border-b border-gray-100 pb-1.5">
+                <Link to={`/forms/${f.id}`} className="font-mono text-[#3A6B8C] hover:underline">{f.form_number}</Link>
+                <span className="text-gray-500">{f.panel_id}</span>
+                <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{f.status}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Link to={`/forms?new=1&job_id=${id || params?.id}`} className="inline-block mt-3 text-xs text-[#3A6B8C] hover:underline">+ Add Form</Link>
+      </div>
     </div>
   );
 }

@@ -122,7 +122,7 @@ export default function FormDetail() {
                 <AppIcon name="restore" size={16} className="mr-2" decorative/> Revert
               </Button>
             )}
-            <Button variant="outline" onClick={() => window.print()} data-testid="print-btn">
+            <Button variant="outline" onClick={() => window.open(`/forms/${id}/print`, "_blank")} data-testid="print-btn">
               <AppIcon name="print" size={16} className="mr-2" decorative/> Print
             </Button>
           </div>
@@ -197,6 +197,9 @@ export default function FormDetail() {
       {form.form_type === "compliance_cert" && (
         <CertEditor schema={schema} form={form} update={update} locked={locked}/>
       )}
+
+      {/* Photos */}
+      <PhotoZone formId={id} photos={form.photos || []} locked={locked} onChange={load}/>
 
       {/* NCR + QA sign-off */}
       <div className="bg-white border border-gray-200 rounded p-5 mb-4">
@@ -345,3 +348,64 @@ function CertEditor({ schema, form, update, locked }) {
     </>
   );
 }
+
+function PhotoZone({ formId, photos, locked, onChange }) {
+  const [busy, setBusy] = useState(false);
+  const upload = async (file) => {
+    setBusy(true);
+    try {
+      const fd = new FormData(); fd.append("file", file); fd.append("caption", "");
+      await api.post(`/compliance-forms/${formId}/photos`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      toast.success("Uploaded"); onChange();
+    } catch (e) { toast.error(e.response?.data?.detail || "Upload failed"); }
+    finally { setBusy(false); }
+  };
+  const remove = async (pid) => {
+    if (!window.confirm("Delete this photo?")) return;
+    try { await api.delete(`/compliance-forms/${formId}/photos/${pid}`); toast.success("Deleted"); onChange(); }
+    catch (e) { toast.error(e.response?.data?.detail || "Delete failed"); }
+  };
+  return (
+    <div className="bg-white border border-gray-200 rounded p-5 mb-4" data-testid="photo-zone">
+      <h2 className="text-sm font-bold uppercase tracking-[0.15em] text-[#3A6B8C] mb-3">Photos</h2>
+      {!locked && (
+        <label className="block border-2 border-dashed border-gray-300 rounded p-4 text-center cursor-pointer hover:border-[#3A6B8C] mb-3" data-testid="photo-upload-zone">
+          <input type="file" accept="image/*" capture="environment" className="hidden"
+                 disabled={busy}
+                 onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}/>
+          <div className="text-sm text-gray-600">
+            {busy ? "Uploading…" : <><AppIcon name="add" size={18} decorative className="inline mr-1"/> Click to upload photo (JPG/PNG, max 10 MB)</>}
+          </div>
+        </label>
+      )}
+      {photos.length === 0 ? (
+        <div className="text-xs text-gray-500 italic">No photos uploaded yet.</div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {photos.map(p => (
+            <div key={p.id} className="border border-gray-200 rounded overflow-hidden" data-testid={`photo-${p.id}`}>
+              <img src={p.url} alt={p.caption || p.filename} className="w-full h-32 object-cover bg-gray-100"/>
+              <div className="p-2 text-xs">
+                <div className="font-mono text-[10px] text-gray-500 truncate">{p.filename}</div>
+                {(p.gps_lat || p.gps_lng || p.taken_at) ? (
+                  <div className="text-[10px] text-[#3A6B8C] mt-1">
+                    📍 {p.gps_lat != null ? `${p.gps_lat}, ${p.gps_lng}` : "—"}
+                    {p.taken_at && <span className="ml-1">· {p.taken_at}</span>}
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-gray-400 mt-1">No GPS data</div>
+                )}
+                {!locked && (
+                  <button onClick={() => remove(p.id)} className="text-[10px] text-red-700 hover:underline mt-1" data-testid={`delete-photo-${p.id}`}>
+                    Delete
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+

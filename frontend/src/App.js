@@ -21,6 +21,7 @@ import JobDetail from "./pages/JobDetail";
 import InvoicesList from "./pages/InvoicesList";
 import FormsList from "./pages/FormsList";
 import FormDetail from "./pages/FormDetail";
+import FormPrint from "./pages/FormPrint";
 import InvoiceDetail from "./pages/InvoiceDetail";
 import InvoicePrint from "./pages/InvoicePrint";
 import Vehicles, { VehicleForm } from "./pages/Vehicles";
@@ -55,6 +56,7 @@ function App() {
                 <Route path="/customers/:id/print" element={<ProtectedRoute permission="customers.view"><CustomerPrint /></ProtectedRoute>} />
                 <Route path="/projects/:id/print" element={<ProtectedRoute permission="projects.view"><ProjectPrint /></ProtectedRoute>} />
                 <Route path="/jobs/:id/print" element={<ProtectedRoute permission="jobs.view"><JobPrint /></ProtectedRoute>} />
+                <Route path="/forms/:id/print" element={<ProtectedRoute permission="forms.view"><FormPrint /></ProtectedRoute>} />
                 <Route path="/help/print" element={<ProtectedRoute><HelpPrint /></ProtectedRoute>} />
                 <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                   <Route path="/" element={<Dashboard />} />

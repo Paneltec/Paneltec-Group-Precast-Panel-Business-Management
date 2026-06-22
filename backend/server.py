@@ -177,7 +177,7 @@ PERMISSION_PRESETS = {
         "permissions": [
             "customers.view","projects.view","quotes.view","jobs.view",
             "invoices.view","invoices.create","invoices.issue","invoices.mark_paid","invoices.push_xero","invoices.delete",
-            "company.view",
+            "company.view","forms.view",
         ],
     },
     "readonly": {
@@ -2765,6 +2765,7 @@ REPORT_PERMS = {
     "customers": "customers.view", "quotes": "quotes.view", "jobs": "jobs.view",
     "invoices": "invoices.view", "vehicles": "vehicles.view", "employees": "employees.view",
     "margin": "pricing.view_costs",
+    "compliance": "forms.view",
 }
 
 def _date_range_iso(date_from: Optional[str], date_to: Optional[str], default_days: int = 90):
@@ -3124,9 +3125,60 @@ async def _report_margin(date_from, date_to, _filters):
                      "rows":[{"panel_type":r["key"],**{k:v for k,v in r.items() if k!="key"}} for r in by_panel],
                      "total":len(by_panel)}}
 
+async def _report_compliance(date_from, date_to, filters):
+    df, dt = _date_range_iso(date_from, date_to)
+    q = {"deleted_at": None, "created_at": {"$gte": df, "$lte": dt}}
+    docs = await db.compliance_forms.find(q, {"_id": 0}).to_list(2000)
+    # KPIs
+    month_start = (now_utc().replace(day=1)).date().isoformat() + "T00:00:00+00:00"
+    completed_this_month = sum(1 for d in docs if d.get("status") == "completed" and d.get("created_at","") >= month_start)
+    awaiting_qa = sum(1 for d in docs if d.get("status") == "completed")
+    signed_count = sum(1 for d in docs if d.get("status") == "signed")
+    ncr_count = sum(1 for d in docs if d.get("ncr_flag"))
+    total = len(docs)
+    ncr_rate = round((ncr_count / total) * 100.0, 1) if total else 0.0
+    # Chart: forms by type per month (last 6)
+    series = {"pre_pour": {}, "post_pour": {}, "compliance_cert": {}}
+    months = list(_months_back(6))
+    for d in docs:
+        ts = d.get("created_at", "")[:7]
+        ft = d.get("form_type")
+        if ft in series:
+            series[ft][ts] = series[ft].get(ts, 0) + 1
+    chart_rows = []
+    for y, m, label in months:
+        ym = f"{y:04d}-{m:02d}"
+        chart_rows.append({"month": label,
+                           "Pre-Pour": series["pre_pour"].get(ym, 0),
+                           "Post-Pour": series["post_pour"].get(ym, 0),
+                           "Certificate": series["compliance_cert"].get(ym, 0)})
+    # Table
+    rows = [{"form_number": d.get("form_number"), "type": d.get("form_type"),
+             "panel_id": d.get("panel_id"), "project": d.get("project_name") or "",
+             "status": d.get("status"), "inspection": d.get("date_of_inspection") or "",
+             "ncr": "Yes" if d.get("ncr_flag") else ""}
+            for d in sorted(docs, key=lambda x: x.get("created_at",""), reverse=True)[:200]]
+    return {
+        "kpis": {
+            "completed_this_month": completed_this_month,
+            "awaiting_qa_signoff": awaiting_qa,
+            "signed_total": signed_count,
+            "ncr_rate_pct": ncr_rate,
+        },
+        "charts": {
+            "by_type_per_month": {"type": "stacked_bar", "x": "month",
+                                  "series": ["Pre-Pour", "Post-Pour", "Certificate"],
+                                  "rows": chart_rows},
+        },
+        "table": {
+            "columns": ["form_number", "type", "panel_id", "project", "status", "inspection", "ncr"],
+            "rows": rows,
+        },
+    }
+
 _REPORT_FNS = {"customers":_report_customers,"quotes":_report_quotes,"jobs":_report_jobs,
                "invoices":_report_invoices,"vehicles":_report_vehicles,"employees":_report_employees,
-               "margin":_report_margin}
+               "margin":_report_margin,"compliance":_report_compliance}
 
 @api_router.get("/reports/{key}")
 async def get_report(key: str, user: dict = Depends(get_current_user),
@@ -3403,8 +3455,40 @@ async def cf_upload_photo(fid: str, file: UploadFile = File(...), caption: str =
     if len(content) > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Image too large (10 MB max)")
     saved.write_bytes(content)
+    # Extract EXIF GPS + timestamp (best effort, never fail upload on parse error)
+    gps_lat = gps_lng = None
+    taken_at = None
+    try:
+        from PIL import Image, ExifTags
+        from io import BytesIO
+        im = Image.open(BytesIO(content))
+        exif = im.getexif() or {}
+        # Top-level DateTime
+        for tag_id, val in exif.items():
+            tag = ExifTags.TAGS.get(tag_id, tag_id)
+            if tag in ("DateTime", "DateTimeOriginal") and not taken_at:
+                taken_at = str(val)
+        # GPS IFD
+        gps_ifd_id = next((i for i,t in ExifTags.TAGS.items() if t == "GPSInfo"), 34853)
+        gps_ifd = exif.get_ifd(gps_ifd_id) if hasattr(exif, "get_ifd") else exif.get(gps_ifd_id)
+        if gps_ifd:
+            gtags = {ExifTags.GPSTAGS.get(k, k): v for k, v in gps_ifd.items()}
+            def _dms_to_deg(dms, ref):
+                try:
+                    d, m, s = [float(x) for x in dms]
+                    val = d + m/60 + s/3600
+                    if ref in ("S", "W"): val = -val
+                    return round(val, 6)
+                except Exception: return None
+            if gtags.get("GPSLatitude") and gtags.get("GPSLatitudeRef"):
+                gps_lat = _dms_to_deg(gtags["GPSLatitude"], gtags["GPSLatitudeRef"])
+            if gtags.get("GPSLongitude") and gtags.get("GPSLongitudeRef"):
+                gps_lng = _dms_to_deg(gtags["GPSLongitude"], gtags["GPSLongitudeRef"])
+    except Exception as _e:
+        logger.debug(f"EXIF parse skipped on photo {pid}: {_e}")
     meta = {"id": pid, "filename": file.filename, "url": f"/api/compliance-forms/{fid}/photos/{pid}",
             "size": len(content), "caption": caption,
+            "gps_lat": gps_lat, "gps_lng": gps_lng, "taken_at": taken_at,
             "uploaded_at": now_iso(), "uploaded_by_user_id": user["id"]}
     await db.compliance_forms.update_one({"id": fid},
         {"$push": {"photos": meta}, "$set": {"updated_at": now_iso()}})
@@ -3458,6 +3542,266 @@ async def cf_restore(fid: str, user: dict = Depends(require_permission("forms.de
     return {"ok": True}
 
 app.include_router(_cf_router)
+
+
+# ===========================================================================
+# Phase 10 Pass 3 — PDF, batch, email
+# ===========================================================================
+_cf_p3 = APIRouter(prefix="/api")
+
+RECORD_LABEL = {"ok": "✓ Acceptable", "rectify": "✗ To be rectified", "na": "N/A"}
+
+def _render_form_html(form: dict, schema: dict, is_draft: bool) -> str:
+    """Generate the HTML used for WeasyPrint PDF rendering."""
+    from html import escape
+    title = schema.get("title", "Compliance Form")
+    sections = form.get("sections", {})
+    body_html = []
+
+    def trow(*cells):
+        return "<tr>" + "".join(f'<td>{c}</td>' for c in cells) + "</tr>"
+    def thead(*cells):
+        return "<tr>" + "".join(f'<th>{c}</th>' for c in cells) + "</tr>"
+
+    # Header info
+    body_html.append(f"""
+    <table class="info"><tbody>
+      <tr><th>Client</th><td>{escape(form.get('client_name') or '—')}</td><th>Date of Inspection</th><td>{escape(form.get('date_of_inspection') or '—')}</td></tr>
+      <tr><th>Project</th><td>{escape(form.get('project_name') or '—')}</td><th>Date of Casting</th><td>{escape(form.get('date_of_casting') or '—')}</td></tr>
+      <tr><th>Panel ID</th><td>{escape(form.get('panel_id') or '')}</td><th>Grade of Concrete</th><td>{escape(form.get('grade_of_concrete') or '—')}</td></tr>
+    </tbody></table>""")
+
+    if form["form_type"] != "compliance_cert":
+        for sec in schema.get("sections", []):
+            sstate = sections.get(sec["key"], {})
+            body_html.append(f'<h2 class="sec">{escape(sec["label"])}</h2>')
+            if sec.get("criteria"):
+                rows = [thead("Criterion", "Value", "Record", "Notes")]
+                for c in sec["criteria"]:
+                    v = sstate.get(c["key"], {}) or {}
+                    rows.append(trow(
+                        escape(c["label"]),
+                        escape(v.get("value") or (c.get("value_unit") or "")),
+                        RECORD_LABEL.get(v.get("record"), "—"),
+                        escape(v.get("notes") or "")
+                    ))
+                body_html.append('<table class="data">' + "".join(rows) + "</table>")
+            if sec.get("defects_list"):
+                rows = [thead("Location", "Description", "Remedy")]
+                defects = sstate.get("_defects", [])
+                if not defects:
+                    rows.append('<tr><td colspan="3" class="empty">No defects recorded.</td></tr>')
+                for d in defects:
+                    rows.append(trow(escape(d.get("location","")), escape(d.get("description","")), escape(d.get("remedy",""))))
+                body_html.append('<table class="data">' + "".join(rows) + "</table>")
+    else:
+        header = sections.get("header", {}) or {}
+        body_html.append('<h2 class="sec">Project Details</h2><table class="info"><tbody>')
+        for f in schema.get("header_fields", []):
+            body_html.append(f'<tr><th>{escape(f["label"])}</th><td>{escape(header.get(f["key"]) or "—")}</td></tr>')
+        body_html.append("</tbody></table>")
+        body_html.append(f'<h2 class="sec">{escape(schema.get("schedule_of_elements_label","Schedule"))}</h2>')
+        sched_rows = [thead(*schema.get("schedule_columns", []))]
+        sched = sections.get("schedule_of_elements", []) or []
+        if not sched:
+            sched_rows.append('<tr><td colspan="2" class="empty">No elements listed.</td></tr>')
+        for row in sched:
+            sched_rows.append(trow(escape(row.get("identification_number","")), escape(row.get("casting_date",""))))
+        body_html.append('<table class="data">' + "".join(sched_rows) + "</table>")
+        body_html.append(f'<div class="declaration">{escape(schema.get("declaration_text",""))}</div>')
+        body_html.append(f'<div class="standards">Standards referenced: {escape(" · ".join(schema.get("standards_referenced", [])))}</div>')
+
+    if form.get("ncr_flag"):
+        body_html.append(f'<div class="ncr"><strong>NCR raised:</strong> {escape(form.get("ncr_reference") or "No reference provided")}</div>')
+
+    if form.get("photos"):
+        body_html.append('<h2 class="sec">Photos</h2><div class="photos">')
+        for p in form["photos"]:
+            local = UPLOAD_DIR / f"{form['id']}_{p['id']}.{p['filename'].split('.')[-1].lower()}" if p.get("filename") else None
+            if local and local.exists():
+                gps = ""
+                if p.get("gps_lat") is not None and p.get("gps_lng") is not None:
+                    gps = f"📍 {p['gps_lat']}, {p['gps_lng']}"
+                if p.get("taken_at"):
+                    gps = (gps + " · " if gps else "") + str(p["taken_at"])
+                body_html.append(f'<div class="photo"><img src="file://{local}"/><div class="meta">{escape(p.get("filename",""))}<br/>{escape(gps) or "No GPS data"}</div></div>')
+        body_html.append("</div>")
+
+    # Signatures
+    if form["form_type"] != "compliance_cert":
+        body_html.append(f"""
+        <div class="sigs">
+          <div><div class="lbl">Checked By</div><div class="val">{escape(form.get('checked_by_user_id') or '____________________')}</div></div>
+          <div><div class="lbl">Checked By QA</div><div class="val">{escape(form.get('checked_by_qa_user_id') or '____________________')}</div></div>
+        </div>""")
+    if form.get("status") == "signed":
+        body_html.append(f'<div class="signed">✓ Signed by user <code>{escape(form.get("signed_by_user_id") or "")}</code> on {escape(form.get("signed_at") or "")} AEST</div>')
+
+    watermark = '<div class="wm">DRAFT — NOT FOR DISTRIBUTION</div>' if is_draft else ""
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>{escape(title)}</title><style>
+      @page {{ size: A4; margin: 12mm; }}
+      body {{ font-family: 'Helvetica', sans-serif; color: #1F2A33; font-size: 11px; }}
+      .wm {{ position: fixed; top: 40%; left: 0; right: 0; text-align: center;
+              transform: rotate(-30deg); font-size: 64px; color: rgba(220, 70, 70, 0.15);
+              font-weight: 900; letter-spacing: 0.1em; z-index: -1; }}
+      .hdr {{ display: flex; justify-content: space-between; align-items: flex-end;
+               border-bottom: 2px solid #F5C518; padding-bottom: 6px; margin-bottom: 10px; }}
+      .brand {{ font-size: 22px; font-weight: 900; letter-spacing: -0.02em; }}
+      .tag {{ font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.1em; }}
+      .meta-r {{ text-align: right; font-size: 9px; color: #666; }}
+      h1 {{ font-size: 16px; font-weight: 900; margin: 4px 0 12px 0; }}
+      h2.sec {{ font-size: 11px; font-weight: 700; text-transform: uppercase;
+                background: #F5C518; color: #1F2A33; padding: 4px 8px; margin: 12px 0 0 0; }}
+      table {{ width: 100%; border-collapse: collapse; margin-top: 4px; }}
+      table.info th, table.info td, table.data th, table.data td {{
+        border: 1px solid #c8d0d6; padding: 4px 6px; font-size: 10px; vertical-align: top; }}
+      table.data th {{ background: #1F2A33; color: white; text-align: left; }}
+      td.empty {{ text-align: center; font-style: italic; color: #999; }}
+      .declaration {{ border-left: 4px solid #F5C518; background: #FFF8E1; padding: 8px;
+                      font-style: italic; margin: 10px 0; font-size: 10px; }}
+      .standards {{ font-size: 9px; color: #555; margin-top: 4px; }}
+      .ncr {{ border: 1px solid #D11; background: #FFF0F0; padding: 6px; margin: 10px 0; font-size: 10px; }}
+      .photos {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }}
+      .photo {{ width: 30%; border: 1px solid #ccc; padding: 2px; font-size: 8px; }}
+      .photo img {{ width: 100%; height: 80px; object-fit: cover; display: block; }}
+      .photo .meta {{ padding: 2px 4px; color: #3A6B8C; }}
+      .sigs {{ display: flex; gap: 16px; margin-top: 20px; }}
+      .sigs > div {{ flex: 1; border-top: 2px solid #1F2A33; padding-top: 4px; }}
+      .sigs .lbl {{ font-size: 9px; text-transform: uppercase; color: #666; font-weight: 700; }}
+      .sigs .val {{ margin-top: 16px; font-size: 10px; }}
+      .signed {{ margin-top: 10px; padding: 6px; background: #E8F5E9; border: 1px solid #4CAF50;
+                  font-size: 10px; }}
+      .ftr {{ position: fixed; bottom: -8mm; left: 0; right: 0;
+              font-size: 8px; color: #999; text-align: center; }}
+    </style></head><body>
+      {watermark}
+      <div class="hdr">
+        <div><div class="brand">PANELTEC GROUP</div><div class="tag">Precast Panel Business Management</div></div>
+        <div class="meta-r">ABN: 12 345 678 901<br/>{escape(form.get('form_number',''))}</div>
+      </div>
+      <h1>{escape(title)}</h1>
+      {''.join(body_html)}
+      <div class="ftr">{escape(title)} · Generated {now_utc().strftime("%Y-%m-%d")} · Paneltec Group</div>
+    </body></html>"""
+
+
+async def _build_pdf_bytes(form: dict) -> bytes:
+    from weasyprint import HTML
+    schema = FORM_SCHEMAS[form["form_type"]]
+    is_draft = form.get("status") != "signed"
+    html = _render_form_html(form, schema, is_draft)
+    return HTML(string=html, base_url=str(UPLOAD_DIR)).write_pdf()
+
+
+@_cf_p3.get("/compliance-forms/{fid}/pdf")
+async def cf_pdf(fid: str, user: dict = Depends(require_permission("forms.view"))):
+    from fastapi.responses import Response
+    f = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+    if not f: raise HTTPException(status_code=404, detail="Form not found")
+    pdf_bytes = await _build_pdf_bytes(f)
+    await record_audit(user, "pdf_generated", "compliance_form", fid, f.get("form_number"))
+    fname = f"{f['form_number']}_{f.get('panel_id','')}_{f['form_type']}.pdf".replace(" ", "_")
+    return Response(content=pdf_bytes, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{fname}"'})
+
+
+class BatchPDFPayload(BaseModel):
+    form_ids: List[str] = Field(min_length=1, max_length=100)
+    mode: str = Field(pattern="^(zip|combined)$")
+
+
+@_cf_p3.post("/compliance-forms/batch-pdf")
+async def cf_batch_pdf(payload: BatchPDFPayload, user: dict = Depends(require_permission("forms.view"))):
+    from fastapi.responses import Response
+    import io, zipfile
+    forms = await db.compliance_forms.find({"id": {"$in": payload.form_ids}}, {"_id": 0}).to_list(120)
+    forms_by_id = {f["id"]: f for f in forms}
+    # Preserve requested order
+    ordered = [forms_by_id[i] for i in payload.form_ids if i in forms_by_id]
+    if not ordered: raise HTTPException(status_code=404, detail="No matching forms")
+    today = now_utc().strftime("%Y-%m-%d")
+    if payload.mode == "zip":
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in ordered:
+                pdf_bytes = await _build_pdf_bytes(f)
+                fname = f"{f['form_number']}_{f.get('panel_id','')}_{f['form_type']}.pdf".replace(" ", "_")
+                zf.writestr(fname, pdf_bytes)
+                await record_audit(user, "pdf_generated", "compliance_form", f["id"], f.get("form_number"),
+                                   metadata={"batch": True, "mode": "zip"})
+        return Response(content=buf.getvalue(), media_type="application/zip",
+                        headers={"Content-Disposition": f'attachment; filename="paneltec_forms_export_{today}.zip"'})
+    # combined
+    from pypdf import PdfWriter, PdfReader
+    writer = PdfWriter()
+    for f in ordered:
+        pdf_bytes = await _build_pdf_bytes(f)
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        for page in reader.pages: writer.add_page(page)
+        await record_audit(user, "pdf_generated", "compliance_form", f["id"], f.get("form_number"),
+                           metadata={"batch": True, "mode": "combined"})
+    out = io.BytesIO(); writer.write(out)
+    return Response(content=out.getvalue(), media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="paneltec_forms_export_{today}.pdf"'})
+
+
+class EmailFormPayload(BaseModel):
+    recipient: str = Field(min_length=3)
+    subject: str = Field(min_length=1)
+    body: str = ""
+    include_pdf: bool = True
+
+
+@_cf_p3.post("/compliance-forms/{fid}/email")
+async def cf_email(fid: str, payload: EmailFormPayload, user: dict = Depends(require_permission("forms.edit"))):
+    f = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+    if not f: raise HTTPException(status_code=404, detail="Form not found")
+    await db.compliance_forms.update_one({"id": fid}, {"$set": {"last_email_sent_at": now_iso()}})
+    await record_audit(user, "email_sent", "compliance_form", fid, f.get("form_number"),
+                       metadata={"recipient": payload.recipient, "mocked": True})
+    return {
+        "mocked": True,
+        "preview": {
+            "to": payload.recipient, "from": "noreply@paneltec.com.au (MOCKED)",
+            "subject": payload.subject,
+            "body": payload.body or f"Please find attached compliance form {f.get('form_number')} for panel {f.get('panel_id')}.",
+            "attachments": ([f"{f['form_number']}_{f.get('panel_id','')}_{f['form_type']}.pdf"] if payload.include_pdf else []),
+        }
+    }
+
+
+class BatchEmailPayload(BaseModel):
+    form_ids: List[str] = Field(min_length=1, max_length=100)
+    recipient: str = Field(min_length=3)
+    subject: str = Field(min_length=1)
+    body: str = ""
+    pdf_mode: str = Field(pattern="^(zip|combined)$")
+
+
+@_cf_p3.post("/compliance-forms/batch-email")
+async def cf_batch_email(payload: BatchEmailPayload, user: dict = Depends(require_permission("forms.edit"))):
+    forms = await db.compliance_forms.find({"id": {"$in": payload.form_ids}}, {"_id": 0}).to_list(120)
+    today = now_utc().strftime("%Y-%m-%d")
+    for f in forms:
+        await db.compliance_forms.update_one({"id": f["id"]}, {"$set": {"last_email_sent_at": now_iso()}})
+        await record_audit(user, "email_sent", "compliance_form", f["id"], f.get("form_number"),
+                           metadata={"recipient": payload.recipient, "batch": True, "mocked": True})
+    fname = (f"paneltec_forms_export_{today}.zip" if payload.pdf_mode == "zip"
+             else f"paneltec_forms_export_{today}.pdf")
+    return {
+        "mocked": True,
+        "preview": {
+            "to": payload.recipient, "from": "noreply@paneltec.com.au (MOCKED)",
+            "subject": payload.subject,
+            "body": payload.body or f"Please find attached a batch of {len(forms)} compliance forms.",
+            "attachments": [fname],
+            "form_count": len(forms),
+        }
+    }
+
+
+app.include_router(_cf_p3)
 
 
 # ---- Seed sample compliance forms on startup if empty ----

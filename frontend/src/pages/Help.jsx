@@ -36,7 +36,7 @@ const YELLOW = "#F5C518";
 // Phase 9 Pass 4 — H2/TOC icons render as Fluent Emoji 3D via AppIcon.
 // ICON_MAP entries are still consulted for the banner image; the lucide
 // component & gradient stops are no longer used at render time.
-const CONCEPT_BY_KEY = {"welcome": "welcome", "getting-started": "rocket", "roles-permissions": "roles_permissions", "calculator": "calculator", "customers": "customers", "projects": "projects", "quotes": "quotes", "jobs": "jobs", "invoices": "invoices", "vehicles-employees": "vehicles", "settings": "settings", "audit-trail": "audit_trail", "universal-actions": "universal_actions", "mocked": "mocked", "troubleshooting": "troubleshooting", "version-changelog": "changelog", "reports": "reports"};
+const CONCEPT_BY_KEY = {"welcome": "welcome", "getting-started": "rocket", "roles-permissions": "roles_permissions", "calculator": "calculator", "customers": "customers", "projects": "projects", "quotes": "quotes", "jobs": "jobs", "invoices": "invoices", "vehicles-employees": "vehicles", "settings": "settings", "audit-trail": "audit_trail", "universal-actions": "universal_actions", "mocked": "mocked", "troubleshooting": "troubleshooting", "version-changelog": "changelog", "reports": "reports", "compliance-forms": "compliance_forms"};
 
 export const ICON_MAP = {
   welcome:             { icon: Home,               color: "#F5C518", banner: "/manual/sections/01_welcome.jpg",            grad: ["#F5C518", STEEL, "#1F2A33"] },

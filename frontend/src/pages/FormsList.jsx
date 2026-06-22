@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { api } from "../lib/api";
+import { api, tokenStore, API_BASE } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import AppIcon from "../components/AppIcon";
 import { Button } from "../components/ui/button";
@@ -35,6 +35,8 @@ export default function FormsList() {
   const { hasPerm } = useAuth();
   const nav = useNavigate();
   const [items, setItems] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [emailModal, setEmailModal] = useState(null);
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showCreate, setShowCreate] = useState(false);
@@ -95,6 +97,7 @@ export default function FormsList() {
           <table className="w-full text-sm" data-testid="forms-table">
             <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider">
               <tr>
+                <th className="px-2 py-2 w-8"></th>
                 <th className="px-3 py-2 text-left">Form #</th>
                 <th className="px-3 py-2 text-left">Type</th>
                 <th className="px-3 py-2 text-left">Panel ID</th>
@@ -105,10 +108,15 @@ export default function FormsList() {
             </thead>
             <tbody>
               {items.map(f => (
-                <tr key={f.id} onClick={() => nav(`/forms/${f.id}`)}
-                    className="border-t border-gray-200 hover:bg-amber-50 cursor-pointer"
+                <tr key={f.id}
+                    className="border-t border-gray-200 hover:bg-amber-50"
                     data-testid={`form-row-${f.id}`}>
-                  <td className="px-3 py-2 font-mono font-semibold text-[#1F2A33]">{f.form_number}</td>
+                  <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" data-testid={`select-${f.id}`}
+                           checked={selected.has(f.id)}
+                           onChange={(e) => { const s2 = new Set(selected); e.target.checked ? s2.add(f.id) : s2.delete(f.id); setSelected(s2); }}/>
+                  </td>
+                  <td className="px-3 py-2 font-mono font-semibold text-[#1F2A33] cursor-pointer" onClick={() => nav(`/forms/${f.id}`)}>{f.form_number}</td>
                   <td className="px-3 py-2 text-xs">{TYPE_LABEL[f.form_type] || f.form_type}</td>
                   <td className="px-3 py-2">{f.panel_id}</td>
                   <td className="px-3 py-2 text-xs text-gray-600">{f.project_name || "—"}</td>
@@ -124,6 +132,51 @@ export default function FormsList() {
           </table>
         )}
       </div>
+
+
+      {selected.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-[#1F2A33] text-white p-3 z-40 flex items-center justify-center gap-3 shadow-lg" data-testid="bulk-action-bar">
+          <span className="text-sm font-bold">{selected.size} selected</span>
+          <Button onClick={async () => {
+            const r = await fetch(`${API_BASE}/compliance-forms/batch-pdf`, {
+              method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${tokenStore.get()}` },
+              body: JSON.stringify({ form_ids: Array.from(selected), mode: "zip" }) });
+            if (!r.ok) { toast.error("Download failed"); return; }
+            const blob = await r.blob(); const url = URL.createObjectURL(blob);
+            const a = document.createElement("a"); a.href = url; a.download = `paneltec_forms_${new Date().toISOString().slice(0,10)}.zip`;
+            document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+          }} className="bg-[#F5C518] text-[#1F2A33] hover:bg-[#E0B416]" data-testid="bulk-zip-btn">
+            <AppIcon name="download" size={16} className="mr-1" decorative/> Download ZIP
+          </Button>
+          <Button onClick={async () => {
+            const r = await fetch(`${API_BASE}/compliance-forms/batch-pdf`, {
+              method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${tokenStore.get()}` },
+              body: JSON.stringify({ form_ids: Array.from(selected), mode: "combined" }) });
+            if (!r.ok) { toast.error("Download failed"); return; }
+            const blob = await r.blob(); const url = URL.createObjectURL(blob);
+            const a = document.createElement("a"); a.href = url; a.download = `paneltec_forms_${new Date().toISOString().slice(0,10)}.pdf`;
+            document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+          }} variant="outline" className="bg-white text-[#1F2A33]" data-testid="bulk-combined-btn">
+            <AppIcon name="quotes" size={16} className="mr-1" decorative/> Combined PDF
+          </Button>
+          <Button onClick={() => setEmailModal({ ids: Array.from(selected) })} variant="outline" className="bg-white text-[#1F2A33]" data-testid="bulk-email-btn">
+            <AppIcon name="email" size={16} className="mr-1" decorative/> Email selected
+          </Button>
+          <Button onClick={() => setSelected(new Set())} variant="ghost" className="text-white hover:bg-white/10" data-testid="bulk-clear-btn">Clear</Button>
+        </div>
+      )}
+
+      {emailModal && (
+        <Dialog open={true} onOpenChange={() => setEmailModal(null)}>
+          <DialogContent data-testid="batch-email-modal">
+            <DialogHeader>
+              <DialogTitle><AppIcon name="email" size={20} decorative className="inline mr-1"/> Email {emailModal.ids.length} forms</DialogTitle>
+              <DialogDescription>MOCKED Microsoft 365 — composed message preview only.</DialogDescription>
+            </DialogHeader>
+            <BatchEmailFields ids={emailModal.ids} onClose={() => { setEmailModal(null); setSelected(new Set()); }}/>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {showCreate && <CreateFormDialog open={showCreate} onClose={() => setShowCreate(false)} onCreated={(id) => { setShowCreate(false); nav(`/forms/${id}`); }}/>}
     </div>
@@ -205,5 +258,51 @@ function CreateFormDialog({ open, onClose, onCreated }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function BatchEmailFields({ ids, onClose }) {
+  const [recipient, setRecipient] = useState("");
+  const [subject, setSubject] = useState(`Paneltec compliance forms (${ids.length})`);
+  const [body, setBody] = useState("");
+  const [pdfMode, setPdfMode] = useState("zip");
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const send = async () => {
+    if (!recipient.trim()) { toast.error("Recipient required"); return; }
+    setBusy(true);
+    try {
+      const r = await api.post("/compliance-forms/batch-email", {
+        form_ids: ids, recipient, subject, body, pdf_mode: pdfMode
+      });
+      setPreview(r.data.preview);
+    } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+  if (preview) {
+    return (
+      <div className="space-y-2 text-xs" data-testid="batch-email-preview">
+        <div className="bg-amber-50 border border-amber-300 rounded p-2 text-amber-900">📋 MOCKED — copy below and send manually until M365 integration is wired</div>
+        <div><strong>To:</strong> {preview.to}</div>
+        <div><strong>Subject:</strong> {preview.subject}</div>
+        <div><strong>Attachments:</strong> {preview.attachments.join(", ")}</div>
+        <pre className="bg-gray-50 p-3 rounded whitespace-pre-wrap text-[11px]">{preview.body}</pre>
+        <Button onClick={onClose} className="bg-[#1F2A33] text-white hover:bg-[#3A6B8C] w-full">Mark as sent &amp; close</Button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <Input placeholder="Recipient email" value={recipient} onChange={(e) => setRecipient(e.target.value)} data-testid="batch-email-recipient"/>
+      <Input placeholder="Subject" value={subject} onChange={(e) => setSubject(e.target.value)}/>
+      <textarea className="w-full border border-gray-300 rounded p-2 text-xs" rows={3} placeholder="Optional body" value={body} onChange={(e) => setBody(e.target.value)}/>
+      <div className="flex items-center gap-3 text-xs">
+        <label><input type="radio" checked={pdfMode==="zip"} onChange={() => setPdfMode("zip")}/> ZIP of individual PDFs</label>
+        <label><input type="radio" checked={pdfMode==="combined"} onChange={() => setPdfMode("combined")}/> One combined PDF</label>
+      </div>
+      <Button onClick={send} disabled={busy} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] w-full" data-testid="batch-email-send">
+        {busy ? "Composing…" : "Compose email"}
+      </Button>
+    </div>
   );
 }

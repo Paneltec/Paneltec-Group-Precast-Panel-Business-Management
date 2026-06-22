@@ -360,6 +360,34 @@ It was soft-deleted. Switch the list filter to **Deleted** or **All** to find it
 
 ---
 
+## 18. Compliance Forms
+
+The Compliance Forms module digitises the three Australian Precast Code of Practice forms used at Paneltec — Pre-Pour Checklist (9.1.2), Post-Pour Checklist (9.1.3) and Manufacturer's Certificate of Compliance (9.1.4). Forms live at `/forms`, are linked to Jobs, and produce branded A4 print-ready output.
+
+### 18.1 The three form types
+- **Pre-Pour (9.1.2)** — inspection BEFORE concrete is poured. Sections: FORMWORK, REINFORCEMENT (with photograph capture), CAST-IN ITEMS (ferrules / lifters / grout tubes), OTHER (recesses, openings, panel ID plate, form liners).
+- **Post-Pour (9.1.3)** — inspection AFTER de-mould. Sections: PANEL (ID/weight visibility + Length/Width/Thickness in mm + cleanliness) and CONCRETE DEFECTS (free-form defect log with location, description, remedy).
+- **Manufacturer's Certificate of Compliance (9.1.4)** — final hand-off cert. Header (Client, Project, Site Address, Engineer), Schedule of Elements (one row per panel: Identification Number + Casting Date), declaration text + AS 3850 / AS 3600 references, and Signatory block.
+
+### 18.2 Workflow & states
+1. **Draft** — Production user creates a form via "+ New Form", picks form type, panel ID, and (optionally) links a Job. The form ships pre-populated with all the criteria from the source docx.
+2. **Completed** — Once every criterion is recorded (`✓ OK`, `✗ Rectify`, or `N/A`) and any rectifications noted, hit "Mark Complete".
+3. **Signed** — A user with `forms.sign` permission (typically the QA Officer role) reviews and clicks "Sign". The form becomes immutable; super admins can revert it back if needed.
+
+### 18.3 Photos & GPS
+Tap "Click to upload photo" on the form editor to attach JPEGs/PNGs (max 10 MB). Photos taken on a phone with EXIF location enabled show their GPS coords and timestamp under each thumbnail (📍 -27.4705, 153.0260 · 14 Jun 2026 09:32). Photos without GPS data are marked "No GPS data" and still upload normally.
+
+### 18.4 Print format
+Click "Print" on a form to open the branded A4 print popup. Signed forms render a typed signature block ("✓ Signed by user uuid on 14 Jun 2026 14:32 AEST") instead of empty lines, suitable for client hand-off or archival.
+
+### 18.5 Reports
+A new "Compliance" report tile on `/reports` surfaces:
+- Forms completed this month
+- Forms awaiting QA sign-off
+- NCR rate %
+- Stacked bar chart of forms-by-type per month
+- Recent forms table
+
 ## 17. Reports & Data Export
 
 Where to find it: **Reports** in the sidebar (the green chart icon). Available to every user who has any of the report `*.view` permissions; the Data Export and Power BI Integration tabs are super-admin only.
@@ -423,7 +451,7 @@ That means a Power BI token connected to `/api/reporting/v1/quotes` will see lin
 ## 16. Version & Change Log
 
 **App version**: v1.0 · Phase 8
-**Manual last updated**: 2026-06-15
+**Manual last updated**: 2026-06-22
 
 ### Phase 1 — Foundation
 Auth (JWT + bcrypt), Super Admin + Estimator seed users, brand palette, GST 10%, Precast Panel Calculator with full sell-side breakdown, dashboard placeholder, OpenAPI spec at `/api/openapi.json`.
