@@ -25,6 +25,37 @@ const CARDS = [
   { key:"compliance",title:"Compliance",desc:"QC forms, NCR rate, QA sign-off pipeline",icon:BarChart3,perm:"forms.view",kpi:(k)=>[`Awaiting QA: ${k.awaiting_qa_signoff||0}`,`NCR ${k.ncr_rate_pct||0}%`]},
 ];
 
+// Phase 11.2 — themed banner per report tile
+const TILE_BANNERS = {
+  customers:  "/manual/sections/05_customers.jpg",
+  quotes:     "/manual/sections/07_quotes.jpg",
+  jobs:       "/manual/sections/08_jobs.jpg",
+  invoices:   "/manual/sections/09_invoices.jpg",
+  vehicles:   "/manual/sections/10_vehicles_employees.jpg",
+  employees:  "/manual/sections/tile_employees.jpg",
+  margin:     "/manual/sections/tile_margin.jpg",
+  compliance: "/manual/sections/compliance_dashboard.jpg",
+};
+
+function TileBanner({ src, Icon, title }) {
+  const [failed, setFailed] = useState(false);
+  if (failed || !src) {
+    return (
+      <div className="w-full h-20 md:h-[120px] rounded-t bg-[#1F2A33] flex items-center justify-center"
+           role="img" aria-label={`${title} banner`}>
+        <Icon className="w-8 h-8 text-[#F5C518]"/>
+      </div>
+    );
+  }
+  return (
+    <div className="w-full h-20 md:h-[120px] overflow-hidden rounded-t bg-[#1F2A33]">
+      <img src={src} alt={`${title} report banner`} loading="lazy"
+           onError={() => setFailed(true)}
+           className="w-full h-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.02]"/>
+    </div>
+  );
+}
+
 export default function Reports() {
   const { hasPerm, isSuperAdmin } = useAuth();
   const [previews, setPreviews] = useState({});
@@ -61,18 +92,21 @@ export default function Reports() {
               const k = previews[c.key];
               return (
                 <Link key={c.key} to={`/reports/${c.key}`} data-testid={`report-card-${c.key}`}
-                      className="bg-white border border-gray-200 rounded p-5 hover:border-[#F5C518] hover:shadow-md transition-all group">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C]">{c.title}</div>
-                      <div className="text-sm text-gray-500 mt-1">{c.desc}</div>
+                      className="bg-white border border-gray-200 rounded hover:border-[#F5C518] hover:shadow-md transition-all group overflow-hidden flex flex-col">
+                  <TileBanner src={TILE_BANNERS[c.key]} Icon={Icon} title={c.title}/>
+                  <div className="p-5 flex-1">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C]">{c.title}</div>
+                        <div className="text-sm text-gray-500 mt-1">{c.desc}</div>
+                      </div>
+                      <Icon className="w-5 h-5 text-[#3A6B8C]"/>
                     </div>
-                    <Icon className="w-5 h-5 text-[#3A6B8C]"/>
-                  </div>
-                  <div className="mt-3 space-y-1">
-                    {k ? c.kpi(k).map((s, i) => (
-                      <div key={i} className="text-xs font-semibold text-[#1F2A33] tabular-nums">{s}</div>
-                    )) : <div className="text-xs text-gray-400">Loading…</div>}
+                    <div className="mt-3 space-y-1">
+                      {k ? c.kpi(k).map((s, i) => (
+                        <div key={i} className="text-xs font-semibold text-[#1F2A33] tabular-nums">{s}</div>
+                      )) : <div className="text-xs text-gray-400">Loading…</div>}
+                    </div>
                   </div>
                 </Link>
               );
