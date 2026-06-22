@@ -12,7 +12,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Capture compliance inspection photos",
-        "NSPhotoLibraryUsageDescription": "Attach inspection photos from library"
+        "NSPhotoLibraryUsageDescription": "Attach inspection photos from library",
+        "NSLocationWhenInUseUsageDescription": "Tag inspection photos with GPS coordinates"
       }
     },
     "android": {
@@ -21,7 +22,12 @@
         "backgroundColor": "#000"
       },
       "edgeToEdgeEnabled": true,
-      "permissions": ["CAMERA"]
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "READ_MEDIA_IMAGES"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -38,7 +44,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#000"
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true

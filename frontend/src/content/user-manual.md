@@ -389,6 +389,7 @@ A "Compliance" report tile on `/reports` surfaces:
 - Stacked bar chart of forms-by-type per month (Pre-Pour / Post-Pour / Certificate)
 - "Hold-points missing by stage" bar with red/amber/green tints
 - Recent forms table
+- **Export NCR Pack** button (top-right) — bundles every NCR-flagged form completed in the selected window into a single merged PDF (cap 100). Either download directly, or supply a recipient email to fire a **MOCKED** email preview with the PDF as attachment. The button disables to "No NCRs to export" when zero NCR-flagged forms exist in the range. Each export records an `ncr_pack_exported` audit event listing the form IDs.
 
 ### 18.6 Form Templates (`/forms/templates`) — super admin
 Templates are now data-driven. Browse, clone, edit, activate / deactivate and (for non-system templates) delete from `/forms/templates`. The "+ New Form" picker on `/forms` only lists **active** templates.
@@ -497,6 +498,7 @@ That means a Power BI token connected to `/api/reporting/v1/quotes` will see lin
 - **Hold Points**: job status transitions `in_production → ready_for_delivery`, `ready_for_delivery → delivered`, and `delivered → installed` are blocked until the matching signed compliance form exists. Super admins can override with a reason — recorded as a `hold_point_override` audit event.
 - **Dashboard "Compliance health" tile**: signed-vs-required hold-point ratio over active jobs in the last 30 days, colour-coded (≥95 green, 80-94 amber, <80 red), drills into the Compliance report.
 - **Enhanced Compliance Report** (`/reports/compliance`): adds Hold-Point Compliance %, Avg Sign-off Latency, Photo Coverage %, "missing-by-stage" Recharts bar with red/amber/green tints.
+- **Export NCR Pack** (Phase 11.1, 2026-06-22 minor): one-click button on the Compliance report top-right — bundles all NCR-flagged forms completed in the date range into a single merged PDF (cap 100), with optional MOCKED email send to a recipient. Disables to "No NCRs to export" when zero matches. Audit-logged as `ncr_pack_exported`.
 - **Permissions**: `forms.template_manage` is now seeded for super admin; staff cannot see `/forms/templates` (UI hidden AND API returns 403).
 
 ### Phase 1 — Foundation

@@ -1,23 +1,29 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, useWindowDimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
 import { formatAUD, formatDateTime } from '../../src/lib/format';
 import { Colors } from '../../src/lib/colors';
 import StatusBadge from '../../src/components/StatusBadge';
+import JobDetailPanel from '../../src/components/JobDetailPanel';
 
 const STATUS_FILTERS = ['all', 'scheduled', 'in_production', 'ready_for_delivery', 'delivered', 'installed', 'completed', 'cancelled'];
 
 export default function JobsScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 768;
   const [data, setData] = useState<any>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [page, setPage] = useState(1);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -37,10 +43,18 @@ export default function JobsScreen() {
     setRefreshing(false);
   };
 
+  const handlePress = (id: string) => {
+    if (isTablet) {
+      setSelectedId(id);
+    } else {
+      router.push(`/jobs/${id}`);
+    }
+  };
+
   const renderItem = ({ item }: { item: any }) => (
     <TouchableOpacity
-      style={styles.row}
-      onPress={() => router.push(`/jobs/${item.id}`)}
+      style={[styles.row, isTablet && selectedId === item.id && styles.rowSelected]}
+      onPress={() => handlePress(item.id)}
       testID={`job-row-${item.id}`}
       activeOpacity={0.7}
     >
@@ -56,8 +70,8 @@ export default function JobsScreen() {
     </TouchableOpacity>
   );
 
-  return (
-    <View style={styles.screen} testID="jobs-page">
+  const listUI = (
+    <View style={{ flex: 1 }}>
       <View style={styles.searchBar}>
         <TextInput
           testID="jobs-search-input"
@@ -108,9 +122,36 @@ export default function JobsScreen() {
       )}
     </View>
   );
+
+  if (isTablet) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['left', 'right']}>
+        <View style={styles.splitContainer} testID="jobs-page">
+          <View style={styles.splitLeft}>{listUI}</View>
+          <View style={styles.splitRight}>
+            {selectedId ? (
+              <JobDetailPanel key={selectedId} itemId={selectedId} />
+            ) : (
+              <View style={styles.splitPlaceholder} testID="jobs-detail-placeholder">
+                <Ionicons name="construct-outline" size={48} color={Colors.textMuted} />
+                <Text style={styles.splitPlaceholderText}>Select a job to view details</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <View style={styles.screen} testID="jobs-page">
+      {listUI}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: Colors.background },
   screen: { flex: 1, backgroundColor: Colors.background },
   searchBar: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
   searchInput: {
@@ -148,6 +189,7 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 10,
   },
+  rowSelected: { borderColor: Colors.steelBlue, borderWidth: 2, backgroundColor: 'rgba(58,107,140,0.06)' },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   rowId: { fontSize: 15, fontWeight: '700', color: Colors.charcoal, fontVariant: ['tabular-nums'] },
   rowCustomer: { fontSize: 13, color: Colors.textSecondary, marginBottom: 8 },
@@ -155,4 +197,9 @@ const styles = StyleSheet.create({
   rowMeta: { fontSize: 11, color: Colors.textMuted, fontVariant: ['tabular-nums'] },
   rowTotal: { fontSize: 15, fontWeight: '800', color: Colors.charcoal, fontVariant: ['tabular-nums'] },
   emptyText: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', marginTop: 40 },
+  splitContainer: { flex: 1, flexDirection: 'row' },
+  splitLeft: { width: '40%', borderRightWidth: 1, borderRightColor: Colors.border },
+  splitRight: { flex: 1 },
+  splitPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  splitPlaceholderText: { fontSize: 15, color: Colors.textMuted, fontWeight: '600' },
 });

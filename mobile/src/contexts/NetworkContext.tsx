@@ -1,178 +1,161 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api, apiUpload } from '../lib/api';
-
-/* ---- Types ---- */
-type QueueItem = {
-  id: string;
-  type: 'PATCH' | 'POST' | 'UPLOAD';
-  endpoint: string;
-  body?: any;
-  formDataFields?: any; // For photo uploads
-  createdAt: string;
-  retries: number;
-};
+import { Colors } from '../lib/colors';
+import {
+  enqueueJson, enqueueFile, getPendingCount, processQueue, retryFailed,
+} from '../lib/outbox';
 
 type NetworkCtx = {
   isOnline: boolean;
   pendingCount: number;
+  isSyncing: boolean;
+  enqueueJsonOp: (method: string, url: string, body: any) => Promise<void>;
+  enqueueFileOp: (
+    url: string, sourceUri: string, fileField: string,
+    extraFields: Record<string, string>, fileName?: string, fileMime?: string,
+  ) => Promise<void>;
   syncNow: () => Promise<void>;
-  enqueue: (item: Omit<QueueItem, 'id' | 'createdAt' | 'retries'>) => Promise<void>;
+  refreshPending: () => Promise<void>;
 };
 
-const QUEUE_KEY = 'paneltec_offline_queue';
 const NetworkContext = createContext<NetworkCtx>({
   isOnline: true,
   pendingCount: 0,
+  isSyncing: false,
+  enqueueJsonOp: async () => {},
+  enqueueFileOp: async () => {},
   syncNow: async () => {},
-  enqueue: async () => {},
+  refreshPending: async () => {},
 });
+
+export function useNetwork() { return useContext(NetworkContext); }
 
 export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const [isOnline, setIsOnline] = useState(true);
-  const [queue, setQueue] = useState<QueueItem[]>([]);
-  const [syncing, setSyncing] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const syncLock = useRef(false);
 
-  // Load queue from storage on mount
-  useEffect(() => {
-    AsyncStorage.getItem(QUEUE_KEY).then(raw => {
-      if (raw) setQueue(JSON.parse(raw));
-    }).catch(() => {});
+  // Refresh pending count
+  const refreshPending = useCallback(async () => {
+    const cnt = await getPendingCount();
+    setPendingCount(cnt);
   }, []);
 
-  // Persist queue changes
-  const persistQueue = async (q: QueueItem[]) => {
-    setQueue(q);
-    await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(q)).catch(() => {});
-  };
-
-  // Network listener
+  // NetInfo listener
   useEffect(() => {
-    const unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
+    const unsub = NetInfo.addEventListener(state => {
       const online = !!(state.isConnected && state.isInternetReachable !== false);
       setIsOnline(online);
+      if (online) {
+        // Auto-sync when reconnecting
+        syncNow();
+      }
     });
-    // Initial check
-    NetInfo.fetch().then(state => {
-      setIsOnline(!!(state.isConnected && state.isInternetReachable !== false));
-    });
-    return () => unsubscribe();
+    refreshPending();
+    return () => unsub();
   }, []);
 
-  // Auto-sync when reconnecting
-  useEffect(() => {
-    if (isOnline && queue.length > 0 && !syncing) {
-      processQueue(queue);
-    }
-  }, [isOnline]);
+  // Sync worker
+  const syncNow = useCallback(async () => {
+    if (syncLock.current) return;
+    syncLock.current = true;
+    setIsSyncing(true);
+    try {
+      await processQueue();
+    } catch {}
+    await refreshPending();
+    setIsSyncing(false);
+    syncLock.current = false;
+  }, [refreshPending]);
 
-  const processQueue = async (currentQueue: QueueItem[]) => {
-    if (syncing || currentQueue.length === 0) return;
-    setSyncing(true);
-    const remaining: QueueItem[] = [];
+  // Enqueue JSON
+  const enqueueJsonOp = useCallback(async (method: string, url: string, body: any) => {
+    await enqueueJson(method, url, body);
+    await refreshPending();
+  }, [refreshPending]);
 
-    for (const item of currentQueue) {
-      try {
-        if (item.type === 'UPLOAD' && item.formDataFields) {
-          const fd = new FormData();
-          for (const [k, v] of Object.entries(item.formDataFields)) {
-            fd.append(k, v as any);
-          }
-          await apiUpload(item.endpoint, fd);
-        } else {
-          await api(item.endpoint, { method: item.type === 'PATCH' ? 'PATCH' : 'POST', body: item.body });
-        }
-        // Success — drop from queue
-      } catch (e: any) {
-        if (e.status && e.status >= 400 && e.status < 500) {
-          // Client error (4xx) — drop from queue, can't recover
-          console.warn(`Dropping queued item ${item.id}: ${e.message}`);
-        } else {
-          // Network/server error — retry later
-          remaining.push({ ...item, retries: item.retries + 1 });
-        }
-      }
-    }
-
-    await persistQueue(remaining);
-    setSyncing(false);
-  };
-
-  const syncNow = async () => {
-    if (!isOnline || queue.length === 0) return;
-    await processQueue(queue);
-  };
-
-  const enqueue = async (item: Omit<QueueItem, 'id' | 'createdAt' | 'retries'>) => {
-    const newItem: QueueItem = {
-      ...item,
-      id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      createdAt: new Date().toISOString(),
-      retries: 0,
-    };
-    const newQueue = [...queue, newItem];
-    await persistQueue(newQueue);
-
-    // Try immediately if online
-    if (isOnline) {
-      setTimeout(() => processQueue(newQueue), 200);
-    }
-  };
+  // Enqueue file
+  const enqueueFileOp = useCallback(async (
+    url: string, sourceUri: string, fileField: string,
+    extraFields: Record<string, string>, fileName?: string, fileMime?: string,
+  ) => {
+    await enqueueFile(url, sourceUri, fileField, extraFields, fileName, fileMime);
+    await refreshPending();
+  }, [refreshPending]);
 
   return (
-    <NetworkContext.Provider value={{ isOnline, pendingCount: queue.length, syncNow, enqueue }}>
+    <NetworkContext.Provider value={{
+      isOnline, pendingCount, isSyncing,
+      enqueueJsonOp, enqueueFileOp, syncNow, refreshPending,
+    }}>
       {children}
     </NetworkContext.Provider>
   );
 }
 
-export const useNetwork = () => useContext(NetworkContext);
-
-/** Offline banner — shown at top of screen when offline or pending sync items */
+/* --- Offline Banner --- */
 export function OfflineBanner() {
-  const { isOnline, pendingCount, syncNow } = useNetwork();
-
+  const { isOnline, pendingCount, isSyncing, syncNow } = useNetwork();
   if (isOnline && pendingCount === 0) return null;
 
   return (
-    <View style={[bannerStyles.container, !isOnline ? bannerStyles.offline : bannerStyles.pending]} testID="offline-banner">
-      <View style={bannerStyles.left}>
-        <Ionicons
-          name={!isOnline ? 'cloud-offline' : 'cloud-upload'}
-          size={16}
-          color={!isOnline ? '#FFF' : '#92400E'}
-        />
-        <Text style={[bannerStyles.text, !isOnline && { color: '#FFF' }]}>
-          {!isOnline
-            ? 'No internet connection — changes queued'
-            : `${pendingCount} pending sync${pendingCount !== 1 ? 's' : ''}`}
-        </Text>
-      </View>
-      {isOnline && pendingCount > 0 && (
-        <TouchableOpacity onPress={syncNow} testID="sync-now-btn" style={bannerStyles.syncBtn}>
-          <Ionicons name="sync" size={14} color="#92400E" />
-          <Text style={bannerStyles.syncText}>Sync</Text>
+    <View style={[styles.banner, !isOnline ? styles.bannerOffline : styles.bannerPending]} testID="offline-banner">
+      <Ionicons
+        name={!isOnline ? 'cloud-offline' : isSyncing ? 'sync' : 'cloud-upload'}
+        size={16}
+        color={!isOnline ? '#92400E' : '#1E40AF'}
+      />
+      <Text style={[styles.bannerText, !isOnline ? styles.bannerTextOffline : styles.bannerTextPending]}>
+        {!isOnline
+          ? 'Offline — changes queued locally'
+          : isSyncing
+            ? `Syncing ${pendingCount} item${pendingCount !== 1 ? 's' : ''}...`
+            : `${pendingCount} pending sync item${pendingCount !== 1 ? 's' : ''}`}
+      </Text>
+      {isOnline && pendingCount > 0 && !isSyncing && (
+        <TouchableOpacity testID="sync-now-btn" onPress={syncNow} style={styles.syncBtn}>
+          <Text style={styles.syncBtnText}>Sync now</Text>
         </TouchableOpacity>
       )}
     </View>
   );
 }
 
-const bannerStyles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+/* --- Sync status icon for headers --- */
+export function SyncStatusIcon() {
+  const { isOnline, pendingCount, isSyncing } = useNetwork();
+  if (!isOnline) return <Ionicons name="cloud-offline" size={20} color="#DC2626" />;
+  if (isSyncing) return <Ionicons name="sync" size={20} color={Colors.steelBlue} />;
+  if (pendingCount > 0) {
+    return (
+      <View style={styles.syncIconWrap}>
+        <Ionicons name="cloud-upload" size={20} color={Colors.steelBlue} />
+        <View style={styles.syncBadge}>
+          <Text style={styles.syncBadgeText}>{pendingCount > 9 ? '9+' : pendingCount}</Text>
+        </View>
+      </View>
+    );
+  }
+  return <Ionicons name="cloud-done" size={20} color="#16A34A" />;
+}
+
+const styles = StyleSheet.create({
+  banner: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
+  bannerOffline: { backgroundColor: '#FEF3C7' },
+  bannerPending: { backgroundColor: '#DBEAFE' },
+  bannerText: { flex: 1, fontSize: 12, fontWeight: '600' },
+  bannerTextOffline: { color: '#92400E' },
+  bannerTextPending: { color: '#1E40AF' },
+  syncBtn: { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#1E40AF', borderRadius: 4 },
+  syncBtnText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
+  syncIconWrap: { position: 'relative' },
+  syncBadge: {
+    position: 'absolute', top: -4, right: -8,
+    backgroundColor: '#DC2626', borderRadius: 8, minWidth: 16, height: 16,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
   },
-  offline: { backgroundColor: '#991B1B' },
-  pending: { backgroundColor: '#FEF3C7' },
-  left: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-  text: { fontSize: 12, fontWeight: '600', color: '#92400E' },
-  syncBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, backgroundColor: 'rgba(146,64,14,0.1)' },
-  syncText: { fontSize: 11, fontWeight: '700', color: '#92400E' },
+  syncBadgeText: { color: '#FFF', fontSize: 9, fontWeight: '800' },
 });

@@ -1,19 +1,25 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, useWindowDimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
 import { formatDateTime } from '../../src/lib/format';
 import { Colors } from '../../src/lib/colors';
+import CustomerDetailPanel from '../../src/components/CustomerDetailPanel';
 
 export default function CustomersScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 768;
   const [data, setData] = useState<any>(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -32,10 +38,18 @@ export default function CustomersScreen() {
     setRefreshing(false);
   };
 
+  const handlePress = (id: string) => {
+    if (isTablet) {
+      setSelectedId(id);
+    } else {
+      router.push(`/customers/${id}`);
+    }
+  };
+
   const renderItem = ({ item }: { item: any }) => (
     <TouchableOpacity
-      style={styles.row}
-      onPress={() => router.push(`/customers/${item.id}`)}
+      style={[styles.row, isTablet && selectedId === item.id && styles.rowSelected]}
+      onPress={() => handlePress(item.id)}
       testID={`customer-row-${item.id}`}
       activeOpacity={0.7}
     >
@@ -48,8 +62,8 @@ export default function CustomersScreen() {
     </TouchableOpacity>
   );
 
-  return (
-    <View style={styles.screen} testID="customers-page">
+  const listUI = (
+    <View style={{ flex: 1 }}>
       <View style={styles.searchBar}>
         <TextInput
           testID="customers-search-input"
@@ -81,9 +95,36 @@ export default function CustomersScreen() {
       )}
     </View>
   );
+
+  if (isTablet) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['left', 'right']}>
+        <View style={styles.splitContainer} testID="customers-page">
+          <View style={styles.splitLeft}>{listUI}</View>
+          <View style={styles.splitRight}>
+            {selectedId ? (
+              <CustomerDetailPanel key={selectedId} itemId={selectedId} />
+            ) : (
+              <View style={styles.splitPlaceholder} testID="customers-detail-placeholder">
+                <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
+                <Text style={styles.splitPlaceholderText}>Select a customer to view details</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <View style={styles.screen} testID="customers-page">
+      {listUI}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: Colors.background },
   screen: { flex: 1, backgroundColor: Colors.background },
   searchBar: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
   searchInput: {
@@ -106,10 +147,16 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 10,
   },
+  rowSelected: { borderColor: Colors.steelBlue, borderWidth: 2, backgroundColor: 'rgba(58,107,140,0.06)' },
   company: { fontSize: 15, fontWeight: '700', color: Colors.charcoal, marginBottom: 2 },
   contact: { fontSize: 13, color: Colors.textSecondary, marginBottom: 8 },
   rowBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   state: { fontSize: 12, fontWeight: '600', color: Colors.steelBlue },
   abn: { fontSize: 11, color: Colors.textMuted, fontVariant: ['tabular-nums'] },
   emptyText: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', marginTop: 40 },
+  splitContainer: { flex: 1, flexDirection: 'row' },
+  splitLeft: { width: '40%', borderRightWidth: 1, borderRightColor: Colors.border },
+  splitRight: { flex: 1 },
+  splitPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  splitPlaceholderText: { fontSize: 15, color: Colors.textMuted, fontWeight: '600' },
 });

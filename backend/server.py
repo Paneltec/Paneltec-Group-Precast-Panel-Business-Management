@@ -3642,6 +3642,8 @@ async def cf_transition(fid: str, payload: TransitionPayload, user: dict = Depen
 
 @_cf_router.post("/compliance-forms/{fid}/photos")
 async def cf_upload_photo(fid: str, file: UploadFile = File(...), caption: str = Form(""),
+                           explicit_lat: str = Form(""), explicit_lng: str = Form(""),
+                           explicit_taken_at: str = Form(""),
                            user: dict = Depends(require_permission("forms.edit"))):
     d = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
     if not d: raise HTTPException(status_code=404, detail="Form not found")
@@ -3687,6 +3689,15 @@ async def cf_upload_photo(fid: str, file: UploadFile = File(...), caption: str =
                 gps_lng = _dms_to_deg(gtags["GPSLongitude"], gtags["GPSLongitudeRef"])
     except Exception as _e:
         logger.debug(f"EXIF parse skipped on photo {pid}: {_e}")
+    # Explicit device coords override EXIF (e.g. from mobile GPS)
+    if explicit_lat:
+        try: gps_lat = float(explicit_lat)
+        except Exception: pass
+    if explicit_lng:
+        try: gps_lng = float(explicit_lng)
+        except Exception: pass
+    if explicit_taken_at:
+        taken_at = explicit_taken_at
     meta = {"id": pid, "filename": file.filename, "url": f"/api/compliance-forms/{fid}/photos/{pid}",
             "size": len(content), "caption": caption,
             "gps_lat": gps_lat, "gps_lng": gps_lng, "taken_at": taken_at,
@@ -4038,6 +4049,93 @@ async def cf_batch_email(payload: BatchEmailPayload, user: dict = Depends(requir
 
 
 app.include_router(_cf_p3)
+# ---------------------------------------------------------------------------
+# Phase 11.1 — Export NCR Pack (must be defined BEFORE _cf_p3 is mounted)
+# ---------------------------------------------------------------------------
+class NCRExportPayload(BaseModel):
+    date_from: str = Field(min_length=10, max_length=10)  # YYYY-MM-DD
+    date_to: str   = Field(min_length=10, max_length=10)
+    recipient: Optional[str] = None
+    subject: Optional[str]   = None
+    body: Optional[str]      = None
+
+
+@_cf_p3.get("/compliance-forms/ncr-export/preview")
+async def cf_ncr_export_preview(date_from: str, date_to: str,
+                                 user: dict = Depends(require_permission("forms.view"))):
+    """Light preview — count of NCR-flagged forms in the date range."""
+    df, dt = _date_range_iso(date_from, date_to)
+    n = await db.compliance_forms.count_documents({
+        "ncr_flag": True, "deleted_at": None,
+        "status": {"$in": ["completed", "signed"]},
+        "updated_at": {"$gte": df, "$lte": dt},
+    })
+    return {"count": n, "date_from": date_from, "date_to": date_to, "cap": 100}
+
+
+@_cf_p3.post("/compliance-forms/ncr-export")
+async def cf_ncr_export(payload: NCRExportPayload,
+                         user: dict = Depends(require_permission("forms.view"))):
+    """Bundle every NCR-flagged compliance form completed in the date range into a
+    single merged PDF. Optionally fire a MOCKED email preview."""
+    from fastapi.responses import Response
+    import io
+    df, dt = _date_range_iso(payload.date_from, payload.date_to)
+    cursor = db.compliance_forms.find({
+        "ncr_flag": True, "deleted_at": None,
+        "status": {"$in": ["completed", "signed"]},
+        "updated_at": {"$gte": df, "$lte": dt},
+    }, {"_id": 0}).sort("updated_at", 1).limit(100)
+    forms = await cursor.to_list(100)
+    if not forms:
+        return {"count": 0, "message": "No NCR-flagged forms in that range"}
+
+    fname = f"paneltec_ncr_pack_{payload.date_from}_to_{payload.date_to}.pdf"
+    from pypdf import PdfWriter, PdfReader
+    writer = PdfWriter()
+    for f in forms:
+        pdf_bytes = await _build_pdf_bytes(f)
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        for page in reader.pages: writer.add_page(page)
+    out = io.BytesIO(); writer.write(out)
+
+    form_ids = [f["id"] for f in forms]
+    await record_audit(user, "ncr_pack_exported", "compliance_form", "batch", fname,
+                       metadata={"count": len(forms), "date_from": payload.date_from,
+                                  "date_to": payload.date_to, "form_ids": form_ids,
+                                  "recipient": payload.recipient or None})
+
+    if payload.recipient:
+        for f in forms:
+            await db.compliance_forms.update_one({"id": f["id"]},
+                {"$set": {"last_email_sent_at": now_iso()}})
+            await record_audit(user, "email_sent", "compliance_form", f["id"], f.get("form_number"),
+                               metadata={"recipient": payload.recipient,
+                                          "batch": True, "ncr_pack": True, "mocked": True})
+        return {
+            "mocked": True,
+            "count": len(forms),
+            "preview": {
+                "to": payload.recipient,
+                "from": "noreply@paneltec.com.au (MOCKED)",
+                "subject": payload.subject or f"Paneltec NCR Pack — {payload.date_from} to {payload.date_to}",
+                "body": payload.body or
+                    f"Please find attached the Paneltec NCR pack covering "
+                    f"{len(forms)} non-conformance-flagged compliance form(s) "
+                    f"between {payload.date_from} and {payload.date_to}.",
+                "attachments": [fname],
+                "form_count": len(forms),
+                "form_numbers": [f.get("form_number") for f in forms],
+            }
+        }
+    return Response(content=out.getvalue(), media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+app.include_router(_cf_p3)
+
+
+
 
 
 # ===========================================================================

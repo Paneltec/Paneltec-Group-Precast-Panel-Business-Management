@@ -1,23 +1,29 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, useWindowDimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
 import { formatAUD, formatDateTime } from '../../src/lib/format';
 import { Colors } from '../../src/lib/colors';
 import StatusBadge from '../../src/components/StatusBadge';
+import QuoteDetailPanel from '../../src/components/QuoteDetailPanel';
 
 const STATUS_FILTERS = ['all', 'draft', 'sent', 'accepted', 'rejected', 'expired'];
 
 export default function QuotesScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 768;
   const [data, setData] = useState<any>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [page, setPage] = useState(1);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -37,10 +43,18 @@ export default function QuotesScreen() {
     setRefreshing(false);
   };
 
+  const handlePress = (id: string) => {
+    if (isTablet) {
+      setSelectedId(id);
+    } else {
+      router.push(`/quotes/${id}`);
+    }
+  };
+
   const renderItem = ({ item }: { item: any }) => (
     <TouchableOpacity
-      style={styles.row}
-      onPress={() => router.push(`/quotes/${item.id}`)}
+      style={[styles.row, isTablet && selectedId === item.id && styles.rowSelected]}
+      onPress={() => handlePress(item.id)}
       testID={`quote-row-${item.id}`}
       activeOpacity={0.7}
     >
@@ -56,9 +70,8 @@ export default function QuotesScreen() {
     </TouchableOpacity>
   );
 
-  return (
-    <View style={styles.screen} testID="quotes-page">
-      {/* Search */}
+  const listUI = (
+    <View style={{ flex: 1 }}>
       <View style={styles.searchBar}>
         <TextInput
           testID="quotes-search-input"
@@ -72,7 +85,6 @@ export default function QuotesScreen() {
         />
       </View>
 
-      {/* Status Filters */}
       <FlatList
         horizontal
         data={STATUS_FILTERS}
@@ -92,7 +104,6 @@ export default function QuotesScreen() {
         )}
       />
 
-      {/* List */}
       {!data ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={Colors.steelBlue} />
@@ -111,9 +122,36 @@ export default function QuotesScreen() {
       )}
     </View>
   );
+
+  if (isTablet) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['left', 'right']}>
+        <View style={styles.splitContainer} testID="quotes-page">
+          <View style={styles.splitLeft}>{listUI}</View>
+          <View style={styles.splitRight}>
+            {selectedId ? (
+              <QuoteDetailPanel key={selectedId} itemId={selectedId} />
+            ) : (
+              <View style={styles.splitPlaceholder} testID="quotes-detail-placeholder">
+                <Ionicons name="document-text-outline" size={48} color={Colors.textMuted} />
+                <Text style={styles.splitPlaceholderText}>Select a quote to view details</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <View style={styles.screen} testID="quotes-page">
+      {listUI}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: Colors.background },
   screen: { flex: 1, backgroundColor: Colors.background },
   searchBar: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
   searchInput: {
@@ -151,6 +189,7 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 10,
   },
+  rowSelected: { borderColor: Colors.steelBlue, borderWidth: 2, backgroundColor: 'rgba(58,107,140,0.06)' },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   rowId: { fontSize: 15, fontWeight: '700', color: Colors.charcoal, fontVariant: ['tabular-nums'] },
   rowCustomer: { fontSize: 13, color: Colors.textSecondary, marginBottom: 8 },
@@ -158,4 +197,9 @@ const styles = StyleSheet.create({
   rowDate: { fontSize: 11, color: Colors.textMuted },
   rowTotal: { fontSize: 15, fontWeight: '800', color: Colors.charcoal, fontVariant: ['tabular-nums'] },
   emptyText: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', marginTop: 40 },
+  splitContainer: { flex: 1, flexDirection: 'row' },
+  splitLeft: { width: '40%', borderRightWidth: 1, borderRightColor: Colors.border },
+  splitRight: { flex: 1 },
+  splitPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  splitPlaceholderText: { fontSize: 15, color: Colors.textMuted, fontWeight: '600' },
 });

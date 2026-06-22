@@ -6,7 +6,11 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianG
 import { api, tokenStore } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { Textarea } from "../components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog";
 import { formatAUD } from "../lib/format";
+import { toast } from "sonner";
 
 const PALETTE = ["#3A6B8C", "#F5C518", "#1F2A33", "#7B9BB0", "#E0B416", "#5A8AA0", "#A53F2B"];
 
@@ -41,11 +45,29 @@ export default function ReportDetail() {
   const [dateFrom, setDateFrom] = useState(defaultDate(-90));
   const [dateTo, setDateTo] = useState(defaultDate(0));
 
+  // Phase 11.1 — NCR Pack export
+  const [ncrCount, setNcrCount] = useState(0);
+  const [ncrOpen, setNcrOpen] = useState(false);
+  const [ncrDateFrom, setNcrDateFrom] = useState(defaultDate(-90));
+  const [ncrDateTo, setNcrDateTo] = useState(defaultDate(0));
+  const [ncrRecipient, setNcrRecipient] = useState("");
+  const [ncrSubject, setNcrSubject] = useState("");
+  const [ncrBody, setNcrBody] = useState("");
+  const [ncrBusy, setNcrBusy] = useState(false);
+  const [ncrResult, setNcrResult] = useState(null); // {mode:"email"|"download"|"empty", ...}
+
   const load = async () => {
     setData(null); setErr("");
     try {
       const { data } = await api.get(`/reports/${key}`, { params: { date_from: dateFrom, date_to: dateTo } });
       setData(data);
+      if (key === "compliance") {
+        try {
+          const r = await api.get("/compliance-forms/ncr-export/preview",
+            { params: { date_from: dateFrom, date_to: dateTo } });
+          setNcrCount(r.data.count || 0);
+        } catch (_e) { setNcrCount(0); }
+      }
     } catch (e) { setErr(e.response?.data?.detail || e.message); }
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [key, dateFrom, dateTo]);
@@ -85,6 +107,24 @@ export default function ReportDetail() {
           <Button onClick={downloadCsv} data-testid="report-csv-btn" className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-9">
             <AppIcon name="download" size={16} className="mr-2" decorative/> Export CSV
           </Button>
+          {key === "compliance" && (
+            ncrCount > 0 ? (
+              <Button onClick={() => { setNcrDateFrom(dateFrom); setNcrDateTo(dateTo); setNcrResult(null); setNcrOpen(true); }}
+                      data-testid="export-ncr-pack-btn"
+                      className="bg-red-600 text-white font-bold hover:bg-red-700 h-9">
+                <AppIcon name="warning" size={16} className="mr-2" decorative/>
+                Export NCR Pack ({ncrCount})
+              </Button>
+            ) : (
+              <Button disabled
+                      data-testid="export-ncr-pack-btn-disabled"
+                      title="No NCR-flagged forms in the selected date range"
+                      className="h-9">
+                <AppIcon name="warning" size={16} className="mr-2" decorative/>
+                No NCRs to export
+              </Button>
+            )
+          )}
         </div>
       </div>
 
@@ -366,6 +406,164 @@ export default function ReportDetail() {
           </div>
         </>
       )}
+
+      {/* Phase 11.1 — Export NCR Pack dialog */}
+      <Dialog open={ncrOpen} onOpenChange={(v) => { if (!v) { setNcrOpen(false); setNcrResult(null); } }}>
+        <DialogContent data-testid="ncr-export-dialog" className="max-w-lg">
+          {!ncrResult ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="inline-flex items-center gap-2 text-red-700">
+                  <AppIcon name="warning" size={22} decorative/> Export NCR Pack
+                </DialogTitle>
+                <DialogDescription>
+                  Bundle every NCR-flagged compliance form (completed in this range) into a single merged PDF.
+                  Up to 100 forms.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Date from</Label>
+                    <Input type="date" value={ncrDateFrom} onChange={(e) => setNcrDateFrom(e.target.value)} data-testid="ncr-date-from"/>
+                  </div>
+                  <div>
+                    <Label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Date to</Label>
+                    <Input type="date" value={ncrDateTo} onChange={(e) => setNcrDateTo(e.target.value)} data-testid="ncr-date-to"/>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Recipient (optional)</Label>
+                  <Input type="email" value={ncrRecipient} onChange={(e) => setNcrRecipient(e.target.value)}
+                         placeholder="qa@client.example.com" data-testid="ncr-recipient"/>
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    Leave blank to download the PDF. If filled, fires a <span className="font-bold uppercase">MOCKED</span> email preview with the PDF attached.
+                  </div>
+                </div>
+                {ncrRecipient && (
+                  <>
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Subject (optional)</Label>
+                      <Input value={ncrSubject} onChange={(e) => setNcrSubject(e.target.value)}
+                             placeholder="Paneltec NCR Pack — …" data-testid="ncr-subject"/>
+                    </div>
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Body (optional)</Label>
+                      <Textarea value={ncrBody} onChange={(e) => setNcrBody(e.target.value)} rows={3}
+                                placeholder="Please find attached…" data-testid="ncr-body"/>
+                    </div>
+                  </>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setNcrOpen(false)} disabled={ncrBusy}>Cancel</Button>
+                <Button onClick={async () => {
+                  setNcrBusy(true);
+                  try {
+                    if (ncrRecipient.trim()) {
+                      const r = await api.post("/compliance-forms/ncr-export", {
+                        date_from: ncrDateFrom, date_to: ncrDateTo,
+                        recipient: ncrRecipient.trim(),
+                        subject: ncrSubject.trim() || undefined,
+                        body: ncrBody.trim() || undefined,
+                      });
+                      if (r.data?.count === 0) {
+                        toast.info(r.data.message || "No NCR-flagged forms in that range");
+                        setNcrResult({ mode: "empty", message: r.data.message });
+                      } else {
+                        setNcrResult({ mode: "email", ...r.data });
+                      }
+                    } else {
+                      // First check via JSON (so we can detect the empty case)
+                      const probe = await api.get("/compliance-forms/ncr-export/preview",
+                        { params: { date_from: ncrDateFrom, date_to: ncrDateTo } });
+                      if (!probe.data.count) {
+                        toast.info("No NCR-flagged forms in that range");
+                        setNcrResult({ mode: "empty", message: "No NCR-flagged forms in that range" });
+                      } else {
+                        // PDF download
+                        const r = await fetch(
+                          `${process.env.REACT_APP_BACKEND_URL}/api/compliance-forms/ncr-export`,
+                          { method: "POST",
+                            headers: { "Content-Type": "application/json",
+                                       "Authorization": `Bearer ${tokenStore.get()}` },
+                            body: JSON.stringify({ date_from: ncrDateFrom, date_to: ncrDateTo }) });
+                        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                        const blob = await r.blob();
+                        const fname = `paneltec_ncr_pack_${ncrDateFrom}_to_${ncrDateTo}.pdf`;
+                        const u = URL.createObjectURL(blob);
+                        const a = document.createElement("a"); a.href = u; a.download = fname; a.click();
+                        URL.revokeObjectURL(u);
+                        setNcrResult({ mode: "download", filename: fname, count: probe.data.count });
+                        toast.success(`Downloaded ${fname}`);
+                      }
+                    }
+                  } catch (e) {
+                    toast.error(e.response?.data?.detail || e.message || "Export failed");
+                  } finally { setNcrBusy(false); }
+                }}
+                disabled={ncrBusy}
+                className="bg-red-600 text-white hover:bg-red-700"
+                data-testid="ncr-export-confirm">
+                  {ncrBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="download" size={14} decorative className="mr-2"/>}
+                  {ncrRecipient.trim() ? "Send (MOCKED)" : "Download PDF"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : ncrResult.mode === "empty" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="inline-flex items-center gap-2"><AppIcon name="info" size={22} decorative/> Nothing to export</DialogTitle>
+                <DialogDescription>{ncrResult.message}</DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button onClick={() => setNcrOpen(false)} data-testid="ncr-close-empty">Close</Button>
+              </DialogFooter>
+            </>
+          ) : ncrResult.mode === "download" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="inline-flex items-center gap-2 text-green-700"><AppIcon name="success" size={22} decorative/> NCR Pack downloaded</DialogTitle>
+                <DialogDescription>
+                  {ncrResult.count} non-conformance form{ncrResult.count !== 1 ? "s" : ""} bundled into
+                  <code className="bg-gray-100 px-1.5 py-0.5 rounded mx-1 text-xs">{ncrResult.filename}</code>
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button onClick={() => setNcrOpen(false)} data-testid="ncr-close-download" className="bg-[#1F2A33] text-white hover:bg-[#3A6B8C]">Close</Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="inline-flex items-center gap-2 text-amber-700">
+                  <AppIcon name="email" size={22} decorative/> Email queued
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-100 text-amber-800">MOCKED</span>
+                </DialogTitle>
+                <DialogDescription>
+                  Preview of the email that would be sent (no real outbound mail in this environment).
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2 text-sm bg-gray-50 border border-gray-200 rounded p-3" data-testid="ncr-email-preview">
+                <div><span className="text-[10px] uppercase tracking-wider font-bold text-gray-500">To:</span> {ncrResult.preview.to}</div>
+                <div><span className="text-[10px] uppercase tracking-wider font-bold text-gray-500">From:</span> {ncrResult.preview.from}</div>
+                <div><span className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Subject:</span> {ncrResult.preview.subject}</div>
+                <div className="whitespace-pre-wrap text-gray-800 border-t border-gray-200 pt-2">{ncrResult.preview.body}</div>
+                <div className="border-t border-gray-200 pt-2">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Attachment:</div>
+                  <code className="text-xs bg-white px-2 py-1 rounded border inline-block mt-1">{ncrResult.preview.attachments[0]}</code>
+                </div>
+                <div className="border-t border-gray-200 pt-2 text-[11px] text-gray-600">
+                  Forms included ({ncrResult.preview.form_count}): {ncrResult.preview.form_numbers.join(", ")}
+                </div>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => setNcrOpen(false)} data-testid="ncr-close-email" className="bg-[#1F2A33] text-white hover:bg-[#3A6B8C]">Close</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

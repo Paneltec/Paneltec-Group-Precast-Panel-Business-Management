@@ -12,6 +12,7 @@ import { Colors } from '../lib/colors';
 import { useAuth } from '../contexts/AuthContext';
 import StatusBadge from './StatusBadge';
 import SignatureModal from './SignatureModal';
+import CameraCapture, { CaptureResult } from './CameraCapture';
 import { useNetwork, OfflineBanner } from '../contexts/NetworkContext';
 
 const TYPE_LABEL: Record<string, string> = {
@@ -27,7 +28,7 @@ type Props = {
 
 export default function FormDetailPanel({ formId, onFormSaved }: Props) {
   const { hasPerm, user } = useAuth();
-  const { isOnline, enqueue } = useNetwork();
+  const { isOnline, enqueueJsonOp, enqueueFileOp } = useNetwork();
   const [form, setForm] = useState<any>(null);
   const [schema, setSchema] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
@@ -36,6 +37,7 @@ export default function FormDetailPanel({ formId, onFormSaved }: Props) {
   const [error, setError] = useState('');
   const [showSignature, setShowSignature] = useState(false);
   const [sigDataUrl, setSigDataUrl] = useState<string | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
 
   const CACHE_KEY = `paneltec_form_${formId}`;
 
@@ -146,7 +148,7 @@ export default function FormDetailPanel({ formId, onFormSaved }: Props) {
     setSaving(true);
     try {
       if (!isOnline) {
-        await enqueue({ type: 'PATCH', endpoint: `/compliance-forms/${formId}`, body: buildSaveBody() });
+        await enqueueJsonOp('PATCH', `/compliance-forms/${formId}`, buildSaveBody());
         AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ form, schema })).catch(() => {});
         setDirty(false);
         Alert.alert('Saved locally', 'Changes will sync when you reconnect.');
@@ -215,28 +217,60 @@ export default function FormDetailPanel({ formId, onFormSaved }: Props) {
 
   /* ---- Photos ---- */
   const pickPhoto = async () => {
-    if (!isOnline) { Alert.alert('Offline', 'Photo uploads require an internet connection.'); return; }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
     if (result.canceled) return;
-    await uploadPhoto(result.assets[0]);
+    const asset = result.assets[0];
+    if (isOnline) {
+      await uploadPhoto(asset);
+    } else {
+      const extras: Record<string, string> = { caption: '' };
+      await enqueueFileOp(
+        `/compliance-forms/${formId}/photos`,
+        asset.uri,
+        'file',
+        extras,
+        asset.fileName || 'photo.jpg',
+        asset.mimeType || 'image/jpeg',
+      );
+      Alert.alert('Queued', 'Photo saved locally. It will upload when back online.');
+    }
   };
 
   const takePhoto = async () => {
-    if (!isOnline) { Alert.alert('Offline', 'Photo uploads require an internet connection.'); return; }
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Camera access is required to take photos.');
-      return;
+    setShowCamera(true);
+  };
+
+  const handleCameraCapture = async (result: CaptureResult) => {
+    setShowCamera(false);
+    if (isOnline) {
+      await uploadPhotoWithGps(result.uri, result.lat, result.lng);
+    } else {
+      // Queue for offline upload
+      const extras: Record<string, string> = { caption: '' };
+      if (result.lat != null) extras.lat = String(result.lat);
+      if (result.lng != null) extras.lng = String(result.lng);
+      await enqueueFileOp(
+        `/compliance-forms/${formId}/photos`,
+        result.uri,
+        'file',
+        extras,
+        'photo.jpg',
+        'image/jpeg',
+      );
+      Alert.alert('Queued', 'Photo saved locally. It will upload when back online.');
     }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
-    if (result.canceled) return;
-    await uploadPhoto(result.assets[0]);
   };
 
   const uploadPhoto = async (asset: ImagePicker.ImagePickerAsset) => {
+    await uploadPhotoWithGps(asset.uri, undefined, undefined, asset.fileName, asset.mimeType);
+  };
+
+  const uploadPhotoWithGps = async (uri: string, lat?: number, lng?: number, fileName?: string, mimeType?: string) => {
     const fd = new FormData();
-    fd.append('file', { uri: asset.uri, name: asset.fileName || 'photo.jpg', type: asset.mimeType || 'image/jpeg' } as any);
+    fd.append('file', { uri, name: fileName || 'photo.jpg', type: mimeType || 'image/jpeg' } as any);
     fd.append('caption', '');
+    if (lat != null) fd.append('lat', String(lat));
+    if (lng != null) fd.append('lng', String(lng));
     try {
       await apiUpload(`/compliance-forms/${formId}/photos`, fd);
       await load();
@@ -404,6 +438,13 @@ export default function FormDetailPanel({ formId, onFormSaved }: Props) {
         onClose={() => setShowSignature(false)}
         onConfirm={handleSignatureConfirm}
         signerName={user?.name || user?.email}
+      />
+
+      {/* Camera Viewfinder Modal */}
+      <CameraCapture
+        visible={showCamera}
+        onCapture={handleCameraCapture}
+        onClose={() => setShowCamera(false)}
       />
     </View>
   );
