@@ -37,3 +37,30 @@
   - src/components/FormDetailPanel.tsx (NEW - extracted + Pass 2 features)
 - **Web files referenced**: None changed (used existing API endpoints)
 - **Verification**: Metro bundled 735+ modules, 0 errors. Localhost returns 200. CDN cache preventing external preview screenshots.
+
+
+## Iteration 5 — Compliance Forms Pass 2 Completion
+- **Commit**: 3e4d9fc9223cc5637962c99fd0ac50cc5ded2406
+- **Date**: 2026-06-22
+- **Changes**:
+  - Fixed critical bug: `enqueue` → `enqueueJsonOp`/`enqueueFileOp` in FormDetailPanel
+  - Integrated CameraCapture component into FormDetailPanel (native viewfinder + GPS tagging)
+  - Photos now include lat/lng GPS coordinates from expo-location
+  - Offline photo queuing via outbox: photos enqueued when offline, uploaded on reconnect
+  - Platform-split outbox: outbox.ts (native with expo-sqlite) + outbox.web.ts (web no-op stub)
+  - iPad 2-pane layout for Quotes tab (QuoteDetailPanel)
+  - iPad 2-pane layout for Jobs tab (JobDetailPanel)
+  - iPad 2-pane layout for Invoices screen (InvoiceDetailPanel)
+  - iPad 2-pane layout for Customers screen (CustomerDetailPanel)
+  - Added NSLocationWhenInUseUsageDescription to iOS infoPlist
+  - Added ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION, READ_MEDIA_IMAGES to Android permissions
+- **Files modified**:
+  - app.json (location + photo library permissions)
+  - app/(tabs)/quotes.tsx (iPad 2-pane with QuoteDetailPanel)
+  - app/(tabs)/jobs.tsx (iPad 2-pane with JobDetailPanel)
+  - app/invoices/index.tsx (iPad 2-pane with InvoiceDetailPanel)
+  - app/customers/index.tsx (iPad 2-pane with CustomerDetailPanel)
+  - src/components/FormDetailPanel.tsx (CameraCapture integration, GPS, offline queue fix)
+  - src/lib/outbox.ts (native-only with expo-sqlite)
+  - src/lib/outbox.web.ts (NEW - web stub to avoid WASM bundling error)
+- **Verification**: Metro bundled 870+ modules, 0 errors. All 5 tabs show iPad 2-pane layout. Camera/Photos section visible in form detail. Bundler returns HTTP 200.
