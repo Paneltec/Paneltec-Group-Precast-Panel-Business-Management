@@ -87,7 +87,7 @@ export default function Layout() {
         </nav>
 
         <div className="px-5 py-4 border-t border-white/10 text-[11px] text-white/40">
-          v1.0 · Phase 5
+          v1.0 · Phase 11
         </div>
       </aside>
 

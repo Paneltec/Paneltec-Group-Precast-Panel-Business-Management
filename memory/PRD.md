@@ -321,3 +321,55 @@ Next: Phase 7 — Pricing model upgrade (Cost vs Sell + labour per panel type & 
 
 ### Process rule (enforced going forward)
 **User manual updates: every new phase MUST include a corresponding update to `/app/frontend/src/content/user-manual.md`, bump the App version + "Manual last updated" line in §16, and add a change-log entry.** The reminder lives at the top of `/app/frontend/src/pages/Help.jsx` (every dev touching the manual sees it) — NOT inside the markdown, because the markdown is end-user facing. A defensive regex strip in `Help.jsx`/`HelpPrint.jsx` removes any stray HTML comments before render.
+
+
+## Phase 11 — Form Template Builder + Hold Points + Enhanced Compliance Reports (2026-06-22)
+
+### Pass 2 — Template Builder UI
+- Wired `/forms/templates` and `/forms/templates/:id` routes; gated by `forms.template_manage`.
+- Added "Form Templates" sidebar entry (admin-only).
+- Refactored `FormsList` "+ New Form" modal to fetch `GET /api/compliance-templates?active_only=true` and POST to `/compliance-forms/from-template` — no more hardcoded PRE/POST/CERT radio.
+- `TemplateEditor.jsx`: full inline editor with up/down section + criterion reorder (no `@dnd-kit` dependency), key/label/type/required/photo toggles, header fields editor, save bumps `version` and re-publishes.
+- System templates render with read-only banner: "clone to edit".
+- Cloning produces semantic `_vN` suffix (`PRE → PRE_v2 → PRE_v3`).
+
+### Pass 3 — Hold Points + Enhanced Reports + Dashboard tile
+- Backend `_transition_job_internal` extended with `enforce_holdpoints`, `force`, `force_reason`, `is_super_admin`. Seed code path passes `enforce_holdpoints=False`.
+- HOLD_POINT_RULES: `in_production → ready_for_delivery` (Pre-Pour), `ready_for_delivery → delivered` (Post-Pour), `delivered → installed` (CERT).
+- Block returns 400 with structured `{code:"hold_point_block", blockers:[...], transition:{...}}`. Override requires super admin + reason ≥5 chars; logged as `hold_point_override` audit event.
+- New `GET /api/jobs/{id}/holdpoints` preview endpoint.
+- `_report_compliance` extended: Hold-Point compliance %, NCR rate, avg sign-off latency days, photo coverage %; new "missing_by_stage" chart.
+- `/api/dashboard/kpis` adds `compliance_health_pct`, `_satisfied`, `_expected` (gated on `forms.view`).
+- Frontend: Dashboard "Compliance health · last 30 days" tile (green/amber/red bands).
+- Frontend: `ReportDetail` compliance branch renders the 4 KPIs + 2 charts (forms-by-month + missing-by-stage).
+- Frontend: `JobDetail` intercepts hold-point 400, surfaces a dialog with blocker list; super-admin sees inline override form.
+
+### Manual updates
+- §18 expanded with §18.5 (new compliance report KPIs) + §18.6 (Form Templates how-to).
+- New §19 — Hold Points & Inspection Workflow.
+- §16 changelog entry + APP_VERSION bumped to "v1.0 · Phase 11".
+- Layout footer version label updated.
+
+### Self-tested AC's (all PASS)
+1. AC1 — Templates list at `/forms/templates`: 3 system + custom ✓
+2. AC2 — Clone PRE → semantic `PRE_v2` ✓
+3. AC3 — TemplateEditor renders; system template read-only ✓
+4. AC4 — Compliance report shows hold-point %, NCR, latency, photo coverage ✓
+5. AC5 — Dashboard tile renders colour-coded % ✓
+6. AC6 — Transition blocked when forms unsigned; super-admin override with audit ✓
+7. AC7 — "+ New Form" modal fetches dynamic active templates ✓
+8. AC8 — Staff GET /compliance-templates → 403; POST → 403 ✓
+
+### Files touched
+- `/app/backend/server.py` (hold-points helper + transition update + JobTransition fields + dashboard KPI + compliance report KPIs + seed bypass)
+- `/app/frontend/src/App.js` (templates routes)
+- `/app/frontend/src/components/Layout.jsx` (nav + version label)
+- `/app/frontend/src/pages/TemplateEditor.jsx` (NEW)
+- `/app/frontend/src/pages/FormsList.jsx` (dynamic templates fetch)
+- `/app/frontend/src/pages/Dashboard.jsx` (compliance health tile)
+- `/app/frontend/src/pages/ReportDetail.jsx` (compliance KPIs + charts)
+- `/app/frontend/src/pages/JobDetail.jsx` (hold-point dialog + force override)
+- `/app/frontend/src/pages/Help.jsx` (APP_VERSION bump)
+- `/app/frontend/src/content/user-manual.md` (§18 expansion + §19 + changelog)
+
+### Phase 11 — COMPLETE

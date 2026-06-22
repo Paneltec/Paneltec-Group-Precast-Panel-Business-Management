@@ -21,7 +21,7 @@ import { Button } from "../components/ui/button";
 import { openPrintPopup } from "../lib/print";
 import manualMd from "../content/user-manual.md";
 
-const APP_VERSION = "v1.0 · Phase 8";
+const APP_VERSION = "v1.0 · Phase 11";
 
 // Strip any HTML comments before rendering — the markdown file is end-user facing
 // but a stray `<!-- ... -->` here would render as literal text via react-markdown.

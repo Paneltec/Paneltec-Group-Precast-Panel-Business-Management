@@ -381,12 +381,50 @@ Tap "Click to upload photo" on the form editor to attach JPEGs/PNGs (max 10 MB).
 Click "Print" on a form to open the branded A4 print popup. Signed forms render a typed signature block ("✓ Signed by user uuid on 14 Jun 2026 14:32 AEST") instead of empty lines, suitable for client hand-off or archival.
 
 ### 18.5 Reports
-A new "Compliance" report tile on `/reports` surfaces:
-- Forms completed this month
-- Forms awaiting QA sign-off
-- NCR rate %
-- Stacked bar chart of forms-by-type per month
+A "Compliance" report tile on `/reports` surfaces:
+- **Hold-Point compliance %** — signed-vs-required ratio across jobs that have crossed each hold point in the date range (≥95 green, 80-94 amber, <80 red)
+- **NCR rate %** — proportion of forms flagged with a Non-Conformance Report
+- **Avg sign-off latency** — days from form creation to "Signed"
+- **Photo coverage %** — proportion of completed/signed forms with at least one photo attached
+- Stacked bar chart of forms-by-type per month (Pre-Pour / Post-Pour / Certificate)
+- "Hold-points missing by stage" bar with red/amber/green tints
 - Recent forms table
+
+### 18.6 Form Templates (`/forms/templates`) — super admin
+Templates are now data-driven. Browse, clone, edit, activate / deactivate and (for non-system templates) delete from `/forms/templates`. The "+ New Form" picker on `/forms` only lists **active** templates.
+
+- **System templates** (`PRE`, `POST`, `CERT`) are seeded and **read-only** — clone them to customise. Cloning auto-generates a semantic `_vN` suffix (e.g. `PRE` → `PRE_v2` → `PRE_v3`).
+- **Custom templates** can be edited inline: rename sections, add / re-order criteria (use the up/down arrows), toggle "required" or "photo" flags per criterion, and edit header fields. Each save bumps the template version (`v2`, `v3`, …).
+- Each created form **snapshots** its template_id + version, so editing a template never alters historic forms.
+- Deactivating a template hides it from the "New Form" picker but keeps existing forms intact.
+- Keys (section & criterion) must be `[a-z0-9_]+` and unique within their parent.
+
+---
+
+## 19. Hold Points & Inspection Workflow
+
+Australian Precast Code of Practice §9 requires inspection sign-offs before key job milestones. Paneltec enforces this with **Hold Points** — automatic transition blocks on jobs that have not collected the required signed compliance forms.
+
+### 19.1 The three hold points
+| Transition | Required signed form | Why |
+|---|---|---|
+| `in_production` → `ready_for_delivery` | **Pre-Pour Checklist (9.1.2)** | Confirms formwork, reinforcement & cast-in items before concrete is poured |
+| `ready_for_delivery` → `delivered` | **Post-Pour Checklist (9.1.3)** | Confirms panel quality & dimensions after de-mould |
+| `delivered` → `installed` | **Manufacturer's Certificate of Compliance (9.1.4)** | Final hand-off cert covering the batch — one per job is enough |
+
+### 19.2 What you'll see when blocked
+Clicking "Advance" on a job that's missing a signed form opens the **Hold-point block** dialog, listing exactly which form(s) are needed and whether a draft exists. Create the form (or sign the existing one) then retry.
+
+### 19.3 Super-admin override
+In genuine emergencies (urgent dispatch, sign-off on paper that hasn't been transcribed yet), a super admin can override the hold point:
+1. Click "Advance" → block dialog opens
+2. Enter a reason (≥5 chars) in the override box
+3. Click "Override & advance" — the transition succeeds, but is recorded as a `hold_point_override` audit event with the reason
+
+Override events are visible on the job's status history (with a red OVERRIDE flag) and on the audit trail.
+
+### 19.4 Compliance health on the dashboard
+The "Compliance health · last 30 days" tile shows the percentage of hold-points satisfied across active jobs touched in the rolling 30-day window. Click through to drill into the Compliance report. Colour bands: ≥95 green, 80-94 amber, <80 red.
 
 ## 17. Reports & Data Export
 
@@ -450,8 +488,16 @@ That means a Power BI token connected to `/api/reporting/v1/quotes` will see lin
 
 ## 16. Version & Change Log
 
-**App version**: v1.0 · Phase 8
+**App version**: v1.0 · Phase 11
 **Manual last updated**: 2026-06-22
+
+### Phase 11 — Form Template Builder + Hold Points + Enhanced Compliance Reports
+- **Template Builder** (`/forms/templates`): data-driven compliance form templates living in the `compliance_form_templates` collection. Browse, clone (semantic `_vN`), edit (sections + criteria with up/down reorder), activate / deactivate, soft-delete. System PRE/POST/CERT templates seeded read-only.
+- **"+ New Form"** now fetches active templates dynamically and snapshots `template_id` + `version` per form, so future edits to a template never alter historic forms.
+- **Hold Points**: job status transitions `in_production → ready_for_delivery`, `ready_for_delivery → delivered`, and `delivered → installed` are blocked until the matching signed compliance form exists. Super admins can override with a reason — recorded as a `hold_point_override` audit event.
+- **Dashboard "Compliance health" tile**: signed-vs-required hold-point ratio over active jobs in the last 30 days, colour-coded (≥95 green, 80-94 amber, <80 red), drills into the Compliance report.
+- **Enhanced Compliance Report** (`/reports/compliance`): adds Hold-Point Compliance %, Avg Sign-off Latency, Photo Coverage %, "missing-by-stage" Recharts bar with red/amber/green tints.
+- **Permissions**: `forms.template_manage` is now seeded for super admin; staff cannot see `/forms/templates` (UI hidden AND API returns 403).
 
 ### Phase 1 — Foundation
 Auth (JWT + bcrypt), Super Admin + Estimator seed users, brand palette, GST 10%, Precast Panel Calculator with full sell-side breakdown, dashboard placeholder, OpenAPI spec at `/api/openapi.json`.
