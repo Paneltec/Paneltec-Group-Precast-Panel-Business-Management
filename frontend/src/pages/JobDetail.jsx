@@ -80,7 +80,35 @@ export default function JobDetail() {
       const { data } = await api.post(`/jobs/${id}/transition`, { to, note: `Advanced to ${to}` });
       setJob(data);
       toast.success(`Job moved to ${to.replace(/_/g," ")}`);
-    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
+    } catch (e) {
+      const det = e.response?.data?.detail;
+      if (det && typeof det === "object" && det.code === "hold_point_block") {
+        setHoldOpen({ to: det.transition?.to || to, blockers: det.blockers || [] });
+        return;
+      }
+      toast.error(formatApiErrorDetail(det) || e.message);
+    }
+  };
+
+  const forceAdvance = async () => {
+    if (!holdOpen) return;
+    if (!forceReason.trim() || forceReason.trim().length < 5) {
+      toast.error("Reason must be at least 5 characters"); return;
+    }
+    setForcing(true);
+    try {
+      const { data } = await api.post(`/jobs/${id}/transition`, {
+        to: holdOpen.to,
+        note: `OVERRIDE: ${forceReason.trim()}`,
+        force: true,
+        force_reason: forceReason.trim(),
+      });
+      setJob(data);
+      toast.success(`Hold-point overridden — moved to ${holdOpen.to.replace(/_/g," ")}`);
+      setHoldOpen(null); setForceReason("");
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally { setForcing(false); }
   };
 
   const doCancel = async () => {
@@ -274,6 +302,57 @@ export default function JobDetail() {
           ))}
         </ol>
       </section>
+
+      {/* Phase 11 — Hold point block / override dialog */}
+      <Dialog open={!!holdOpen} onOpenChange={(v) => { if (!v) { setHoldOpen(null); setForceReason(""); } }}>
+        <DialogContent data-testid="holdpoint-dialog">
+          <DialogHeader>
+            <DialogTitle className="inline-flex items-center gap-2 text-red-700">
+              <AppIcon name="warning" size={22} decorative/> Hold-point block
+            </DialogTitle>
+            <DialogDescription>
+              Cannot advance to <strong className="font-bold">{holdOpen?.to?.replace(/_/g," ")}</strong> until the required compliance form(s) below are signed.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="bg-red-50 border border-red-200 rounded p-3 space-y-1 text-sm" data-testid="holdpoint-blockers">
+            {(holdOpen?.blockers || []).map((b, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <AppIcon name="compliance_forms" size={16} decorative className="mt-0.5"/>
+                <div>
+                  <div className="font-semibold text-red-900">{b.label}</div>
+                  <div className="text-xs text-red-700">
+                    {b.found_status ? `Form ${b.found_form_number || ""} exists but is ${b.found_status} — needs signing` : "No form created yet"}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {isSuperAdmin ? (
+            <>
+              <div className="border-t border-gray-200 pt-3 mt-2">
+                <Label className="text-[10px] uppercase tracking-wider font-bold text-red-700">Super-admin override — reason (≥5 chars, audit-logged)</Label>
+                <Textarea value={forceReason} onChange={(e) => setForceReason(e.target.value)}
+                          rows={2} className="mt-1" placeholder="e.g. Client urgent dispatch — pre-pour sign-off underway"
+                          data-testid="holdpoint-force-reason"/>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setHoldOpen(null); setForceReason(""); }}>Cancel</Button>
+                <Button onClick={forceAdvance} disabled={forcing || forceReason.trim().length < 5}
+                        className="bg-red-600 text-white hover:bg-red-700"
+                        data-testid="holdpoint-force-confirm">
+                  {forcing ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : null}
+                  Override &amp; advance
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <DialogFooter>
+              <Button onClick={() => setHoldOpen(null)} data-testid="holdpoint-close-btn"
+                      className="bg-[#1F2A33] text-white hover:bg-[#3A6B8C]">Got it</Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent data-testid="cancel-dialog">

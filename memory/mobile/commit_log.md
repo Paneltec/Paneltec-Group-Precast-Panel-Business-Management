@@ -1,47 +1,39 @@
-# Paneltec Group Mobile — Commit Log
+## Iteration 1 — Initial MVP build
+- **Commit**: d31caa1
+- **Date**: 2026-06-22
+- **Changes**: Initial mobile app build with all core features
+- **Files modified**: All mobile files
+- **Web files referenced**: All frontend files
 
-## Iteration 1 — Initial scaffolding (prior agent)
-- **Commit**: 205ff86f53094f2dd4870192e2244510819dfb1f
-- **Changes**: Installed deps, created 20+ files (screens, components, contexts, utilities)
-- **Files created**: All files under `app/`, `src/lib/`, `src/contexts/`, `src/components/`
-- **Web files referenced**: Full frontend/src/ tree
-- **Status**: Unverified — no compilation or screenshot check
+## Iteration 2 — Data mapping fixes
+- **Commit**: d31caa1
+- **Date**: 2026-06-22
+- **Changes**: Fixed data mapping issues across detail screens
+- **Files modified**: Multiple mobile screens
 
-## Iteration 2 — Stabilization, bug fixes, entry point
-- **Commit**: ba81737c5f9fc960da0ce84a369bd41711fdde4b
-- **Date**: 2026-06-16
-- **Changes**:
-  - Fixed `app/index.tsx` entry point redirect
-  - Fixed `line.line_total` → `line.total_aud` in all detail screens
-  - Fixed `StatusBadge` crash on undefined status
-  - Fixed job status history `h.status` → `h.to`
-  - Fixed customer name fetch in detail screens
-  - Created ForcePasswordChange screen, added API interceptor for 403
-  - Added margin KPIs to Dashboard, InternalCostPanel to Calculator
-  - Exported `usePermission` hook from AuthContext
-- **Files modified**: 11 files
-- **Files created**: `app/force-password-change.tsx`
+## Iteration 3 — Compliance Forms Pass 1
+- **Commit**: d31caa1
+- **Date**: 2026-06-22
+- **Changes**: Forms tab, list view, form detail editor with bulk PASS/FAIL/N/A, image attachment, scaffolded SignatureModal and NetworkContext
+- **Files modified**: app/(tabs)/forms.tsx, app/forms/[id].tsx, src/components/SignatureModal.tsx, src/contexts/NetworkContext.tsx
 
-## Iteration 3 — Compliance Forms (Phase 10)
-- **Commit**: 4aeea975599e3d4b01f6915779097ae7a2d7e6bd
+## Iteration 4 — Compliance Forms Pass 2
+- **Commit**: 1b092c0e33d5c67758d56a76522306be149bc66c
 - **Date**: 2026-06-22
 - **Changes**:
-  - Added Forms tab (6th tab) to bottom nav, permission-gated on `forms.view`
-  - Created Forms list screen (`app/(tabs)/forms.tsx`) with type/status filter chips, search, create modal
-  - Created Form detail/editor screen (`app/forms/[id].tsx`) with full CONQA-style UI:
-    - Section-level PASS/FAIL/N/A segmented controls with bulk-apply
-    - Per-criterion ✓/✗/N/A buttons with value inputs and notes
-    - Progress bar (completed/total criteria)
-    - Defects editor for post-pour forms
-    - Compliance Certificate editor for cert forms
-    - Photo upload zone (expo-image-picker)
-    - NCR & Sign-off section
-    - QA Report PDF button (expo-web-browser)
-    - State transitions: Save Draft → Mark Complete → Sign / Revert
-  - Added `apiUpload()` for multipart FormData uploads to `src/lib/api.ts`
-  - Updated tab layout to 6 tabs: Home, Calculator, Quotes, Jobs, Forms, More
-  - Installed `expo-image-picker@17.0.11`, `expo-web-browser@15.0.11`
-- **Files modified**: `app/(tabs)/_layout.tsx`, `app/_layout.tsx`, `src/lib/api.ts`
-- **Files created**: `app/(tabs)/forms.tsx`, `app/forms/[id].tsx`
-- **Web files referenced**: `FormsList.jsx`, `FormDetail.jsx`, `compliance_schema.py`
-- **Regression verified**: Calculator $5,623.20 ✅, Dashboard margin KPIs ✅, all existing tabs ✅
+  - Extracted FormDetailPanel from app/forms/[id].tsx into src/components/FormDetailPanel.tsx
+  - Integrated SignatureModal into form detail (base64 capture → multipart upload → transition to signed)
+  - Integrated NetworkContext (offline queue for PATCH saves, OfflineBanner at top)
+  - Added direct camera capture via ImagePicker.launchCameraAsync()
+  - iPad 2-pane layout in forms tab (width >= 768: list 40% + detail 60%)
+  - Local form caching via AsyncStorage for offline fallback
+  - Camera permissions in app.json (iOS + Android)
+  - Signature image display in NCR section when form has signature_url
+- **Files modified**: 
+  - app/_layout.tsx (NetworkProvider wrapper)
+  - app/forms/[id].tsx (thin wrapper)
+  - app/(tabs)/forms.tsx (iPad 2-pane layout)
+  - app.json (camera permissions)
+  - src/components/FormDetailPanel.tsx (NEW - extracted + Pass 2 features)
+- **Web files referenced**: None changed (used existing API endpoints)
+- **Verification**: Metro bundled 735+ modules, 0 errors. Localhost returns 200. CDN cache preventing external preview screenshots.
