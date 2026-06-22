@@ -147,7 +147,7 @@ PERMISSION_MODULES = [
     {"key": "integrations","label":"Integrations","permissions": ["integrations.view", "integrations.edit"]},
     {"key": "users",     "label": "Users",     "permissions": ["users.view", "users.manage"]},
     {"key": "audit",     "label": "Audit",     "permissions": ["audit.view"]},
-    {"key": "forms",     "label": "Compliance Forms", "permissions": ["forms.view", "forms.create", "forms.edit", "forms.sign", "forms.delete"]},
+    {"key": "forms",     "label": "Compliance Forms", "permissions": ["forms.view", "forms.create", "forms.edit", "forms.sign", "forms.delete", "forms.template_manage"]},
 ]
 ALL_PERMISSIONS: List[str] = [p for m in PERMISSION_MODULES for p in m["permissions"]]
 # These permissions are reserved for super-admins. Non-super-admins cannot hold them.
@@ -961,6 +961,17 @@ async def seed_database():
         await _seed_compliance_forms()
     except Exception as _e:
         logger.warning(f"compliance_forms seed skipped: {_e}")
+    # Phase 11 Pass 1: seed templates + backfill template refs on existing forms
+    try:
+        await db.compliance_form_templates.create_index("code", unique=True)
+        await db.compliance_form_templates.create_index([("active",1),("is_system",-1)])
+    except Exception as _e:
+        logger.warning(f"compliance_form_templates index creation skipped: {_e}")
+    try:
+        await _seed_compliance_templates()
+        await _backfill_form_template_refs()
+    except Exception as _e:
+        logger.warning(f"compliance_form_templates seed/backfill skipped: {_e}")
 
 async def _seed_phase2():
     admin = await db.users.find_one({"role":"admin"}, {"_id":0, "id":1})
@@ -3520,6 +3531,41 @@ async def cf_delete_photo(fid: str, pid: str, user: dict = Depends(require_permi
     return {"ok": True}
 
 
+@_cf_router.post("/compliance-forms/{fid}/signature")
+async def cf_upload_signature(fid: str, file: UploadFile = File(...), user: dict = Depends(require_permission("forms.sign"))):
+    """Upload a signature PNG and store on the form. Requires forms.sign permission."""
+    d = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+    if not d: raise HTTPException(status_code=404, detail="Form not found")
+    sig_dir = UPLOAD_DIR / "signatures"
+    sig_dir.mkdir(parents=True, exist_ok=True)
+    content = await file.read()
+    ext = file.filename.split(".")[-1].lower() if file.filename else "png"
+    sig_path = sig_dir / f"{fid}.{ext}"
+    sig_path.write_bytes(content)
+    sig_url = f"/api/compliance-forms/{fid}/signature/image"
+    await db.compliance_forms.update_one({"id": fid}, {"$set": {
+        "signature_url": sig_url,
+        "signed_by_user_id": user["id"],
+        "signed_at": now_iso(),
+        "updated_at": now_iso(),
+    }})
+    await record_audit(user, "signature_captured", "compliance_form", fid, d["form_number"])
+    updated = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+    return updated
+
+
+@_cf_router.get("/compliance-forms/{fid}/signature/image")
+async def cf_get_signature_image(fid: str, _u: dict = Depends(require_permission("forms.view"))):
+    """Serve the signature PNG."""
+    sig_dir = UPLOAD_DIR / "signatures"
+    for ext in ("png", "jpg", "jpeg"):
+        sig_path = sig_dir / f"{fid}.{ext}"
+        if sig_path.exists():
+            from fastapi.responses import FileResponse
+            return FileResponse(str(sig_path), media_type=f"image/{ext}")
+    raise HTTPException(status_code=404, detail="Signature not found")
+
+
 @_cf_router.delete("/compliance-forms/{fid}")
 async def cf_soft_delete(fid: str, user: dict = Depends(require_permission("forms.delete"))):
     d = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
@@ -3802,6 +3848,259 @@ async def cf_batch_email(payload: BatchEmailPayload, user: dict = Depends(requir
 
 
 app.include_router(_cf_p3)
+
+
+# ===========================================================================
+# Phase 11 Pass 1 — Form Template Builder (data-driven schema)
+# ===========================================================================
+_tpl_router = APIRouter(prefix="/api")
+
+class TemplateCriterion(BaseModel):
+    key: str
+    label: str
+    input_type: str = "text"  # text|number|checkbox|yes_no|date|signature|dimension_lw_mm
+    unit: Optional[str] = None
+    required: bool = False
+    allow_photo: bool = False
+    allow_notes: bool = True
+    help_text: str = ""
+
+class TemplateSection(BaseModel):
+    key: str
+    title: str
+    defects_list: bool = False
+    criteria: List[TemplateCriterion] = []
+
+class TemplateCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=120)
+    description: str = ""
+    category: str = "Quality"
+    sections: List[TemplateSection] = []
+    header_fields: List[Dict[str, Any]] = []
+    signoff_stages: List[str] = ["checked_by", "checked_by_qa", "signed"]
+
+class TemplatePatch(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    sections: Optional[List[TemplateSection]] = None
+    header_fields: Optional[List[Dict[str, Any]]] = None
+    signoff_stages: Optional[List[str]] = None
+    active: Optional[bool] = None
+
+
+def _schema_to_template(form_type: str, schema: dict, code: str, name: str, category: str) -> dict:
+    """Convert a hard-coded FORM_SCHEMAS entry to a template document."""
+    sections = []
+    if form_type != "compliance_cert":
+        for s in schema.get("sections", []):
+            criteria = []
+            for c in s.get("criteria", []):
+                criteria.append({
+                    "key": c["key"], "label": c["label"],
+                    "input_type": "dimension_lw_mm" if c.get("value_unit") == "mm × mm"
+                                   else ("number" if c.get("value_unit") else "yes_no"),
+                    "unit": c.get("value_unit"),
+                    "required": c.get("value_required", False),
+                    "allow_photo": c.get("supports_photos", False),
+                    "allow_notes": True, "help_text": "",
+                })
+            sections.append({"key": s["key"], "title": s["label"],
+                             "defects_list": s.get("defects_list", False), "criteria": criteria})
+    header_fields = schema.get("header_fields", []) if form_type == "compliance_cert" else [
+        {"key": "client_name", "label": "Client", "required": False},
+        {"key": "project_name", "label": "Project", "required": False},
+        {"key": "panel_id", "label": "Panel ID", "required": True},
+        {"key": "date_of_inspection", "label": "Date of Inspection", "input_type": "date"},
+        {"key": "date_of_casting", "label": "Date of Casting", "input_type": "date"},
+        {"key": "grade_of_concrete", "label": "Grade of Concrete"},
+    ]
+    return {
+        "code": code, "name": name, "description": schema.get("title", ""),
+        "category": category, "is_system": True, "version": 1, "active": True,
+        "sections": sections, "header_fields": header_fields,
+        "signoff_stages": ["checked_by", "checked_by_qa", "signed"],
+        "form_type": form_type,  # legacy mapping
+        "declaration_text": schema.get("declaration_text", "") if form_type == "compliance_cert" else "",
+        "standards_referenced": schema.get("standards_referenced", []),
+        "schedule_columns": schema.get("schedule_columns", []),
+    }
+
+
+async def _seed_compliance_templates():
+    """Seed the 3 system templates from FORM_SCHEMAS if collection empty."""
+    if await db.compliance_form_templates.count_documents({}) > 0: return
+    seeds = [
+        ("pre_pour",        "PRE",  "Precast Pre-Pour Checklist (9.1.2)",  "Quality"),
+        ("post_pour",       "POST", "Precast Post-Pour Checklist (9.1.3)", "Quality"),
+        ("compliance_cert", "CERT", "Manufacturer's Certificate of Compliance (9.1.4)", "Compliance"),
+    ]
+    for ft, code, name, cat in seeds:
+        doc = _schema_to_template(ft, FORM_SCHEMAS[ft], code, name, cat)
+        doc.update({
+            "id": str(uuid.uuid4()),
+            "created_by_user_id": "system",
+            "created_at": now_iso(), "updated_at": now_iso(),
+            "deleted_at": None,
+        })
+        await db.compliance_form_templates.insert_one(doc)
+    logger.info("Seeded 3 system compliance form templates")
+
+
+@_tpl_router.get("/compliance-templates")
+async def tpl_list(active_only: bool = False, user: dict = Depends(require_permission("forms.view"))):
+    q = {"deleted_at": None}
+    if active_only: q["active"] = True
+    docs = await db.compliance_form_templates.find(q, {"_id": 0}).sort([("is_system",-1),("category",1),("name",1)]).to_list(200)
+    return {"items": docs, "total": len(docs)}
+
+
+@_tpl_router.get("/compliance-templates/{tid}")
+async def tpl_get(tid: str, user: dict = Depends(require_permission("forms.view"))):
+    d = await db.compliance_form_templates.find_one({"id": tid}, {"_id": 0})
+    if not d: raise HTTPException(status_code=404, detail="Template not found")
+    return d
+
+
+@_tpl_router.post("/compliance-templates", status_code=201)
+async def tpl_create(payload: TemplateCreate, user: dict = Depends(require_permission("forms.template_manage"))):
+    if await db.compliance_form_templates.find_one({"code": payload.code, "deleted_at": None}):
+        raise HTTPException(status_code=400, detail=f"Code '{payload.code}' already exists")
+    tid = str(uuid.uuid4())
+    doc = {**payload.model_dump(), "id": tid, "is_system": False, "version": 1, "active": True,
+           "form_type": "custom", "created_by_user_id": user["id"],
+           "created_at": now_iso(), "updated_at": now_iso(), "deleted_at": None}
+    await db.compliance_form_templates.insert_one(doc); doc.pop("_id", None)
+    await record_audit(user, "created", "compliance_form_template", tid, payload.name)
+    return doc
+
+
+@_tpl_router.patch("/compliance-templates/{tid}")
+async def tpl_patch(tid: str, payload: TemplatePatch, user: dict = Depends(require_permission("forms.template_manage"))):
+    d = await db.compliance_form_templates.find_one({"id": tid}, {"_id": 0})
+    if not d: raise HTTPException(status_code=404, detail="Template not found")
+    if d.get("is_system"): raise HTTPException(status_code=400, detail="System templates cannot be edited — clone first")
+    upd = {k: (v if not hasattr(v, "model_dump") else v.model_dump()) for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not upd: return d
+    upd["version"] = d.get("version", 1) + 1; upd["updated_at"] = now_iso()
+    await db.compliance_form_templates.update_one({"id": tid}, {"$set": upd})
+    await record_audit(user, "updated", "compliance_form_template", tid, d["name"],
+                       metadata={"new_version": upd["version"]})
+    return await db.compliance_form_templates.find_one({"id": tid}, {"_id": 0})
+
+
+@_tpl_router.post("/compliance-templates/{tid}/clone")
+async def tpl_clone(tid: str, user: dict = Depends(require_permission("forms.template_manage"))):
+    src = await db.compliance_form_templates.find_one({"id": tid}, {"_id": 0})
+    if not src: raise HTTPException(status_code=404, detail="Template not found")
+    new = {**src, "id": str(uuid.uuid4()),
+           "code": f"{src['code']}_COPY_{int(now_utc().timestamp())%100000}",
+           "name": f"{src['name']} (copy)", "is_system": False, "version": 1,
+           "created_by_user_id": user["id"], "created_at": now_iso(), "updated_at": now_iso()}
+    await db.compliance_form_templates.insert_one(new); new.pop("_id", None)
+    await record_audit(user, "created", "compliance_form_template", new["id"], new["name"],
+                       metadata={"cloned_from": tid})
+    return new
+
+
+@_tpl_router.post("/compliance-templates/{tid}/activate")
+async def tpl_activate(tid: str, user: dict = Depends(require_permission("forms.template_manage"))):
+    await db.compliance_form_templates.update_one({"id": tid}, {"$set": {"active": True, "updated_at": now_iso()}})
+    return {"ok": True}
+
+
+@_tpl_router.post("/compliance-templates/{tid}/deactivate")
+async def tpl_deactivate(tid: str, user: dict = Depends(require_permission("forms.template_manage"))):
+    await db.compliance_form_templates.update_one({"id": tid}, {"$set": {"active": False, "updated_at": now_iso()}})
+    return {"ok": True}
+
+
+@_tpl_router.delete("/compliance-templates/{tid}")
+async def tpl_delete(tid: str, user: dict = Depends(require_permission("forms.template_manage"))):
+    d = await db.compliance_form_templates.find_one({"id": tid}, {"_id": 0})
+    if not d: raise HTTPException(status_code=404, detail="Template not found")
+    if d.get("is_system"): raise HTTPException(status_code=400, detail="System templates cannot be deleted")
+    await db.compliance_form_templates.update_one({"id": tid}, {"$set": {"deleted_at": now_iso()}})
+    await record_audit(user, "soft_deleted", "compliance_form_template", tid, d["name"])
+    return {"ok": True}
+
+
+# Forms-creation enhancement — accept template_id, snapshot template version
+class FormFromTemplate(BaseModel):
+    template_id: str
+    panel_id: str = Field(min_length=1, max_length=80)
+    job_id: Optional[str] = None
+    client_name: Optional[str] = ""
+    project_name: Optional[str] = ""
+
+@_tpl_router.post("/compliance-forms/from-template", status_code=201)
+async def cf_create_from_template(payload: FormFromTemplate, user: dict = Depends(require_permission("forms.create"))):
+    tpl = await db.compliance_form_templates.find_one({"id": payload.template_id, "deleted_at": None}, {"_id": 0})
+    if not tpl: raise HTTPException(status_code=404, detail="Template not found or deleted")
+    if not tpl.get("active"): raise HTTPException(status_code=400, detail="Template is deactivated")
+    form_type = tpl.get("form_type", "custom")
+    # Reuse the existing creator's job auto-fill logic via inline call
+    base = ComplianceFormCreate(form_type=form_type if form_type in ("pre_pour","post_pour","compliance_cert") else "pre_pour",
+                                 panel_id=payload.panel_id, job_id=payload.job_id,
+                                 client_name=payload.client_name, project_name=payload.project_name)
+    # Build empty sections from template
+    sections: Dict[str, Any] = {}
+    if form_type == "compliance_cert":
+        sections["header"] = {f["key"]: f.get("default", "") for f in tpl.get("header_fields", [])}
+        sections["schedule_of_elements"] = []
+        sections["signature"] = {"name": "", "signature": "", "date": ""}
+    else:
+        for s in tpl.get("sections", []):
+            sections[s["key"]] = {}
+            if s.get("defects_list"): sections[s["key"]]["_defects"] = []
+            for c in s.get("criteria", []):
+                sections[s["key"]][c["key"]] = {"value": "", "record": None, "notes": "",
+                                                 "photos": [] if c.get("allow_photo") else None}
+    fid = str(uuid.uuid4())
+    doc = {
+        "id": fid, "form_number": await _next_form_number(form_type if form_type in FORM_TYPE_CODE else "pre_pour"),
+        "form_type": form_type, "panel_id": payload.panel_id.strip(),
+        "template_id": tpl["id"], "template_version_snapshot": tpl["version"],
+        "template_code": tpl["code"], "template_name": tpl["name"],
+        "job_id": payload.job_id, "customer_id": None, "project_id": None,
+        "client_name": payload.client_name or "", "project_name": payload.project_name or "",
+        "grade_of_concrete": "", "date_of_inspection": None, "date_of_casting": None,
+        "status": "draft", "sections": sections,
+        "ncr_flag": False, "ncr_reference": "",
+        "checked_by_user_id": None, "checked_by_qa_user_id": None,
+        "signed_at": None, "signed_by_user_id": None, "photos": [],
+        "created_at": now_iso(), "updated_at": now_iso(),
+        "created_by_user_id": user["id"], "updated_by_user_id": user["id"],
+        "deleted_at": None, "deleted_by_user_id": None,
+    }
+    await db.compliance_forms.insert_one(doc); doc.pop("_id", None)
+    await record_audit(user, "created", "compliance_form", fid, doc["form_number"],
+                       metadata={"template_id": tpl["id"], "template_version": tpl["version"]})
+    return doc
+
+
+app.include_router(_tpl_router)
+
+
+async def _backfill_form_template_refs():
+    """One-time migration: any existing compliance_form without template_id gets one
+    pointing to the matching system template, frozen at version 1."""
+    sys_tpls = {t["form_type"]: t async for t in db.compliance_form_templates.find(
+        {"is_system": True}, {"_id": 0, "id": 1, "version": 1, "code": 1, "name": 1, "form_type": 1})}
+    res = await db.compliance_forms.update_many(
+        {"template_id": {"$exists": False}},
+        [{"$set": {
+            "template_id":               {"$ifNull": [None, None]},  # placeholder, set below per doc
+        }}]
+    )
+    # Per-doc fix because we need form_type-conditional template_id
+    async for d in db.compliance_forms.find({"template_id": {"$in": [None]}}, {"_id": 0, "id": 1, "form_type": 1}):
+        t = sys_tpls.get(d["form_type"])
+        if t:
+            await db.compliance_forms.update_one({"id": d["id"]},
+                {"$set": {"template_id": t["id"], "template_version_snapshot": t["version"],
+                          "template_code": t["code"], "template_name": t["name"]}})
 
 
 # ---- Seed sample compliance forms on startup if empty ----
