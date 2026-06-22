@@ -11,20 +11,37 @@
 - **Commit**: ba81737c5f9fc960da0ce84a369bd41711fdde4b
 - **Date**: 2026-06-16
 - **Changes**:
-  - Fixed `app/index.tsx` to redirect based on auth + `must_change_password`
-  - Fixed `line.line_total` → `line.total_aud` in quote/job/invoice detail screens
-  - Fixed `StatusBadge` crash on undefined status (added null guard)
-  - Fixed `h.status` → `h.to` in job status history
-  - Fixed customer name fetch in quote/job/invoice detail screens (detail endpoints don't include `customer_company_name`)
-  - Downgraded `@react-native-async-storage/async-storage` 3.1.1→2.2.0, `expo-secure-store` 56.0.4→15.0.8
-  - Created `app/force-password-change.tsx` — full ForcePasswordChange screen
-  - Added force-password-change route to `app/_layout.tsx` with `gestureEnabled: false`
-  - Added `must_change_password` guard in `(tabs)/_layout.tsx`
-  - Exported `usePermission(key)` hook from `AuthContext`
-  - Added 403 `password_change_required` interceptor in `api.ts` with event bus
-  - Added margin KPIs to Dashboard (gated on `kpis.quoted_margin_this_month_aud !== undefined`)
-  - Added `InternalCostPanel` to Calculator (gated on `result.internal_cost_breakdown`)
-  - Wired `onPasswordChangeRequired` listener in AuthContext
-- **Files modified**: `app/index.tsx`, `app/_layout.tsx`, `app/(tabs)/_layout.tsx`, `app/(tabs)/index.tsx`, `app/(tabs)/calculator.tsx`, `app/quotes/[id].tsx`, `app/jobs/[id].tsx`, `app/invoices/[id].tsx`, `src/contexts/AuthContext.tsx`, `src/lib/api.ts`, `src/components/StatusBadge.tsx`
+  - Fixed `app/index.tsx` entry point redirect
+  - Fixed `line.line_total` → `line.total_aud` in all detail screens
+  - Fixed `StatusBadge` crash on undefined status
+  - Fixed job status history `h.status` → `h.to`
+  - Fixed customer name fetch in detail screens
+  - Created ForcePasswordChange screen, added API interceptor for 403
+  - Added margin KPIs to Dashboard, InternalCostPanel to Calculator
+  - Exported `usePermission` hook from AuthContext
+- **Files modified**: 11 files
 - **Files created**: `app/force-password-change.tsx`
-- **Web files referenced**: `ForcePasswordChange.jsx`, `Calculator.jsx`, `Dashboard.jsx`, `ProtectedRoute.jsx`, `AuthContext.jsx`
+
+## Iteration 3 — Compliance Forms (Phase 10)
+- **Commit**: 4aeea975599e3d4b01f6915779097ae7a2d7e6bd
+- **Date**: 2026-06-22
+- **Changes**:
+  - Added Forms tab (6th tab) to bottom nav, permission-gated on `forms.view`
+  - Created Forms list screen (`app/(tabs)/forms.tsx`) with type/status filter chips, search, create modal
+  - Created Form detail/editor screen (`app/forms/[id].tsx`) with full CONQA-style UI:
+    - Section-level PASS/FAIL/N/A segmented controls with bulk-apply
+    - Per-criterion ✓/✗/N/A buttons with value inputs and notes
+    - Progress bar (completed/total criteria)
+    - Defects editor for post-pour forms
+    - Compliance Certificate editor for cert forms
+    - Photo upload zone (expo-image-picker)
+    - NCR & Sign-off section
+    - QA Report PDF button (expo-web-browser)
+    - State transitions: Save Draft → Mark Complete → Sign / Revert
+  - Added `apiUpload()` for multipart FormData uploads to `src/lib/api.ts`
+  - Updated tab layout to 6 tabs: Home, Calculator, Quotes, Jobs, Forms, More
+  - Installed `expo-image-picker@17.0.11`, `expo-web-browser@15.0.11`
+- **Files modified**: `app/(tabs)/_layout.tsx`, `app/_layout.tsx`, `src/lib/api.ts`
+- **Files created**: `app/(tabs)/forms.tsx`, `app/forms/[id].tsx`
+- **Web files referenced**: `FormsList.jsx`, `FormDetail.jsx`, `compliance_schema.py`
+- **Regression verified**: Calculator $5,623.20 ✅, Dashboard margin KPIs ✅, all existing tabs ✅

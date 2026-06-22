@@ -7,7 +7,7 @@ import { Tabs } from 'expo-router';
 import { Colors } from '../../src/lib/colors';
 
 export default function TabLayout() {
-  const { user, loading } = useAuth();
+  const { user, loading, hasPerm } = useAuth();
 
   if (loading) return <LoadingScreen />;
   if (!user) return <Redirect href="/login" />;
@@ -16,11 +16,12 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors.safetyYellow,
-        tabBarInactiveTintColor: 'rgba(255,255,255,0.5)',
+        tabBarActiveTintColor: Colors.steelBlue,
+        tabBarInactiveTintColor: '#8899A6',
         tabBarStyle: {
-          backgroundColor: Colors.charcoal,
-          borderTopColor: 'rgba(255,255,255,0.1)',
+          backgroundColor: '#FFFFFF',
+          borderTopColor: Colors.border,
+          borderTopWidth: 1,
           height: 88,
           paddingBottom: 28,
           paddingTop: 8,
@@ -38,7 +39,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Dashboard',
+          title: 'Home',
           tabBarIcon: ({ color, size }) => <Ionicons name="grid" size={size} color={color} />,
           headerTitle: 'Paneltec Group',
         }}
@@ -62,6 +63,14 @@ export default function TabLayout() {
         options={{
           title: 'Jobs',
           tabBarIcon: ({ color, size }) => <Ionicons name="construct" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="forms"
+        options={{
+          title: 'Forms',
+          tabBarIcon: ({ color, size }) => <Ionicons name="clipboard" size={size} color={color} />,
+          href: hasPerm('forms.view') ? undefined : null,
         }}
       />
       <Tabs.Screen

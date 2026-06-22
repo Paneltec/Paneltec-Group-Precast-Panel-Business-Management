@@ -18,6 +18,7 @@ export default function RootLayout() {
         <Stack.Screen name="invoices/index" options={{ headerShown: true, title: 'Invoices', headerStyle: { backgroundColor: '#1F2A33' }, headerTintColor: '#F5C518', headerTitleStyle: { fontWeight: '700' } }} />
         <Stack.Screen name="invoices/[id]" options={{ headerShown: true, title: 'Invoice Detail', headerStyle: { backgroundColor: '#1F2A33' }, headerTintColor: '#F5C518', headerTitleStyle: { fontWeight: '700' } }} />
         <Stack.Screen name="account" options={{ headerShown: true, title: 'My Account', headerStyle: { backgroundColor: '#1F2A33' }, headerTintColor: '#F5C518', headerTitleStyle: { fontWeight: '700' } }} />
+        <Stack.Screen name="forms/[id]" options={{ headerShown: true, title: 'Form Detail', headerStyle: { backgroundColor: '#1F2A33' }, headerTintColor: '#F5C518', headerTitleStyle: { fontWeight: '700' } }} />
       </Stack>
     </AuthProvider>
   );

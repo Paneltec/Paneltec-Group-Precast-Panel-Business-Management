@@ -60,6 +60,22 @@ export async function api(path: string, options: RequestOptions = {}) {
   return res.json();
 }
 
+/** Upload a file as multipart/form-data (for photo uploads). */
+export async function apiUpload(path: string, formData: FormData) {
+  const token = await tokenStore.get();
+  const url = `${API_BASE}${path}`;
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  // Do NOT set Content-Type — fetch will set it with boundary for FormData
+  const res = await fetch(url, { method: 'POST', headers, body: formData });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    const err: any = new Error(formatApiErrorDetail(errData.detail));
+    err.status = res.status; err.data = errData; throw err;
+  }
+  return res.json();
+}
+
 /* --- Password change event bus ------------------------------------------ */
 type Listener = () => void;
 const _passwordChangeListeners: Set<Listener> = new Set();
