@@ -147,6 +147,7 @@ PERMISSION_MODULES = [
     {"key": "integrations","label":"Integrations","permissions": ["integrations.view", "integrations.edit"]},
     {"key": "users",     "label": "Users",     "permissions": ["users.view", "users.manage"]},
     {"key": "audit",     "label": "Audit",     "permissions": ["audit.view"]},
+    {"key": "forms",     "label": "Compliance Forms", "permissions": ["forms.view", "forms.create", "forms.edit", "forms.sign", "forms.delete"]},
 ]
 ALL_PERMISSIONS: List[str] = [p for m in PERMISSION_MODULES for p in m["permissions"]]
 # These permissions are reserved for super-admins. Non-super-admins cannot hold them.
@@ -168,6 +169,7 @@ PERMISSION_PRESETS = {
             "customers.view","projects.view","quotes.view",
             "jobs.view","jobs.edit","jobs.transition","jobs.cancel","jobs.delete",
             "invoices.view","vehicles.view","employees.view",
+            "forms.view","forms.create","forms.edit",
         ],
     },
     "accounts": {
@@ -947,6 +949,18 @@ async def seed_database():
         await db.bi_api_tokens.create_index([("created_at",-1)])
     except Exception as _e:
         logger.warning(f"bi_api_tokens index creation skipped: {_e}")
+    # Phase 10: compliance forms indexes + seed
+    try:
+        await db.compliance_forms.create_index([("created_at",-1)])
+        await db.compliance_forms.create_index([("form_type",1),("status",1)])
+        await db.compliance_forms.create_index("job_id")
+        await db.compliance_forms.create_index("form_number", unique=True)
+    except Exception as _e:
+        logger.warning(f"compliance_forms index creation skipped: {_e}")
+    try:
+        await _seed_compliance_forms()
+    except Exception as _e:
+        logger.warning(f"compliance_forms seed skipped: {_e}")
 
 async def _seed_phase2():
     admin = await db.users.find_one({"role":"admin"}, {"_id":0, "id":1})
@@ -1066,7 +1080,7 @@ AUDIT_ACTIONS = {"created","updated","soft_deleted","hard_deleted","restored","s
     "quote_sent","quote_viewed","quote_accepted","quote_rejected","quote_revised",
     "invoice_issued","invoice_paid","invoice_pushed_xero","email_sent","settings_changed"}
 AUDIT_ENTITY_TYPES = {"customer","project","quote","job","invoice","vehicle","employee",
-    "user","pricing_settings","company_settings","integration_settings","system","bi_api_token"}
+    "user","pricing_settings","company_settings","integration_settings","system","bi_api_token","compliance_form"}
 AUDIT_SECRET_KEYS = {"client_secret","api_key","password","password_hash"}
 
 async def record_audit(actor: Optional[dict], action: str, entity_type: str,
@@ -3193,6 +3207,301 @@ async def data_export(module: str, user: dict = Depends(get_current_user),
 
 
 app.include_router(api_router)
+
+
+# ===========================================================================
+# Phase 10 — Compliance Forms (Pre-Pour / Post-Pour / Compliance Cert)
+# ===========================================================================
+from compliance_schema import FORM_SCHEMAS, FORM_TYPE_CODE, empty_sections_for
+from fastapi import UploadFile, File, Form
+
+_cf_router = APIRouter(prefix="/api")
+
+UPLOAD_DIR = ROOT_DIR.parent / "backend" / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+class ComplianceFormCreate(BaseModel):
+    form_type: str = Field(pattern="^(pre_pour|post_pour|compliance_cert)$")
+    panel_id: str = Field(min_length=1, max_length=80)
+    job_id: Optional[str] = None
+    client_name: Optional[str] = ""
+    project_name: Optional[str] = ""
+    grade_of_concrete: Optional[str] = ""
+    date_of_inspection: Optional[str] = None  # ISO date
+    date_of_casting: Optional[str] = None
+
+class ComplianceFormPatch(BaseModel):
+    panel_id: Optional[str] = None
+    client_name: Optional[str] = None
+    project_name: Optional[str] = None
+    grade_of_concrete: Optional[str] = None
+    date_of_inspection: Optional[str] = None
+    date_of_casting: Optional[str] = None
+    sections: Optional[Dict[str, Any]] = None
+    ncr_flag: Optional[bool] = None
+    ncr_reference: Optional[str] = None
+    checked_by_user_id: Optional[str] = None
+    checked_by_qa_user_id: Optional[str] = None
+
+class TransitionPayload(BaseModel):
+    to: str = Field(pattern="^(draft|completed|signed)$")
+
+
+async def _next_form_number(form_type: str) -> str:
+    code = FORM_TYPE_CODE[form_type]
+    year = now_utc().year
+    prefix = f"{code}-{year}-"
+    last = await db.compliance_forms.find_one(
+        {"form_number": {"$regex": f"^{prefix}"}},
+        sort=[("form_number", -1)], projection={"form_number": 1, "_id": 0},
+    )
+    nxt = 1
+    if last and last.get("form_number"):
+        try: nxt = int(last["form_number"].rsplit("-", 1)[1]) + 1
+        except Exception: nxt = 1
+    return f"{prefix}{nxt:04d}"
+
+
+@_cf_router.get("/compliance-forms/schemas")
+async def cf_schemas(_u: dict = Depends(require_permission("forms.view"))):
+    return FORM_SCHEMAS
+
+
+@_cf_router.get("/compliance-forms")
+async def cf_list(form_type: Optional[str] = None, status: Optional[str] = None,
+                   job_id: Optional[str] = None, lifecycle: str = "active",
+                   date_from: Optional[str] = None, date_to: Optional[str] = None,
+                   q: Optional[str] = None,
+                   _u: dict = Depends(require_permission("forms.view"))):
+    flt: Dict[str, Any] = {}
+    if lifecycle == "active":   flt["deleted_at"] = None
+    elif lifecycle == "deleted": flt["deleted_at"] = {"$ne": None}
+    if form_type: flt["form_type"] = form_type
+    if status:    flt["status"] = status
+    if job_id:    flt["job_id"] = job_id
+    if date_from or date_to:
+        df, dt = _date_range_iso(date_from, date_to, default_days=365)
+        flt["created_at"] = {"$gte": df, "$lte": dt}
+    if q:
+        flt["$or"] = [{"panel_id": {"$regex": q, "$options": "i"}},
+                      {"form_number": {"$regex": q, "$options": "i"}},
+                      {"project_name": {"$regex": q, "$options": "i"}}]
+    docs = await db.compliance_forms.find(flt, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return {"items": docs, "total": len(docs)}
+
+
+@_cf_router.post("/compliance-forms", status_code=201)
+async def cf_create(payload: ComplianceFormCreate, user: dict = Depends(require_permission("forms.create"))):
+    # Auto-fill from job if provided
+    client_name, project_name, customer_id, project_id = (
+        payload.client_name or "", payload.project_name or "", None, None)
+    if payload.job_id:
+        job = await db.jobs.find_one({"id": payload.job_id, "deleted_at": None}, {"_id": 0})
+        if job:
+            customer_id = job.get("customer_id"); project_id = job.get("project_id")
+            if not client_name and customer_id:
+                cust = await db.customers.find_one({"id": customer_id}, {"_id":0,"company_name":1})
+                if cust: client_name = cust.get("company_name") or ""
+            if not project_name and project_id:
+                proj = await db.projects.find_one({"id": project_id}, {"_id":0,"name":1})
+                if proj: project_name = proj.get("name") or ""
+    fid = str(uuid.uuid4())
+    doc = {
+        "id": fid,
+        "form_number": await _next_form_number(payload.form_type),
+        "form_type": payload.form_type,
+        "panel_id": payload.panel_id.strip(),
+        "job_id": payload.job_id,
+        "customer_id": customer_id,
+        "project_id": project_id,
+        "client_name": client_name,
+        "project_name": project_name,
+        "grade_of_concrete": payload.grade_of_concrete or "",
+        "date_of_inspection": payload.date_of_inspection,
+        "date_of_casting": payload.date_of_casting,
+        "status": "draft",
+        "sections": empty_sections_for(payload.form_type),
+        "ncr_flag": False, "ncr_reference": "",
+        "checked_by_user_id": None, "checked_by_qa_user_id": None,
+        "signed_at": None, "signed_by_user_id": None,
+        "photos": [],
+        "created_at": now_iso(), "updated_at": now_iso(),
+        "created_by_user_id": user["id"], "updated_by_user_id": user["id"],
+        "deleted_at": None, "deleted_by_user_id": None,
+    }
+    await db.compliance_forms.insert_one(doc)
+    doc.pop("_id", None)
+    await record_audit(user, "created", "compliance_form", fid, doc["form_number"])
+    return doc
+
+
+@_cf_router.get("/compliance-forms/{fid}")
+async def cf_get(fid: str, _u: dict = Depends(require_permission("forms.view"))):
+    d = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+    if not d: raise HTTPException(status_code=404, detail="Form not found")
+    return d
+
+
+@_cf_router.patch("/compliance-forms/{fid}")
+async def cf_patch(fid: str, payload: ComplianceFormPatch, user: dict = Depends(require_permission("forms.edit"))):
+    d = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+    if not d: raise HTTPException(status_code=404, detail="Form not found")
+    if d.get("deleted_at"): raise HTTPException(status_code=400, detail="Form is deleted")
+    if d.get("status") == "signed" and not user.get("is_super_admin"):
+        raise HTTPException(status_code=400, detail="Signed forms are immutable. Contact a super admin to unlock.")
+    upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not upd: return d
+    upd["updated_at"] = now_iso(); upd["updated_by_user_id"] = user["id"]
+    await db.compliance_forms.update_one({"id": fid}, {"$set": upd})
+    await record_audit(user, "updated", "compliance_form", fid, d["form_number"],
+                       metadata={"fields": list(upd.keys())})
+    return await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+
+
+@_cf_router.post("/compliance-forms/{fid}/transition")
+async def cf_transition(fid: str, payload: TransitionPayload, user: dict = Depends(require_permission("forms.edit"))):
+    d = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+    if not d: raise HTTPException(status_code=404, detail="Form not found")
+    cur, to = d.get("status"), payload.to
+    if cur == to: return d
+    # State machine
+    if to == "completed":
+        if cur != "draft": raise HTTPException(status_code=400, detail=f"Cannot move {cur}→completed")
+        if not d.get("panel_id"): raise HTTPException(status_code=400, detail="panel_id is required")
+    elif to == "signed":
+        if cur != "completed": raise HTTPException(status_code=400, detail=f"Cannot move {cur}→signed (must be completed first)")
+        if not has_permission(user, "forms.sign"): raise HTTPException(status_code=403, detail="forms.sign permission required to sign forms")
+        if not d.get("checked_by_qa_user_id"): raise HTTPException(status_code=400, detail="checked_by_qa_user_id must be set before signing")
+    elif to == "draft":
+        if cur == "signed" and not user.get("is_super_admin"):
+            raise HTTPException(status_code=403, detail="Only super admins can un-sign a form")
+    upd = {"status": to, "updated_at": now_iso(), "updated_by_user_id": user["id"]}
+    if to == "signed":
+        upd["signed_at"] = now_iso(); upd["signed_by_user_id"] = user["id"]
+    elif to == "draft":
+        upd["signed_at"] = None; upd["signed_by_user_id"] = None
+    await db.compliance_forms.update_one({"id": fid}, {"$set": upd})
+    await record_audit(user, "transition" if to != "signed" else "signed",
+                       "compliance_form", fid, d["form_number"],
+                       metadata={"from": cur, "to": to})
+    return await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+
+
+@_cf_router.post("/compliance-forms/{fid}/photos")
+async def cf_upload_photo(fid: str, file: UploadFile = File(...), caption: str = Form(""),
+                           user: dict = Depends(require_permission("forms.edit"))):
+    d = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+    if not d: raise HTTPException(status_code=404, detail="Form not found")
+    if d.get("status") == "signed" and not user.get("is_super_admin"):
+        raise HTTPException(status_code=400, detail="Signed forms are immutable")
+    ext = (file.filename or "").split(".")[-1].lower()
+    if ext not in {"jpg","jpeg","png","webp","heic","heif"}:
+        raise HTTPException(status_code=400, detail="Unsupported image type")
+    pid = str(uuid.uuid4())
+    saved = UPLOAD_DIR / f"{fid}_{pid}.{ext}"
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image too large (10 MB max)")
+    saved.write_bytes(content)
+    meta = {"id": pid, "filename": file.filename, "url": f"/api/compliance-forms/{fid}/photos/{pid}",
+            "size": len(content), "caption": caption,
+            "uploaded_at": now_iso(), "uploaded_by_user_id": user["id"]}
+    await db.compliance_forms.update_one({"id": fid},
+        {"$push": {"photos": meta}, "$set": {"updated_at": now_iso()}})
+    await record_audit(user, "photo_uploaded", "compliance_form", fid, d["form_number"],
+                       metadata={"photo_id": pid, "filename": file.filename})
+    return meta
+
+
+@_cf_router.get("/compliance-forms/{fid}/photos/{pid}")
+async def cf_get_photo(fid: str, pid: str, _u: dict = Depends(require_permission("forms.view"))):
+    d = await db.compliance_forms.find_one({"id": fid}, {"_id": 0, "photos": 1})
+    if not d: raise HTTPException(status_code=404, detail="Form not found")
+    for p in d.get("photos", []):
+        if p["id"] == pid:
+            ext = p["filename"].split(".")[-1].lower() if p.get("filename") else "jpg"
+            saved = UPLOAD_DIR / f"{fid}_{pid}.{ext}"
+            if saved.exists():
+                from fastapi.responses import FileResponse
+                return FileResponse(str(saved))
+    raise HTTPException(status_code=404, detail="Photo not found")
+
+
+@_cf_router.delete("/compliance-forms/{fid}/photos/{pid}")
+async def cf_delete_photo(fid: str, pid: str, user: dict = Depends(require_permission("forms.edit"))):
+    d = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+    if not d: raise HTTPException(status_code=404, detail="Form not found")
+    await db.compliance_forms.update_one({"id": fid},
+        {"$pull": {"photos": {"id": pid}}, "$set": {"updated_at": now_iso()}})
+    return {"ok": True}
+
+
+@_cf_router.delete("/compliance-forms/{fid}")
+async def cf_soft_delete(fid: str, user: dict = Depends(require_permission("forms.delete"))):
+    d = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+    if not d: raise HTTPException(status_code=404, detail="Form not found")
+    if d.get("deleted_at"): raise HTTPException(status_code=400, detail="Already deleted")
+    await db.compliance_forms.update_one({"id": fid},
+        {"$set": {"deleted_at": now_iso(), "deleted_by_user_id": user["id"]}})
+    await record_audit(user, "soft_deleted", "compliance_form", fid, d["form_number"])
+    return {"ok": True}
+
+
+@_cf_router.post("/compliance-forms/{fid}/restore")
+async def cf_restore(fid: str, user: dict = Depends(require_permission("forms.delete"))):
+    d = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+    if not d: raise HTTPException(status_code=404, detail="Form not found")
+    if not d.get("deleted_at"): raise HTTPException(status_code=400, detail="Not deleted")
+    await db.compliance_forms.update_one({"id": fid},
+        {"$set": {"deleted_at": None, "deleted_by_user_id": None}})
+    await record_audit(user, "restored", "compliance_form", fid, d["form_number"])
+    return {"ok": True}
+
+app.include_router(_cf_router)
+
+
+# ---- Seed sample compliance forms on startup if empty ----
+async def _seed_compliance_forms():
+    if await db.compliance_forms.count_documents({}) > 0: return
+    # Find first non-deleted job to attach to
+    job = await db.jobs.find_one({"deleted_at": None}, {"_id": 0})
+    job_id = job["id"] if job else None
+    client_name = ""
+    project_name = ""
+    if job:
+        if job.get("customer_id"):
+            c = await db.customers.find_one({"id": job["customer_id"]}, {"_id":0,"company_name":1})
+            if c: client_name = c.get("company_name") or ""
+        if job.get("project_id"):
+            p = await db.projects.find_one({"id": job["project_id"]}, {"_id":0,"name":1})
+            if p: project_name = p.get("name") or ""
+
+    samples = [
+        ("pre_pour",   "P-001", "draft"),
+        ("post_pour",  "P-001", "completed"),
+    ]
+    for ft, panel, status in samples:
+        fid = str(uuid.uuid4())
+        doc = {
+            "id": fid, "form_number": await _next_form_number(ft),
+            "form_type": ft, "panel_id": panel, "job_id": job_id,
+            "customer_id": job.get("customer_id") if job else None,
+            "project_id": job.get("project_id") if job else None,
+            "client_name": client_name, "project_name": project_name,
+            "grade_of_concrete": "C32/40",
+            "date_of_inspection": now_iso()[:10],
+            "date_of_casting": now_iso()[:10],
+            "status": status,
+            "sections": empty_sections_for(ft),
+            "ncr_flag": False, "ncr_reference": "",
+            "checked_by_user_id": None, "checked_by_qa_user_id": None,
+            "signed_at": None, "signed_by_user_id": None, "photos": [],
+            "created_at": now_iso(), "updated_at": now_iso(),
+            "created_by_user_id": "system", "updated_by_user_id": "system",
+            "deleted_at": None, "deleted_by_user_id": None,
+        }
+        await db.compliance_forms.insert_one(doc)
+    logger.info(f"Seeded {len(samples)} sample compliance forms")
 
 
 # ===========================================================================

@@ -19,6 +19,8 @@ import PublicQuote from "./pages/PublicQuote";
 import JobsList from "./pages/JobsList";
 import JobDetail from "./pages/JobDetail";
 import InvoicesList from "./pages/InvoicesList";
+import FormsList from "./pages/FormsList";
+import FormDetail from "./pages/FormDetail";
 import InvoiceDetail from "./pages/InvoiceDetail";
 import InvoicePrint from "./pages/InvoicePrint";
 import Vehicles, { VehicleForm } from "./pages/Vehicles";
@@ -69,6 +71,8 @@ function App() {
                   <Route path="/jobs/:id" element={<ProtectedRoute permission="jobs.view"><JobDetail /></ProtectedRoute>} />
                   <Route path="/invoices" element={<ProtectedRoute permission="invoices.view"><InvoicesList /></ProtectedRoute>} />
                   <Route path="/invoices/:id" element={<ProtectedRoute permission="invoices.view"><InvoiceDetail /></ProtectedRoute>} />
+                  <Route path="/forms" element={<ProtectedRoute permission="forms.view"><FormsList /></ProtectedRoute>} />
+                  <Route path="/forms/:id" element={<ProtectedRoute permission="forms.view"><FormDetail /></ProtectedRoute>} />
                   <Route path="/vehicles" element={<ProtectedRoute permission="vehicles.view"><Vehicles /></ProtectedRoute>} />
                   <Route path="/vehicles/new" element={<ProtectedRoute permission="vehicles.create"><VehicleForm /></ProtectedRoute>} />
                   <Route path="/vehicles/:id" element={<ProtectedRoute permission="vehicles.view"><VehicleForm /></ProtectedRoute>} />
