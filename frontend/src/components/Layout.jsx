@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { to: "/jobs", label: "Jobs", icon: "jobs", perm: "jobs.view", testid: "nav-jobs" },
   { to: "/invoices", label: "Invoices", icon: "invoices", perm: "invoices.view", testid: "nav-invoices" },
   { to: "/forms", label: "Compliance Forms", icon: "compliance_forms", perm: "forms.view", testid: "nav-forms" },
+  { to: "/forms/templates", label: "Form Templates", icon: "settings", perm: "forms.template_manage", testid: "nav-form-templates" },
   { to: "/vehicles", label: "Vehicles", icon: "vehicles", perm: "vehicles.view", testid: "nav-vehicles" },
   { to: "/employees", label: "Employees", icon: "employees", perm: "employees.view", testid: "nav-employees" },
   { to: "/settings/pricing", label: "Pricing", icon: "pricing", perm: "pricing.view", testid: "nav-settings" },

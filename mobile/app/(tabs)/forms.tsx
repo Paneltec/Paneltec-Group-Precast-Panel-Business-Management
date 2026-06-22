@@ -10,6 +10,7 @@ import { api } from '../../src/lib/api';
 import { Colors } from '../../src/lib/colors';
 import { useAuth } from '../../src/contexts/AuthContext';
 import StatusBadge from '../../src/components/StatusBadge';
+import FormDetailPanel from '../../src/components/FormDetailPanel';
 
 const TYPE_LABEL: Record<string, string> = {
   pre_pour: 'Pre-Pour (9.1.2)',
@@ -33,12 +34,14 @@ export default function FormsScreen() {
   const router = useRouter();
   const { hasPerm } = useAuth();
   const { width } = useWindowDimensions();
+  const isTablet = width >= 768;
   const [items, setItems] = useState<any[] | null>(null);
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [selectedFormId, setSelectedFormId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -55,12 +58,30 @@ export default function FormsScreen() {
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
+  const handleFormPress = (formId: string) => {
+    if (isTablet) {
+      setSelectedFormId(formId);
+    } else {
+      router.push(`/forms/${formId}`);
+    }
+  };
+
+  const handleCreated = (id: string) => {
+    setShowCreate(false);
+    if (isTablet) {
+      setSelectedFormId(id);
+      load();
+    } else {
+      router.push(`/forms/${id}`);
+    }
+  };
+
   const renderItem = ({ item: f }: { item: any }) => (
     <TouchableOpacity
       testID={`form-row-${f.id}`}
-      style={styles.row}
+      style={[styles.row, isTablet && selectedFormId === f.id && styles.rowSelected]}
       activeOpacity={0.7}
-      onPress={() => router.push(`/forms/${f.id}`)}
+      onPress={() => handleFormPress(f.id)}
     >
       <View style={styles.rowLeft}>
         <Text style={styles.formNumber}>{f.form_number}</Text>
@@ -75,84 +96,117 @@ export default function FormsScreen() {
     </TouchableOpacity>
   );
 
-  return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right']}>
-      <View style={styles.container} testID="forms-list-page">
-        {/* Search */}
-        <View style={styles.searchRow}>
-          <View style={styles.searchBox}>
-            <Ionicons name="search" size={16} color={Colors.textMuted} />
-            <TextInput
-              testID="forms-search"
-              style={styles.searchInput}
-              placeholder="Search forms..."
-              placeholderTextColor={Colors.textMuted}
-              value={search}
-              onChangeText={setSearch}
-              returnKeyType="search"
-            />
-          </View>
-          {hasPerm('forms.create') && (
-            <TouchableOpacity testID="new-form-btn" style={styles.addBtn} onPress={() => setShowCreate(true)}>
-              <Ionicons name="add" size={20} color={Colors.charcoal} />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Type filter chips */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chipContent}>
-          {TYPE_CHIPS.map(c => (
-            <TouchableOpacity
-              key={c.key}
-              testID={`filter-type-${c.key}`}
-              style={[styles.chip, typeFilter === c.key && styles.chipActive]}
-              onPress={() => setTypeFilter(c.key)}
-            >
-              <Text style={[styles.chipText, typeFilter === c.key && styles.chipTextActive]}>{c.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* Status filter chips */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chipContent}>
-          {STATUS_CHIPS.map(c => (
-            <TouchableOpacity
-              key={c.key}
-              testID={`filter-status-${c.key}`}
-              style={[styles.chip, statusFilter === c.key && styles.chipActive]}
-              onPress={() => setStatusFilter(c.key)}
-            >
-              <Text style={[styles.chipText, statusFilter === c.key && styles.chipTextActive]}>{c.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* List */}
-        {items === null ? (
-          <ActivityIndicator style={{ marginTop: 40 }} color={Colors.steelBlue} />
-        ) : (
-          <FlatList
-            data={items}
-            keyExtractor={(f) => f.id}
-            renderItem={renderItem}
-            contentContainerStyle={styles.listContent}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.steelBlue} />}
-            ListEmptyComponent={
-              <View style={styles.empty}>
-                <Ionicons name="clipboard-outline" size={40} color={Colors.textMuted} />
-                <Text style={styles.emptyText}>No forms found</Text>
-              </View>
-            }
+  /* ---- Shared list content ---- */
+  const listUI = (
+    <View style={{ flex: 1 }}>
+      {/* Search */}
+      <View style={styles.searchRow}>
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={16} color={Colors.textMuted} />
+          <TextInput
+            testID="forms-search"
+            style={styles.searchInput}
+            placeholder="Search forms..."
+            placeholderTextColor={Colors.textMuted}
+            value={search}
+            onChangeText={setSearch}
+            returnKeyType="search"
           />
+        </View>
+        {hasPerm('forms.create') && (
+          <TouchableOpacity testID="new-form-btn" style={styles.addBtn} onPress={() => setShowCreate(true)}>
+            <Ionicons name="add" size={20} color={Colors.charcoal} />
+          </TouchableOpacity>
         )}
       </View>
 
-      {showCreate && (
-        <CreateFormModal
-          visible={showCreate}
-          onClose={() => setShowCreate(false)}
-          onCreated={(id: string) => { setShowCreate(false); router.push(`/forms/${id}`); }}
+      {/* Type filter chips */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chipContent}>
+        {TYPE_CHIPS.map(c => (
+          <TouchableOpacity
+            key={c.key}
+            testID={`filter-type-${c.key}`}
+            style={[styles.chip, typeFilter === c.key && styles.chipActive]}
+            onPress={() => setTypeFilter(c.key)}
+          >
+            <Text style={[styles.chipText, typeFilter === c.key && styles.chipTextActive]}>{c.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Status filter chips */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chipContent}>
+        {STATUS_CHIPS.map(c => (
+          <TouchableOpacity
+            key={c.key}
+            testID={`filter-status-${c.key}`}
+            style={[styles.chip, statusFilter === c.key && styles.chipActive]}
+            onPress={() => setStatusFilter(c.key)}
+          >
+            <Text style={[styles.chipText, statusFilter === c.key && styles.chipTextActive]}>{c.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* List */}
+      {items === null ? (
+        <ActivityIndicator style={{ marginTop: 40 }} color={Colors.steelBlue} />
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(f) => f.id}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.steelBlue} />}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Ionicons name="clipboard-outline" size={40} color={Colors.textMuted} />
+              <Text style={styles.emptyText}>No forms found</Text>
+            </View>
+          }
         />
+      )}
+    </View>
+  );
+
+  /* ---- iPad 2-pane layout ---- */
+  if (isTablet) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['left', 'right']}>
+        <View style={styles.splitContainer} testID="forms-list-page">
+          {/* Left panel — list */}
+          <View style={styles.splitLeft}>
+            {listUI}
+          </View>
+          {/* Right panel — detail */}
+          <View style={styles.splitRight}>
+            {selectedFormId ? (
+              <FormDetailPanel key={selectedFormId} formId={selectedFormId} onFormSaved={load} />
+            ) : (
+              <View style={styles.splitPlaceholder} testID="forms-detail-placeholder">
+                <Ionicons name="clipboard-outline" size={48} color={Colors.textMuted} />
+                <Text style={styles.splitPlaceholderText}>Select a form to view details</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {showCreate && (
+          <CreateFormModal visible={showCreate} onClose={() => setShowCreate(false)} onCreated={handleCreated} />
+        )}
+      </SafeAreaView>
+    );
+  }
+
+  /* ---- Phone layout ---- */
+  return (
+    <SafeAreaView style={styles.safe} edges={['left', 'right']}>
+      <View style={styles.container} testID="forms-list-page">
+        {listUI}
+      </View>
+
+      {showCreate && (
+        <CreateFormModal visible={showCreate} onClose={() => setShowCreate(false)} onCreated={handleCreated} />
       )}
     </SafeAreaView>
   );
@@ -235,7 +289,9 @@ function CreateFormModal({ visible, onClose, onCreated }: { visible: boolean; on
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
           <View style={styles.modalFooter}>
-            <TouchableOpacity style={styles.cancelBtn} onPress={onClose}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={onClose} testID="create-form-cancel">
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
             <TouchableOpacity testID="create-form-submit" style={[styles.submitBtn, busy && { opacity: 0.5 }]} onPress={submit} disabled={busy}>
               {busy ? <ActivityIndicator color={Colors.charcoal} size="small" /> : <Text style={styles.submitText}>Create draft</Text>}
             </TouchableOpacity>
@@ -261,6 +317,7 @@ const styles = StyleSheet.create({
   chipTextActive: { color: '#FFFFFF' },
   listContent: { padding: 16, paddingBottom: 80 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: 8, padding: 14, marginBottom: 10 },
+  rowSelected: { borderColor: Colors.steelBlue, borderWidth: 2, backgroundColor: 'rgba(58,107,140,0.06)' },
   rowLeft: { flex: 1, marginRight: 12 },
   formNumber: { fontSize: 15, fontWeight: '800', color: Colors.charcoal, fontVariant: ['tabular-nums'] as any },
   rowType: { fontSize: 11, fontWeight: '600', color: Colors.steelBlue, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 },
@@ -271,7 +328,14 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', paddingVertical: 60, gap: 8 },
   emptyText: { fontSize: 14, color: Colors.textMuted },
 
-  // Modal
+  /* iPad split view */
+  splitContainer: { flex: 1, flexDirection: 'row' },
+  splitLeft: { width: '40%', borderRightWidth: 1, borderRightColor: Colors.border },
+  splitRight: { flex: 1 },
+  splitPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  splitPlaceholderText: { fontSize: 15, color: Colors.textMuted, fontWeight: '600' },
+
+  /* Modal */
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalCard: { backgroundColor: '#FFF', borderRadius: 12, padding: 24, maxWidth: 500, width: '100%', alignSelf: 'center' },
   modalTitle: { fontSize: 20, fontWeight: '900', color: Colors.charcoal },

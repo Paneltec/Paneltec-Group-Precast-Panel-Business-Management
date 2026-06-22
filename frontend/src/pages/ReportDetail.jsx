@@ -151,6 +151,21 @@ export default function ReportDetail() {
                 <Kpi label="Total cost" value={formatAUD(data.kpis.total_cost_aud)}/>
               </>
             )}
+            {key === "compliance" && (
+              <>
+                <Kpi label="Hold-Point compliance"
+                     value={`${data.kpis.hold_point_compliance_pct ?? 0}%`}
+                     cls={(data.kpis.hold_point_compliance_pct ?? 0) >= 95 ? "text-green-700"
+                            : (data.kpis.hold_point_compliance_pct ?? 0) >= 80 ? "text-amber-700" : "text-red-700"}/>
+                <Kpi label="NCR rate"
+                     value={`${data.kpis.ncr_rate_pct ?? 0}%`}
+                     cls={(data.kpis.ncr_rate_pct ?? 0) === 0 ? "text-green-700"
+                            : (data.kpis.ncr_rate_pct ?? 0) <= 5 ? "text-amber-700" : "text-red-700"}/>
+                <Kpi label="Avg sign-off latency" value={`${data.kpis.avg_signoff_latency_days ?? 0} days`}/>
+                <Kpi label="Photo coverage" value={`${data.kpis.photo_coverage_pct ?? 0}%`}
+                     cls={(data.kpis.photo_coverage_pct ?? 0) >= 80 ? "text-green-700" : "text-amber-700"}/>
+              </>
+            )}
           </div>
 
           {/* Charts */}
@@ -298,6 +313,31 @@ export default function ReportDetail() {
                   <XAxis dataKey="month"/><YAxis unit="%"/><Tooltip/>
                   <Line type="monotone" dataKey="avg_margin_pct" stroke="#1F2A33" strokeWidth={2}/>
                 </LineChart>
+              </ChartCard>
+            </div>
+          )}
+
+          {key === "compliance" && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <ChartCard title="Forms created per month (last 6)">
+                <BarChart data={data.charts.by_type_per_month.rows}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eee"/>
+                  <XAxis dataKey="month"/><YAxis allowDecimals={false}/><Tooltip/><Legend/>
+                  <Bar dataKey="Pre-Pour"    stackId="a" fill="#3A6B8C"/>
+                  <Bar dataKey="Post-Pour"   stackId="a" fill="#F5C518"/>
+                  <Bar dataKey="Certificate" stackId="a" fill="#1F2A33"/>
+                </BarChart>
+              </ChartCard>
+              <ChartCard title="Hold-points missing by stage">
+                <BarChart data={data.charts.missing_by_stage.rows}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eee"/>
+                  <XAxis dataKey="stage"/><YAxis allowDecimals={false}/><Tooltip/>
+                  <Bar dataKey="missing">
+                    {data.charts.missing_by_stage.rows.map((r,i) => (
+                      <Cell key={i} fill={r.missing === 0 ? "#22c55e" : r.missing < 3 ? "#f59e0b" : "#dc2626"}/>
+                    ))}
+                  </Bar>
+                </BarChart>
               </ChartCard>
             </div>
           )}

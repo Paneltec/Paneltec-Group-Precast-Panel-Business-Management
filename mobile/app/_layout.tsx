@@ -2,10 +2,12 @@ import React from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider } from '../src/contexts/AuthContext';
+import { NetworkProvider } from '../src/contexts/NetworkContext';
 
 export default function RootLayout() {
   return (
     <AuthProvider>
+      <NetworkProvider>
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="login" options={{ headerShown: false }} />
@@ -20,6 +22,7 @@ export default function RootLayout() {
         <Stack.Screen name="account" options={{ headerShown: true, title: 'My Account', headerStyle: { backgroundColor: '#1F2A33' }, headerTintColor: '#F5C518', headerTitleStyle: { fontWeight: '700' } }} />
         <Stack.Screen name="forms/[id]" options={{ headerShown: true, title: 'Form Detail', headerStyle: { backgroundColor: '#1F2A33' }, headerTintColor: '#F5C518', headerTitleStyle: { fontWeight: '700' } }} />
       </Stack>
+      </NetworkProvider>
     </AuthProvider>
   );
 }

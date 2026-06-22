@@ -85,6 +85,11 @@ export default function Dashboard() {
     { label: "Quoted This Month", value: formatAUD(kpis.quoted_this_month_aud), note: "AUD inc GST", icon: "money", isCurrency: true },
   ] : null;
 
+  const complianceHealthCls = (pct) => pct >= 95 ? "text-green-700" : pct >= 80 ? "text-amber-700" : "text-red-700";
+  const complianceHealthBg = (pct) => pct >= 95 ? "bg-green-50 border-green-200"
+                                       : pct >= 80 ? "bg-amber-50 border-amber-200"
+                                       : "bg-red-50 border-red-200";
+
   return (
     <div className="max-w-7xl space-y-8" data-testid="dashboard-page">
       {/* Welcome card */}
@@ -123,7 +128,34 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* Recent Activity + Awaiting Xero (super-admin / audit-viewer ops row) */}
+      {/* Compliance health tile — visible to anyone with forms.view */}
+      {kpis && kpis.compliance_health_pct !== undefined && (hasPerm("forms.view") || isSuperAdmin) && (
+        <section data-testid="compliance-health-section">
+          <Link to="/reports/compliance" data-testid="compliance-health-card"
+                className={`block border rounded p-5 hover:shadow-md transition-all group ${complianceHealthBg(kpis.compliance_health_pct)}`}>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C]">Compliance health · last 30 days</div>
+                <div className={`mt-2 text-4xl font-black tracking-tighter tabular-nums ${complianceHealthCls(kpis.compliance_health_pct)}`}
+                     data-testid="compliance-health-pct">
+                  {kpis.compliance_health_pct.toFixed(1)}%
+                </div>
+                <div className="mt-1 text-[11px] text-gray-600">
+                  {kpis.compliance_health_satisfied}/{kpis.compliance_health_expected} hold-points satisfied with signed forms
+                </div>
+              </div>
+              <div className="text-right">
+                <AppIcon name="compliance_forms" size={56} decorative/>
+                <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mt-1 inline-flex items-center">
+                  Open report <ArrowRight className="w-3 h-3 ml-1"/>
+                </div>
+              </div>
+            </div>
+          </Link>
+        </section>
+      )}
+
+      {/* Recent Activity + Awaiting Xero + Compliance Health (super-admin / audit-viewer ops row) */}
       {(canAudit || canViewInvoices) && (
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {canAudit && (

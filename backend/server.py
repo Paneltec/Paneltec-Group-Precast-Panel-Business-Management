@@ -428,6 +428,8 @@ class JobUpdate(BaseModel):
 class JobTransition(BaseModel):
     to: Literal["in_production","ready_for_delivery","delivered","installed","completed","cancelled"]
     note: str = ""
+    force: bool = False
+    force_reason: str = ""
 class JobCancel(BaseModel):
     reason: str = Field(min_length=1)
 
@@ -1067,7 +1069,8 @@ async def _seed_phase3_demo():
 
     # 2. Progress job: scheduled → in_production → ready_for_delivery → delivered
     for tgt in ["in_production","ready_for_delivery","delivered"]:
-        await _transition_job_internal(job["id"], tgt, "Seed: demo progression", admin_id)
+        await _transition_job_internal(job["id"], tgt, "Seed: demo progression", admin_id,
+                                        enforce_holdpoints=False)
 
     # 3. Generate invoice (issued)
     job_doc = await db.jobs.find_one({"id":job["id"]}, {"_id":0})
@@ -2327,7 +2330,49 @@ async def _get_job_or_404(jid: str) -> dict:
     if not doc: raise HTTPException(status_code=404, detail="Job not found")
     return doc
 
-async def _transition_job_internal(jid: str, to: str, note: str, by_user_id: str) -> dict:
+# ---------------------------------------------------------------------------
+# Phase 11 — Hold Points
+# ---------------------------------------------------------------------------
+# Each entry maps a target status → required signed compliance form_type.
+# scope='job' means a single signed form for the job suffices.
+# scope='per_panel' would require a signed form per panel (not enforced
+# in Phase 11 because we don't have a per-panel registry yet; treat as job-level).
+HOLD_POINT_RULES: List[Dict[str, str]] = [
+    {"to": "ready_for_delivery", "form_type": "pre_pour",        "label": "Pre-Pour Checklist"},
+    {"to": "delivered",          "form_type": "post_pour",       "label": "Post-Pour Checklist"},
+    {"to": "installed",          "form_type": "compliance_cert", "label": "Manufacturer's Certificate of Compliance"},
+]
+
+async def _holdpoint_blockers(job_id: Optional[str], to_status: str) -> List[Dict[str, Any]]:
+    """Return the list of missing-signed-form blockers for a transition.
+    Empty list = no blocker. Each blocker has {form_type, label, found_status}."""
+    if not job_id: return []  # un-attached jobs cannot be checked
+    blockers: List[Dict[str, Any]] = []
+    for rule in HOLD_POINT_RULES:
+        if rule["to"] != to_status: continue
+        # Find any signed form of that type for this job
+        signed = await db.compliance_forms.find_one(
+            {"job_id": job_id, "form_type": rule["form_type"],
+             "status": "signed", "deleted_at": None},
+            {"_id": 0, "id": 1, "form_number": 1, "status": 1})
+        if signed: continue
+        # Any draft/completed form exists?
+        any_form = await db.compliance_forms.find_one(
+            {"job_id": job_id, "form_type": rule["form_type"], "deleted_at": None},
+            {"_id": 0, "status": 1, "form_number": 1})
+        blockers.append({
+            "form_type": rule["form_type"],
+            "label": rule["label"],
+            "found_status": any_form.get("status") if any_form else None,
+            "found_form_number": any_form.get("form_number") if any_form else None,
+        })
+    return blockers
+
+
+async def _transition_job_internal(jid: str, to: str, note: str, by_user_id: str,
+                                    enforce_holdpoints: bool = True,
+                                    force: bool = False, force_reason: str = "",
+                                    is_super_admin: bool = False) -> dict:
     job = await _get_job_or_404(jid)
     cur = job["status"]
     if cur == "cancelled":
@@ -2345,7 +2390,28 @@ async def _transition_job_internal(jid: str, to: str, note: str, by_user_id: str
         if to_i != cur_i + 1:
             raise HTTPException(status_code=400,
                 detail=f"Cannot jump status: {cur} → {to}. Must go in order: {' → '.join(JOB_STATUS_ORDER)}")
+    # Hold-point enforcement (Phase 11)
+    holdpoint_override = False
+    if enforce_holdpoints and to != "cancelled":
+        blockers = await _holdpoint_blockers(jid, to)
+        if blockers:
+            if not force:
+                raise HTTPException(status_code=400, detail={
+                    "code": "hold_point_block",
+                    "message": f"Cannot advance to '{to}' — required compliance form(s) not signed.",
+                    "blockers": blockers,
+                    "transition": {"from": cur, "to": to},
+                })
+            # force requested — only super admin may override
+            if not is_super_admin:
+                raise HTTPException(status_code=403, detail="Only super admins can override hold points")
+            if not force_reason or len(force_reason.strip()) < 5:
+                raise HTTPException(status_code=400, detail="force_reason (≥5 chars) is required when overriding a hold point")
+            holdpoint_override = True
     history_entry = {"from":cur, "to":to, "at":now_iso(), "by_user_id":by_user_id, "note":note}
+    if holdpoint_override:
+        history_entry["holdpoint_override"] = True
+        history_entry["force_reason"] = force_reason.strip()
     await db.jobs.update_one({"id":jid},
         {"$set":{"status":to,"updated_at":now_iso()},
          "$push":{"status_history":history_entry}})
@@ -2403,9 +2469,35 @@ async def update_job(jid: str, payload: JobUpdate, _user: dict = Depends(require
 @api_router.post("/jobs/{jid}/transition")
 async def transition_job(jid: str, payload: JobTransition, user: dict = Depends(require_permission("jobs.transition"))):
     before = await _get_job_or_404(jid)
-    result = await _transition_job_internal(jid, payload.to, payload.note, user["id"])
-    await record_audit(user, "status_changed", "job", jid, before.get("job_number", jid), changes={"status":{"from":before["status"],"to":payload.to}}, metadata={"note": payload.note or ""})
+    result = await _transition_job_internal(
+        jid, payload.to, payload.note, user["id"],
+        enforce_holdpoints=True,
+        force=payload.force, force_reason=payload.force_reason,
+        is_super_admin=bool(user.get("is_super_admin")),
+    )
+    await record_audit(user, "status_changed", "job", jid, before.get("job_number", jid),
+                       changes={"status":{"from":before["status"],"to":payload.to}},
+                       metadata={"note": payload.note or ""})
+    if payload.force and payload.to != "cancelled":
+        await record_audit(user, "hold_point_override", "job", jid, before.get("job_number", jid),
+                           metadata={"to": payload.to, "reason": payload.force_reason})
     return result
+
+@api_router.get("/jobs/{jid}/holdpoints")
+async def job_holdpoints(jid: str, to: Optional[str] = None,
+                          user: dict = Depends(require_permission("jobs.view"))):
+    """Preview hold-point blockers for the next (or specified) transition.
+    Useful for surfacing the requirement before the user clicks Advance."""
+    job = await _get_job_or_404(jid)
+    cur = job["status"]
+    if cur == "cancelled" or cur == "completed": return {"to": None, "blockers": []}
+    if not to:
+        if cur not in JOB_STATUS_ORDER: return {"to": None, "blockers": []}
+        i = JOB_STATUS_ORDER.index(cur)
+        if i + 1 >= len(JOB_STATUS_ORDER): return {"to": None, "blockers": []}
+        to = JOB_STATUS_ORDER[i + 1]
+    blockers = await _holdpoint_blockers(jid, to)
+    return {"to": to, "blockers": blockers}
 
 @api_router.post("/jobs/{jid}/cancel")
 async def cancel_job(jid: str, payload: JobCancel, user: dict = Depends(require_permission("jobs.cancel"))):
@@ -2663,6 +2755,38 @@ async def dashboard_kpis(_user: dict = Depends(get_current_user)):
         "outstanding_aud":_round2(outstanding), "paid_this_month_aud":_round2(paid_this_month),
         "recent_quotes":recent_quotes, "recent_jobs":recent_jobs,
     }
+    # Phase 11 — Compliance health KPI
+    # Signed-vs-required ratio over active (non-cancelled / non-deleted) jobs touched in last 30 days.
+    if has_permission(_user, "forms.view"):
+        try:
+            window_start = (now - timedelta(days=30)).isoformat()
+            active_jobs_q = {
+                "deleted_at": {"$in": [None]},
+                "status": {"$nin": ["cancelled"]},
+                "$or": [{"updated_at": {"$gte": window_start}},
+                        {"created_at": {"$gte": window_start}}],
+            }
+            ch_expected = 0; ch_satisfied = 0
+            async for j in db.jobs.find(active_jobs_q, {"_id": 0, "id": 1, "status": 1}):
+                try: cur_i = JOB_STATUS_ORDER.index(j.get("status"))
+                except ValueError: continue
+                for rule in HOLD_POINT_RULES:
+                    to_i = JOB_STATUS_ORDER.index(rule["to"])
+                    if cur_i < to_i: continue
+                    ch_expected += 1
+                    n = await db.compliance_forms.count_documents({
+                        "job_id": j["id"], "form_type": rule["form_type"],
+                        "status": "signed", "deleted_at": None})
+                    if n > 0: ch_satisfied += 1
+            if ch_expected == 0:
+                ch_pct = 100.0
+            else:
+                ch_pct = round((ch_satisfied / ch_expected) * 100.0, 1)
+            out["compliance_health_pct"] = ch_pct
+            out["compliance_health_expected"] = ch_expected
+            out["compliance_health_satisfied"] = ch_satisfied
+        except Exception as _e:
+            logger.warning(f"compliance_health KPI computation failed: {_e}")
     # Phase 7 — margin KPIs (only for users with pricing.view_costs)
     if has_permission(_user, "pricing.view_costs"):
         margin_total = 0.0
@@ -3148,6 +3272,58 @@ async def _report_compliance(date_from, date_to, filters):
     ncr_count = sum(1 for d in docs if d.get("ncr_flag"))
     total = len(docs)
     ncr_rate = round((ncr_count / total) * 100.0, 1) if total else 0.0
+
+    # ---- Phase 11: Hold-point compliance + sign-off latency + photo coverage ----
+    # Hold-point compliance % over the date range:
+    # for each active job that has reached or passed a hold-point status, check whether
+    # the required form is signed. Numerator = satisfied checkpoints, denom = expected.
+    jobs_in_range = await db.jobs.find(
+        {"deleted_at": None,
+         "$or": [{"updated_at": {"$gte": df, "$lte": dt}},
+                  {"created_at": {"$gte": df, "$lte": dt}}]},
+        {"_id": 0, "id": 1, "job_number": 1, "status": 1, "status_history": 1}
+    ).to_list(2000)
+    expected = 0; satisfied = 0
+    missing_by_stage = {"pre_pour": 0, "post_pour": 0, "compliance_cert": 0}
+    for j in jobs_in_range:
+        cur_status = j.get("status")
+        if cur_status == "cancelled": continue
+        try: cur_i = JOB_STATUS_ORDER.index(cur_status)
+        except ValueError: continue
+        for rule in HOLD_POINT_RULES:
+            to_i = JOB_STATUS_ORDER.index(rule["to"])
+            # Was this hold point crossed (current job is at or past the gated status)?
+            if cur_i < to_i: continue
+            expected += 1
+            signed = await db.compliance_forms.count_documents({
+                "job_id": j["id"], "form_type": rule["form_type"],
+                "status": "signed", "deleted_at": None})
+            if signed > 0: satisfied += 1
+            else: missing_by_stage[rule["form_type"]] += 1
+    hold_point_compliance_pct = round((satisfied / expected) * 100.0, 1) if expected else 100.0
+
+    # Sign-off latency: avg days from form created_at → status==signed (signed forms only)
+    latencies = []
+    for d in docs:
+        if d.get("status") != "signed": continue
+        c = d.get("created_at"); s = d.get("signed_at") or d.get("updated_at")
+        if not c or not s: continue
+        try:
+            from datetime import datetime as _dt
+            ct = _dt.fromisoformat(c.replace("Z","+00:00"))
+            st = _dt.fromisoformat(s.replace("Z","+00:00"))
+            delta_d = (st - ct).total_seconds() / 86400.0
+            if delta_d >= 0: latencies.append(delta_d)
+        except Exception: pass
+    avg_signoff_days = round(sum(latencies) / len(latencies), 1) if latencies else 0.0
+
+    # Photo coverage: % of completed/signed forms that have ≥1 photo
+    needs_photo = [d for d in docs if d.get("status") in ("completed","signed")]
+    with_photo = sum(1 for d in needs_photo if (d.get("photos") and len(d["photos"]) > 0)
+                     or any((c.get("photos") or []) for s in (d.get("sections") or {}).values()
+                            if isinstance(s, dict) for c in s.values() if isinstance(c, dict)))
+    photo_coverage_pct = round((with_photo / len(needs_photo)) * 100.0, 1) if needs_photo else 0.0
+
     # Chart: forms by type per month (last 6)
     series = {"pre_pour": {}, "post_pour": {}, "compliance_cert": {}}
     months = list(_months_back(6))
@@ -3163,6 +3339,14 @@ async def _report_compliance(date_from, date_to, filters):
                            "Pre-Pour": series["pre_pour"].get(ym, 0),
                            "Post-Pour": series["post_pour"].get(ym, 0),
                            "Certificate": series["compliance_cert"].get(ym, 0)})
+
+    # Chart: missing-by-stage (bar)
+    missing_chart = [
+        {"stage": "Pre-Pour",    "missing": missing_by_stage["pre_pour"]},
+        {"stage": "Post-Pour",   "missing": missing_by_stage["post_pour"]},
+        {"stage": "Certificate", "missing": missing_by_stage["compliance_cert"]},
+    ]
+
     # Table
     rows = [{"form_number": d.get("form_number"), "type": d.get("form_type"),
              "panel_id": d.get("panel_id"), "project": d.get("project_name") or "",
@@ -3175,11 +3359,17 @@ async def _report_compliance(date_from, date_to, filters):
             "awaiting_qa_signoff": awaiting_qa,
             "signed_total": signed_count,
             "ncr_rate_pct": ncr_rate,
+            "hold_point_compliance_pct": hold_point_compliance_pct,
+            "hold_point_expected": expected,
+            "hold_point_satisfied": satisfied,
+            "avg_signoff_latency_days": avg_signoff_days,
+            "photo_coverage_pct": photo_coverage_pct,
         },
         "charts": {
             "by_type_per_month": {"type": "stacked_bar", "x": "month",
                                   "series": ["Pre-Pour", "Post-Pour", "Certificate"],
                                   "rows": chart_rows},
+            "missing_by_stage": {"type": "bar", "x": "stage", "series": ["missing"], "rows": missing_chart},
         },
         "table": {
             "columns": ["form_number", "type", "panel_id", "project", "status", "inspection", "ncr"],
@@ -3990,17 +4180,42 @@ async def tpl_patch(tid: str, payload: TemplatePatch, user: dict = Depends(requi
     return await db.compliance_form_templates.find_one({"id": tid}, {"_id": 0})
 
 
+class CloneOverride(BaseModel):
+    code: Optional[str] = None
+
 @_tpl_router.post("/compliance-templates/{tid}/clone")
-async def tpl_clone(tid: str, user: dict = Depends(require_permission("forms.template_manage"))):
+async def tpl_clone(tid: str, payload: Optional[CloneOverride] = None,
+                     user: dict = Depends(require_permission("forms.template_manage"))):
     src = await db.compliance_form_templates.find_one({"id": tid}, {"_id": 0})
     if not src: raise HTTPException(status_code=404, detail="Template not found")
-    new = {**src, "id": str(uuid.uuid4()),
-           "code": f"{src['code']}_COPY_{int(now_utc().timestamp())%100000}",
-           "name": f"{src['name']} (copy)", "is_system": False, "version": 1,
+    # Semantic code derivation. Use BASE (strip any _v\d+ suffix), then find next free _vN.
+    import re as _re
+    base = _re.sub(r"_v\d+$", "", src["code"])
+    if payload and payload.code:
+        if not _re.match(r"^[A-Z0-9_]{2,40}$", payload.code):
+            raise HTTPException(status_code=400, detail="Invalid code — must match [A-Z0-9_]{2,40}")
+        new_code = payload.code
+    else:
+        # Find highest existing version suffix for this base
+        siblings = await db.compliance_form_templates.find(
+            {"code": {"$regex": f"^{_re.escape(base)}(_v\\d+)?$"}, "deleted_at": None},
+            {"_id": 0, "code": 1}
+        ).to_list(200)
+        max_v = 1
+        for s in siblings:
+            m = _re.match(rf"^{_re.escape(base)}_v(\d+)$", s["code"])
+            if m: max_v = max(max_v, int(m.group(1)))
+            elif s["code"] == base: max_v = max(max_v, 1)
+        new_code = f"{base}_v{max_v + 1}"
+    if await db.compliance_form_templates.find_one({"code": new_code, "deleted_at": None}):
+        raise HTTPException(status_code=400, detail=f"Code '{new_code}' already exists")
+    new = {**src, "id": str(uuid.uuid4()), "code": new_code,
+           "name": f"{src['name']} (v{int(new_code.rsplit('_v',1)[-1]) if '_v' in new_code else 'copy'})",
+           "is_system": False, "version": 1,
            "created_by_user_id": user["id"], "created_at": now_iso(), "updated_at": now_iso()}
     await db.compliance_form_templates.insert_one(new); new.pop("_id", None)
     await record_audit(user, "created", "compliance_form_template", new["id"], new["name"],
-                       metadata={"cloned_from": tid})
+                       metadata={"cloned_from": tid, "code": new_code})
     return new
 
 

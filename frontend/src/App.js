@@ -22,6 +22,8 @@ import InvoicesList from "./pages/InvoicesList";
 import FormsList from "./pages/FormsList";
 import FormDetail from "./pages/FormDetail";
 import FormPrint from "./pages/FormPrint";
+import TemplatesList from "./pages/TemplatesList";
+import TemplateEditor from "./pages/TemplateEditor";
 import InvoiceDetail from "./pages/InvoiceDetail";
 import InvoicePrint from "./pages/InvoicePrint";
 import Vehicles, { VehicleForm } from "./pages/Vehicles";
@@ -74,6 +76,8 @@ function App() {
                   <Route path="/invoices" element={<ProtectedRoute permission="invoices.view"><InvoicesList /></ProtectedRoute>} />
                   <Route path="/invoices/:id" element={<ProtectedRoute permission="invoices.view"><InvoiceDetail /></ProtectedRoute>} />
                   <Route path="/forms" element={<ProtectedRoute permission="forms.view"><FormsList /></ProtectedRoute>} />
+                  <Route path="/forms/templates" element={<ProtectedRoute permission="forms.template_manage"><TemplatesList /></ProtectedRoute>} />
+                  <Route path="/forms/templates/:id" element={<ProtectedRoute permission="forms.template_manage"><TemplateEditor /></ProtectedRoute>} />
                   <Route path="/forms/:id" element={<ProtectedRoute permission="forms.view"><FormDetail /></ProtectedRoute>} />
                   <Route path="/vehicles" element={<ProtectedRoute permission="vehicles.view"><Vehicles /></ProtectedRoute>} />
                   <Route path="/vehicles/new" element={<ProtectedRoute permission="vehicles.create"><VehicleForm /></ProtectedRoute>} />

@@ -184,22 +184,32 @@ export default function FormsList() {
 }
 
 function CreateFormDialog({ open, onClose, onCreated }) {
-  const [formType, setFormType] = useState("pre_pour");
+  const [templates, setTemplates] = useState(null);
+  const [templateId, setTemplateId] = useState("");
   const [panelId, setPanelId] = useState("");
   const [jobId, setJobId] = useState("none");
   const [jobs, setJobs] = useState([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    api.get("/compliance-templates?active_only=true")
+      .then(r => {
+        const items = r.data.items || [];
+        setTemplates(items);
+        if (items.length && !templateId) setTemplateId(items[0].id);
+      })
+      .catch(() => setTemplates([]));
     api.get("/jobs?page_size=200").then(r => setJobs(r.data.items || [])).catch(() => setJobs([]));
+    // eslint-disable-next-line
   }, []);
 
   const submit = async () => {
+    if (!templateId) { toast.error("Pick a template"); return; }
     if (!panelId.trim()) { toast.error("Panel ID is required"); return; }
     setBusy(true);
     try {
-      const r = await api.post("/compliance-forms", {
-        form_type: formType,
+      const r = await api.post("/compliance-forms/from-template", {
+        template_id: templateId,
         panel_id: panelId.trim(),
         job_id: jobId === "none" ? null : jobId,
       });
@@ -217,19 +227,27 @@ function CreateFormDialog({ open, onClose, onCreated }) {
           <DialogTitle className="inline-flex items-center gap-2">
             <AppIcon name="compliance_forms" size={22} decorative/> New Compliance Form
           </DialogTitle>
-          <DialogDescription>Pick a form type and panel; we'll create a draft you can fill in.</DialogDescription>
+          <DialogDescription>Pick a template, a panel, and (optionally) a job — we'll create a draft you can fill in.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div>
-            <Label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Form type</Label>
-            <Select value={formType} onValueChange={setFormType}>
-              <SelectTrigger className="mt-1" data-testid="create-form-type"><SelectValue/></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="pre_pour">Pre-Pour Checklist (9.1.2)</SelectItem>
-                <SelectItem value="post_pour">Post-Pour Checklist (9.1.3)</SelectItem>
-                <SelectItem value="compliance_cert">Manufacturer's Certificate of Compliance (9.1.4)</SelectItem>
-              </SelectContent>
-            </Select>
+            <Label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Template</Label>
+            {templates === null ? (
+              <div className="text-xs text-gray-500 py-2"><Loader2 className="w-3 h-3 inline animate-spin mr-1"/> Loading templates…</div>
+            ) : templates.length === 0 ? (
+              <div className="text-xs text-red-700 py-2">No active templates. Ask an admin to activate one in Form Templates.</div>
+            ) : (
+              <Select value={templateId} onValueChange={setTemplateId}>
+                <SelectTrigger className="mt-1" data-testid="create-form-template"><SelectValue/></SelectTrigger>
+                <SelectContent>
+                  {templates.map(t => (
+                    <SelectItem key={t.id} value={t.id} data-testid={`tpl-opt-${t.code}`}>
+                      <span className="font-mono text-xs">{t.code}</span> — {t.name} {t.is_system ? "" : `(v${t.version})`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <div>
             <Label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Panel ID</Label>
@@ -251,7 +269,7 @@ function CreateFormDialog({ open, onClose, onCreated }) {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button onClick={submit} disabled={busy} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]" data-testid="create-form-submit">
+          <Button onClick={submit} disabled={busy || !templateId} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]" data-testid="create-form-submit">
             {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : null}
             Create draft
           </Button>

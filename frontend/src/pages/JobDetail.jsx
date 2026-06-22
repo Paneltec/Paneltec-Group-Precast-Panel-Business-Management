@@ -27,7 +27,7 @@ const STATUS_STYLES = {
 
 export default function JobDetail() {
   const [jobForms, setJobForms] = useState([]);
-  const { hasPerm } = useAuth();
+  const { hasPerm, isSuperAdmin } = useAuth();
   const { id } = useParams();
   useEffect(() => { api.get(`/compliance-forms?job_id=${id || params?.id}`).then(r => setJobForms(r.data.items || [])).catch(() => {}); }, [id]); // eslint-disable-line
   const navigate = useNavigate();
@@ -41,6 +41,9 @@ export default function JobDetail() {
   const [cancelReason, setCancelReason] = useState("");
   const [genOpen, setGenOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
+  const [holdOpen, setHoldOpen] = useState(null);  // {to, blockers}
+  const [forceReason, setForceReason] = useState("");
+  const [forcing, setForcing] = useState(false);
 
   const load = async () => {
     try {
