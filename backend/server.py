@@ -46,6 +46,14 @@ bearer_scheme = HTTPBearer(auto_error=False)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("paneltec")
 
+# Phase 4 Part 2 — Simpro integration client
+from integrations.simpro_client import (
+    SimproClient, SimproError, SimproAuthError,
+    build_settings_from_doc as _build_simpro_settings,
+    map_customer as _map_simpro_customer,
+    map_employee as _map_simpro_employee,
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -457,6 +465,14 @@ class IntegrationSimpro(BaseModel):
     model_config = ConfigDict(extra="forbid")
     build_name: str = ""; client_id: str = ""; client_secret: str = ""
     api_base_url: str = ""; enabled: bool = False
+    # Phase 4 Part 2 — sync tracking (set by sync workers)
+    last_sync_at: Optional[str] = None
+    last_sync_status: Optional[Literal["ok","error"]] = None
+    last_sync_error: Optional[str] = None
+    last_sync_customers_count: int = 0
+    last_sync_employees_count: int = 0
+    last_test_at: Optional[str] = None
+    last_test_status: Optional[Literal["ok","error","mocked"]] = None
 class IntegrationNavixy(BaseModel):
     model_config = ConfigDict(extra="forbid")
     api_key: str = ""; api_base_url: str = "https://api.navixy.com/v2"
@@ -723,7 +739,10 @@ DEFAULT_COMPANY = {
 
 DEFAULT_INTEGRATIONS = {
     "m365": {"tenant_id":"","client_id":"","client_secret":"","sender_mailbox":"","enabled":False},
-    "simpro": {"build_name":"","client_id":"","client_secret":"","api_base_url":"","enabled":False},
+    "simpro": {"build_name":"","client_id":"","client_secret":"","api_base_url":"","enabled":False,
+                "last_sync_at":None,"last_sync_status":None,"last_sync_error":None,
+                "last_sync_customers_count":0,"last_sync_employees_count":0,
+                "last_test_at":None,"last_test_status":None},
     "navixy": {"api_key":"","api_base_url":"https://api.navixy.com/v2","account_id":"","enabled":False},
     "xero": {"client_id":"","client_secret":"","tenant_id":"","redirect_uri":"","enabled":False},
 }
@@ -751,6 +770,15 @@ def _mask_integrations(doc: Dict[str, Any]) -> Dict[str, Any]:
         for f in fields:
             if section.get(f):
                 section[f] = _mask_secret(section[f])
+        # Ensure the Phase 4 Part 2 Simpro tracking fields survive round-trips
+        # even if the stored doc predates them.
+        if ikey == "simpro":
+            for k, default in [("last_sync_at", None), ("last_sync_status", None),
+                               ("last_sync_error", None),
+                               ("last_sync_customers_count", 0),
+                               ("last_sync_employees_count", 0),
+                               ("last_test_at", None), ("last_test_status", None)]:
+                section.setdefault(k, default)
         out[ikey] = section
     # carry meta
     if "updated_at" in doc: out["updated_at"] = doc["updated_at"]
@@ -2848,9 +2876,179 @@ async def update_integrations(payload: IntegrationSettings, actor: dict = Depend
 async def test_integration(integration: str, _u: dict = Depends(require_permission("integrations.edit"))):
     if integration not in ("m365","simpro","navixy","xero"):
         raise HTTPException(status_code=400, detail="Unknown integration")
+
+    # Phase 4 Part 2 — Simpro gets a real connectivity probe when enabled.
+    if integration == "simpro":
+        doc = await db.settings.find_one({"key":"integrations"}, {"_id": 0}) or {}
+        section = (doc.get("simpro") or {})
+        enabled = bool(section.get("enabled"))
+        settings = _build_simpro_settings(section) if enabled else None
+        stamp = now_iso()
+        if not enabled:
+            await db.settings.update_one({"key":"integrations"},
+                {"$set": {"simpro.last_test_at": stamp, "simpro.last_test_status": "mocked"}})
+            return {"status": "MOCKED", "integration": "simpro",
+                    "message": "Simpro is currently disabled. Toggle enabled + save credentials to run a live test."}
+        if not settings:
+            await db.settings.update_one({"key":"integrations"},
+                {"$set": {"simpro.last_test_at": stamp, "simpro.last_test_status": "error"}})
+            return {"status": "ERROR", "integration": "simpro",
+                    "message": "Missing credentials — enter build_name, client_id and client_secret and save."}
+        try:
+            client = SimproClient(settings)
+            probe = await client.test_connection()
+        except Exception as e:
+            logger.warning("Simpro test_connection crashed: %s", type(e).__name__)
+            probe = {"ok": False, "message": f"Unexpected error ({type(e).__name__})"}
+        await db.settings.update_one({"key":"integrations"},
+            {"$set": {"simpro.last_test_at": stamp,
+                      "simpro.last_test_status": "ok" if probe.get("ok") else "error"}})
+        if probe.get("ok"):
+            return {"status": "LIVE", "integration": "simpro",
+                    "message": probe.get("message") or "Connection OK",
+                    "tenant_name": probe.get("tenant_name")}
+        return {"status": "ERROR", "integration": "simpro",
+                "message": probe.get("message") or "Simpro connection failed"}
+
     return {"status":"MOCKED",
         "integration": integration,
-        "message": f"Real {integration} API connection coming in Phase 4 Part 2. Credentials saved successfully."}
+        "message": f"Real {integration} API connection coming in a later phase. Credentials saved successfully."}
+
+
+# =========================================================================
+# Phase 4 Part 2 — Simpro sync workers
+# =========================================================================
+async def _load_simpro_settings_or_error():
+    """Return (SimproSettings, section_dict) or raise HTTPException with a
+    friendly message."""
+    doc = await db.settings.find_one({"key":"integrations"}, {"_id": 0}) or {}
+    section = doc.get("simpro") or {}
+    if not section.get("enabled"):
+        raise HTTPException(status_code=400, detail="Simpro is disabled — enable it in Settings → Integrations first.")
+    settings = _build_simpro_settings(section)
+    if not settings:
+        raise HTTPException(status_code=400, detail="Missing Simpro credentials — enter build_name, client_id and client_secret.")
+    return settings, section
+
+
+@api_router.post("/integrations/simpro/sync-customers")
+async def simpro_sync_customers(actor: dict = Depends(require_permission("integrations.edit"))):
+    if not has_permission(actor, "customers.create"):
+        raise HTTPException(status_code=403, detail="customers.create permission required to sync customers")
+    settings, _sec = await _load_simpro_settings_or_error()
+    client = SimproClient(settings)
+    created = updated = 0
+    errors: List[Dict[str, str]] = []
+    try:
+        remote = await client.iter_all(client.list_customers)
+    except SimproAuthError:
+        await db.settings.update_one({"key":"integrations"},
+            {"$set":{"simpro.last_sync_at": now_iso(), "simpro.last_sync_status": "error",
+                     "simpro.last_sync_error": "Simpro authentication failed"}})
+        raise HTTPException(status_code=502, detail="Simpro authentication failed — check client_id / client_secret.")
+    except SimproError as e:
+        await db.settings.update_one({"key":"integrations"},
+            {"$set":{"simpro.last_sync_at": now_iso(), "simpro.last_sync_status": "error",
+                     "simpro.last_sync_error": str(e)}})
+        raise HTTPException(status_code=502, detail=f"Simpro API error: {e}")
+
+    for raw in remote:
+        try:
+            mapped = _map_simpro_customer(raw)
+            simpro_id = mapped["simpro_customer_id"]
+            if not simpro_id or simpro_id == "None":
+                errors.append({"simpro_id": "?", "reason": "Missing Simpro ID"}); continue
+            existing = await db.customers.find_one({"simpro_customer_id": simpro_id}, {"_id":0,"id":1})
+            if existing:
+                mapped["updated_at"] = now_iso()
+                mapped["updated_by_user_id"] = actor["id"]
+                await db.customers.update_one({"id": existing["id"]}, {"$set": mapped})
+                updated += 1
+            else:
+                doc = {**mapped,
+                       "id": str(uuid.uuid4()),
+                       "active": True,
+                       "source": "SIMPRO",
+                       "account_terms": "30 days",
+                       "notes": "",
+                       "created_at": now_iso(),
+                       "updated_at": now_iso(),
+                       "created_by_user_id": actor["id"],
+                       "updated_by_user_id": actor["id"]}
+                await db.customers.insert_one(doc)
+                created += 1
+        except Exception as e:  # per-record isolation
+            errors.append({"simpro_id": str(raw.get("ID")), "reason": f"{type(e).__name__}: {e}"})
+
+    total = created + updated
+    await db.settings.update_one({"key":"integrations"},
+        {"$set":{"simpro.last_sync_at": now_iso(), "simpro.last_sync_status": "ok",
+                 "simpro.last_sync_error": None,
+                 "simpro.last_sync_customers_count": total}})
+    await record_audit(actor, "simpro_customer_sync", "integration_settings", "simpro", "Simpro",
+                       metadata={"synced": total, "created": created, "updated": updated, "errors": len(errors)})
+    return {"synced": total, "created": created, "updated": updated,
+            "errors": errors, "fetched_from_simpro": len(remote)}
+
+
+@api_router.post("/integrations/simpro/sync-employees")
+async def simpro_sync_employees(actor: dict = Depends(require_permission("integrations.edit"))):
+    if not has_permission(actor, "employees.create"):
+        raise HTTPException(status_code=403, detail="employees.create permission required to sync employees")
+    settings, _sec = await _load_simpro_settings_or_error()
+    client = SimproClient(settings)
+    created = updated = 0
+    errors: List[Dict[str, str]] = []
+    try:
+        remote = await client.iter_all(client.list_employees)
+    except SimproAuthError:
+        await db.settings.update_one({"key":"integrations"},
+            {"$set":{"simpro.last_sync_at": now_iso(), "simpro.last_sync_status": "error",
+                     "simpro.last_sync_error": "Simpro authentication failed"}})
+        raise HTTPException(status_code=502, detail="Simpro authentication failed — check client_id / client_secret.")
+    except SimproError as e:
+        await db.settings.update_one({"key":"integrations"},
+            {"$set":{"simpro.last_sync_at": now_iso(), "simpro.last_sync_status": "error",
+                     "simpro.last_sync_error": str(e)}})
+        raise HTTPException(status_code=502, detail=f"Simpro API error: {e}")
+
+    for raw in remote:
+        try:
+            mapped = _map_simpro_employee(raw)
+            simpro_id = mapped["simpro_employee_id"]
+            if not simpro_id or simpro_id == "None":
+                errors.append({"simpro_id": "?", "reason": "Missing Simpro ID"}); continue
+            existing = await db.employees.find_one({"simpro_employee_id": simpro_id}, {"_id":0,"id":1})
+            if existing:
+                mapped["updated_at"] = now_iso()
+                mapped["updated_by_user_id"] = actor["id"]
+                await db.employees.update_one({"id": existing["id"]}, {"$set": mapped})
+                updated += 1
+            else:
+                doc = {**mapped,
+                       "id": str(uuid.uuid4()),
+                       "source": "SIMPRO",
+                       "is_active": True,
+                       "deleted_at": None,
+                       "deleted_by_user_id": None,
+                       "created_at": now_iso(),
+                       "updated_at": now_iso(),
+                       "created_by_user_id": actor["id"],
+                       "updated_by_user_id": actor["id"]}
+                await db.employees.insert_one(doc)
+                created += 1
+        except Exception as e:
+            errors.append({"simpro_id": str(raw.get("ID")), "reason": f"{type(e).__name__}: {e}"})
+
+    total = created + updated
+    await db.settings.update_one({"key":"integrations"},
+        {"$set":{"simpro.last_sync_at": now_iso(), "simpro.last_sync_status": "ok",
+                 "simpro.last_sync_error": None,
+                 "simpro.last_sync_employees_count": total}})
+    await record_audit(actor, "simpro_employee_sync", "integration_settings", "simpro", "Simpro",
+                       metadata={"synced": total, "created": created, "updated": updated, "errors": len(errors)})
+    return {"synced": total, "created": created, "updated": updated,
+            "errors": errors, "fetched_from_simpro": len(remote)}
 
 
 # Universal email-sent recording

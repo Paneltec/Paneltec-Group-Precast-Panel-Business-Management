@@ -14,7 +14,8 @@
         "NSCameraUsageDescription": "Capture compliance inspection photos",
         "NSPhotoLibraryUsageDescription": "Attach inspection photos from library",
         "NSLocationWhenInUseUsageDescription": "Tag inspection photos with GPS coordinates"
-      }
+      },
+      "bundleIdentifier": "com.emergent.concretepanelapp.iktn46"
     },
     "android": {
       "adaptiveIcon": {
@@ -27,7 +28,8 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "READ_MEDIA_IMAGES"
-      ]
+      ],
+      "package": "com.emergent.concretepanelapp.iktn46"
     },
     "web": {
       "bundler": "metro",

@@ -258,7 +258,21 @@ Two tabs:
 Audit event fires on every save.
 
 ### Integration Settings (`/settings/integrations`)
-Credential templates for **Microsoft 365** (email), **Simpro** (customers / employees), **Navixy** (fleet), **Xero** (invoices). All MOCKED in Phase 7 — values are stored but no real calls happen yet. Phase 4 Part 2 wires these once you supply credentials.
+Credential templates for **Microsoft 365** (email), **Simpro** (customers / employees), **Navixy** (fleet), **Xero** (invoices).
+
+Phase 4 Part 2 wires **Simpro live**. The other three are still MOCKED until their credentials arrive. Simpro details:
+
+**Setting up Simpro** (super admin, one-time)
+1. Log in to your Simpro tenant as an admin → Setup → System → API Setup.
+2. Create a new API key with scopes for Customers + Employees (read).
+3. Note the **build name** (the subdomain — e.g. `paneltec` for `paneltec.simprosuite.com`), the **client ID**, and the **client secret**.
+4. In Paneltec: Settings → Integrations → Simpro card → paste build name / client ID / client secret → toggle **Enable** → **Save**.
+5. Click **Test Connection**:
+   - **LIVE** (green) — Simpro handshake succeeded and returned the tenant name.
+   - **ERROR** — check the message; the secret is masked once saved so you can re-paste to update.
+   - **MOCKED** — the enable toggle is off; flip it on and save first.
+6. From `/customers` click **Import from Simpro** (purple), from `/employees` click **Sync from Simpro** — records upsert by `simpro_customer_id` / `simpro_employee_id`. Manually-created local records with no Simpro ID are never touched.
+7. Synced rows show a small purple **Simpro** chip so users can tell live vs manual at a glance. The list-page banner turns green with "LIVE · Synced from Simpro <timestamp> · N records".
 
 ### User Management (`/users`)
 - Create / edit users (name, email, role preset)
@@ -322,11 +336,11 @@ Every list row (where the user has the relevant `*.delete` permission) has a tra
 | Integration | Status | Activates in |
 |---|---|---|
 | **Microsoft 365** (email send) | MOCKED — copy content & send from your inbox | Phase 4 Part 2 |
-| **Simpro** (customer + employee import) | MOCKED — manual CRUD for now | Phase 4 Part 2 |
+| **Simpro** (customer + employee import) | **LIVE-capable** — real API wired; MOCKED until credentials entered + enable toggle flipped in Settings → Integrations | Phase 4 Part 2 ✓ |
 | **Navixy** (vehicle/fleet sync) | MOCKED — manual CRUD for now | Phase 4 Part 2 |
 | **Xero** (single + bulk invoice push) | MOCKED — Mock Xero ID stamped | Phase 4 Part 2 |
 
-Settings → Integrations stores the credential templates today. Wiring happens once real keys are entered there.
+Simpro test/sync endpoints degrade gracefully: with `enabled: false` or missing credentials the app runs in MOCKED mode (manual roster, `Import from Simpro` button disabled). With bad credentials Test Connection returns a friendly error message — no crash, no corrupted local data. See §11 for the one-time setup guide.
 
 ---
 
@@ -491,6 +505,13 @@ That means a Power BI token connected to `/api/reporting/v1/quotes` will see lin
 
 **App version**: v1.0 · Phase 11
 **Manual last updated**: 2026-06-22
+
+### Phase 4 Part 2 (in progress) — Simpro LIVE wiring
+- New async `SimproClient` with OAuth 2.0 client-credentials, token caching, retry-on-401/429/5xx.
+- New endpoints `POST /api/integrations/simpro/sync-customers` and `.../sync-employees` — upsert-by-`simpro_*_id`, per-row error isolation, audit-logged as `simpro_customer_sync` / `simpro_employee_sync`.
+- Test Connection now returns `LIVE` when enabled + credentials valid; `ERROR` with a friendly message on bad creds; `MOCKED` when disabled. Sync status (`last_sync_at`, `last_sync_status`, counts) persisted on `integration_settings.simpro`.
+- Customers + Employees list pages show a purple **Import from Simpro** / **Sync from Simpro** button when enabled+configured, a green LIVE banner after a successful sync, and a small **Simpro** chip next to each synced row.
+- Full graceful fallback: with Simpro disabled or credentials missing, both list pages behave exactly as before — the old MOCKED yellow banner + disabled import button.
 
 ### Phase 11 — Form Template Builder + Hold Points + Enhanced Compliance Reports
 - **Template Builder** (`/forms/templates`): data-driven compliance form templates living in the `compliance_form_templates` collection. Browse, clone (semantic `_vN`), edit (sections + criteria with up/down reorder), activate / deactivate, soft-delete. System PRE/POST/CERT templates seeded read-only.

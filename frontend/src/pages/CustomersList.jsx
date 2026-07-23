@@ -8,6 +8,8 @@ import { Input } from "../components/ui/input";
 import { formatDateTime } from "../lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog";
+import { toast } from "sonner";
 import DeleteRowActions from "../components/DeleteRowActions";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -17,6 +19,9 @@ export default function CustomersList() {
   const [statusFilter, setStatusFilter] = useState("active");
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
+  const [simpro, setSimpro] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
   const navigate = useNavigate();
   const { hasPerm, isSuperAdmin } = useAuth();
   const canDelete = hasPerm("customers.delete");
@@ -37,9 +42,33 @@ export default function CustomersList() {
       setError(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     }
   };
+  const loadSimpro = async () => {
+    if (!hasPerm("integrations.view")) { setSimpro({ enabled: false }); return; }
+    try { const { data } = await api.get("/settings/integrations"); setSimpro(data?.simpro || { enabled: false }); }
+    catch (_e) { setSimpro({ enabled: false }); }
+  };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, statusFilter]);
+  useEffect(() => { loadSimpro(); /* eslint-disable-next-line */ }, []);
 
   const onSearchSubmit = (e) => { e.preventDefault(); setPage(1); load(); };
+
+  const runSync = async () => {
+    setSyncing(true); setSyncResult(null);
+    try {
+      const { data } = await api.post("/integrations/simpro/sync-customers");
+      setSyncResult(data);
+      toast.success(`Synced ${data.synced} customers (${data.created} new, ${data.updated} updated)`);
+      await Promise.all([load(), loadSimpro()]);
+    } catch (e) {
+      const msg = formatApiErrorDetail(e.response?.data?.detail) || e.message;
+      toast.error(msg);
+      setSyncResult({ error: msg });
+    } finally { setSyncing(false); }
+  };
+
+  const simproEnabled = !!(simpro && simpro.enabled);
+  const simproConfigured = simproEnabled && !!(simpro.build_name && simpro.client_id);
+  const canImport = hasPerm("integrations.edit") && hasPerm("customers.create") && simproConfigured;
 
   return (
     <div className="max-w-6xl space-y-6" data-testid="customers-page">
@@ -50,25 +79,41 @@ export default function CustomersList() {
           <p className="text-sm text-gray-500 mt-1">Search, manage and quote your customers.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button variant="outline" disabled data-testid="simpro-import-btn"
-                    className="border-[#1F2A33] text-[#1F2A33] font-semibold h-11 px-5 opacity-50 cursor-not-allowed">
-                    <AppIcon name="upload" size={16} className="mr-2" decorative/> Import from Simpro
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>MOCKED — available in Phase 4</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          {canImport ? (
+            <Button variant="outline" onClick={runSync} disabled={syncing} data-testid="simpro-import-btn"
+              className="border-purple-600 text-purple-700 hover:bg-purple-50 font-semibold h-11 px-5">
+              {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="upload" size={16} className="mr-2" decorative/>}
+              Import from Simpro
+            </Button>
+          ) : (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button variant="outline" disabled data-testid="simpro-import-btn"
+                      className="border-[#1F2A33] text-[#1F2A33] font-semibold h-11 px-5 opacity-50 cursor-not-allowed">
+                      <AppIcon name="upload" size={16} className="mr-2" decorative/> Import from Simpro
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {simproEnabled ? "Configure Simpro credentials in Settings → Integrations" : "Enable Simpro in Settings → Integrations to import"}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           <Button onClick={() => navigate("/customers/new")} data-testid="new-customer-btn"
             className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-11 px-6">
             <AppIcon name="add" size={16} className="mr-1" decorative/> New customer
           </Button>
         </div>
       </div>
+
+      {simproConfigured && simpro.last_sync_status === "ok" && simpro.last_sync_at && (
+        <div className="bg-green-50 border border-green-200 text-green-800 text-xs px-4 py-2 rounded" data-testid="customers-banner-live">
+          <span className="font-bold">LIVE</span> · Last Simpro import {formatDateTime(simpro.last_sync_at)} · {simpro.last_sync_customers_count || 0} customers
+        </div>
+      )}
 
       <form onSubmit={onSearchSubmit} className="flex flex-wrap gap-2 items-center">
         <div className="relative flex-1 max-w-md">
@@ -119,6 +164,10 @@ export default function CustomersList() {
                       <td className="px-4 py-3">
                         <Link to={`/customers/${c.id}`} className="font-semibold text-[#1F2A33] hover:text-[#3A6B8C]"
                           data-testid={`customer-link-${c.id}`}>{c.company_name}</Link>
+                        {c.source === "SIMPRO" && (
+                          <span className="ml-2 text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded"
+                                data-testid={`simpro-chip-${c.id}`}>Simpro</span>
+                        )}
                         {isDeleted && (
                           <span className="ml-2 text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-800 px-1.5 py-0.5 rounded"
                                 data-testid={`deleted-badge-${c.id}`}>deleted</span>
@@ -156,6 +205,30 @@ export default function CustomersList() {
           </div>
         )}
       </section>
+
+      <Dialog open={!!syncResult} onOpenChange={(v) => !v && setSyncResult(null)}>
+        <DialogContent data-testid="simpro-sync-result">
+          <DialogHeader>
+            <DialogTitle className="inline-flex items-center gap-2">
+              <AppIcon name={syncResult?.error ? "warning" : "success"} size={22} decorative/>
+              {syncResult?.error ? "Simpro import failed" : "Simpro import complete"}
+            </DialogTitle>
+            <DialogDescription>
+              {syncResult?.error ? syncResult.error :
+                `Fetched ${syncResult?.fetched_from_simpro} from Simpro · created ${syncResult?.created} · updated ${syncResult?.updated}${(syncResult?.errors?.length||0) ? ` · ${syncResult.errors.length} row error(s)` : ""}.`}
+            </DialogDescription>
+          </DialogHeader>
+          {(syncResult?.errors?.length||0) > 0 && (
+            <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 max-h-40 overflow-auto space-y-1">
+              {syncResult.errors.slice(0, 10).map((e, i) => (<div key={i}><strong>#{e.simpro_id}</strong> — {e.reason}</div>))}
+              {syncResult.errors.length > 10 && <div className="italic">+{syncResult.errors.length - 10} more</div>}
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setSyncResult(null)} className="bg-[#1F2A33] text-white hover:bg-[#3A6B8C]">Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
