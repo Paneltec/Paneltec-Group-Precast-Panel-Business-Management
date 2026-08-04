@@ -33,27 +33,34 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
   const [result, setResult] = useState(null);
   const [acceptedIds, setAcceptedIds] = useState(new Set());
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const nav = useNavigate();
+
+  const loadStatus = async () => {
+    setRefreshing(true);
+    try {
+      const s = await api.get("/admin/settings");
+      const ai = s.data.ai_providers || {};
+      const active = ai.active_text_provider;
+      const prov = active ? ai[active] : null;
+      const ready = !!(active && prov && (prov.status === "CONNECTED" || prov.status === "MANUAL"));
+      setAiSettings({ provider: active, status: prov?.status || "NOT_CONFIGURED", ready });
+      setTavilyReady(!!(s.data.tavily?.enabled && s.data.tavily?.status === "CONNECTED"));
+      const list = await api.get("/admin/settings/compliance-standards");
+      setStandards(list.data);
+      if (!Object.keys(selected).length) {
+        const initial = {}; list.data.forEach(x => { initial[x.name] = true; });
+        setSelected(initial);
+      }
+    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
+    finally { setRefreshing(false); }
+  };
 
   useEffect(() => {
     if (!open) return;
-    (async () => {
-      try {
-        const s = await api.get("/admin/settings");
-        const ai = s.data.ai_providers || {};
-        const active = ai.active_text_provider;
-        const prov = active ? ai[active] : null;
-        const ready = !!(active && prov && (prov.status === "CONNECTED" || prov.status === "MANUAL"));
-        setAiSettings({ provider: active, status: prov?.status || "NOT_CONFIGURED", ready });
-        setTavilyReady(!!(s.data.tavily?.enabled && s.data.tavily?.status === "CONNECTED"));
-        const list = await api.get("/admin/settings/compliance-standards");
-        setStandards(list.data);
-        const initial = {}; list.data.forEach(x => { initial[x.name] = true; });
-        setSelected(initial);
-      } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
-    })();
-    // Reset transient
+    loadStatus();
     setResult(null); setStep(-1); setAcceptedIds(new Set());
+    // eslint-disable-next-line
   }, [open]);
 
   const canRun = aiSettings?.ready && tavilyReady && Object.values(selected).some(Boolean)
@@ -118,10 +125,23 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
             {aiSettings === null ? (
               <div className="text-xs text-gray-500 flex items-center gap-2"><Loader2 className="w-3 h-3 animate-spin"/> Loading settings…</div>
             ) : (!aiSettings.ready || !tavilyReady) && (
-              <div className="bg-red-50 border border-red-200 text-red-800 rounded p-3 text-sm space-y-1">
-                <div className="font-bold">Prerequisites missing:</div>
-                {!aiSettings.ready && <div>• Active AI text provider is <code>{aiSettings.provider || "(none)"}</code> — status {aiSettings.status}. Connect one in Admin Settings → AI Providers.</div>}
-                {!tavilyReady && <div>• Tavily web-search key not configured. Add it in Admin Settings → Integrations → Web Search.</div>}
+              <div className="bg-red-50 border border-red-200 text-red-800 rounded p-3 text-sm space-y-1" data-testid="ai-prereq-banner">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-bold">Prerequisites missing:</div>
+                  <button onClick={loadStatus} disabled={refreshing}
+                          className="text-[11px] font-semibold underline text-red-700 hover:text-red-900 inline-flex items-center gap-1"
+                          data-testid="ai-refresh-status">
+                    {refreshing ? <Loader2 className="w-3 h-3 animate-spin"/> : null} Refresh status
+                  </button>
+                </div>
+                {!aiSettings.ready && (
+                  <div>• Active AI text provider is <code>{aiSettings.provider || "(none)"}</code> — status {aiSettings.status}.
+                    {aiSettings.provider ? " Reconnect it or " : ""}
+                    <a href="/admin/settings" className="underline font-semibold">open Admin Settings → AI Providers</a>
+                    {aiSettings.provider ? "" : " and either connect a provider (which auto-elects it) or click the \"Set active (text)\" radio on an already-connected card"}.
+                  </div>
+                )}
+                {!tavilyReady && <div>• Tavily web-search key not configured. Add it in <a href="/admin/settings" className="underline font-semibold">Admin Settings → Web Search</a>.</div>}
               </div>
             )}
 

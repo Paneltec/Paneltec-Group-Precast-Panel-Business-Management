@@ -3328,6 +3328,15 @@ async def ai_provider_connect(provider: str, payload: Dict[str, Any] = Body(...)
                      "status": verify["status"],
                      "connected_at": now_iso(),
                      "connection_mode": "api_key"}
+    # Phase 11.6.1 — auto-elect this provider as active if no active is set,
+    # so users don't get stuck at the AI Standards Check prereq gate after
+    # a successful connect.
+    text_providers = {"openai", "anthropic", "google"}
+    image_providers = {"openai", "nano_banana"}
+    if provider in text_providers and not ai.get("active_text_provider"):
+        ai["active_text_provider"] = provider
+    if provider in image_providers and not ai.get("active_image_provider"):
+        ai["active_image_provider"] = provider
     await db.settings.update_one({"key":"admin_settings"},
         {"$set": {"ai_providers": ai, "updated_at": now_iso()}}, upsert=True)
     await record_audit(user, "ai_provider_connected", "admin_settings", provider, provider,
@@ -3417,6 +3426,9 @@ async def ai_google_oauth_callback(code: str, state: Optional[str] = None):
                      "enabled": True, "status": "CONNECTED",
                      "connected_at": now_iso(),
                      "connection_mode": "oauth"}
+    # Auto-elect active text provider if none is set (Phase 11.6.1)
+    if not ai.get("active_text_provider"):
+        ai["active_text_provider"] = "google"
     await db.settings.update_one({"key":"admin_settings"},
         {"$set": {"ai_providers": ai, "updated_at": now_iso()}}, upsert=True)
     await record_audit({"id": admin["id"], "email": admin.get("email"), "name": admin.get("name")},
