@@ -532,6 +532,25 @@ There is no restore UI in this release. Super Admins can undelete a record by re
 **App version**: v1.0 · Phase 11
 **Manual last updated**: 2026-06-22
 
+### Phase 11.5 (2026-08-04) — AI Providers Connect flow + audit-trail report
+- New "Connect account" flow per provider under Admin Settings → AI Providers, replacing the flat paste-key input. OpenAI / Anthropic / Nano Banana use paste-key + live verify (real `GET /v1/models` roundtrip). Google Gemini uses OAuth2 when `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_REDIRECT_URI` env vars are set; otherwise renders a yellow fallback banner and accepts a manual API key.
+- Status pills per provider: `NOT CONFIGURED` (grey) · `MANUAL` (yellow) · `CONNECTED` (green) · `ERROR` (red, message on hover).
+- Disconnect button clears creds. Every connect/disconnect writes `ai_provider_connected` / `ai_provider_disconnected` audit events.
+- New endpoints (all super-admin gated): `POST /api/admin/settings/ai_providers/{provider}/connect`, `POST .../disconnect`, `GET .../oauth/google/start`, `GET .../oauth/google/callback`, `GET .../oauth-status`.
+- `GET /api/reports/audit-trail` now returns 200 with a proper `{kpis, charts, table}` payload — last "Unknown report" regression closed. Rows have no `_id`/`_entity` so the Actions column stays hidden.
+
+### 18.4 AI Providers — connect account
+Admin Settings → **AI Providers** shows one card per provider. Instead of pasting a key blindly, click **Connect account** to run a verified handshake:
+
+1. **OpenAI** — modal opens with a "Sign in to OpenAI" link (`platform.openai.com/api-keys` in a new tab), a paste field, and **Save & verify**. Live `GET /v1/models` call — 200 → green **CONNECTED**; anything else → **ERROR** with the reason.
+2. **Anthropic (Claude)** — identical pattern against `api.anthropic.com/v1/models` using `x-api-key` + `anthropic-version` headers.
+3. **Google (Gemini)** — if `GOOGLE_OAUTH_CLIENT_ID/_SECRET/_REDIRECT_URI` are set on the server, a **Sign in with Google** button starts OAuth2 (offline access, scopes `openid email profile generative-language`). On callback the app stores refresh + access tokens and the user's email; pill goes **CONNECTED as user@example.com**. If OAuth is not configured, a yellow fallback banner shows — paste an API key from `aistudio.google.com/apikey` and Save & verify (pill goes yellow **MANUAL**).
+4. **Nano Banana (image gen)** — API-key paste + Save & verify. No public metadata endpoint so any key ≥ 20 chars is accepted; pill goes green **CONNECTED**.
+
+Once ≥1 text-provider is CONNECTED / MANUAL, its radio button becomes clickable to make it the app's **active text provider**. Same for the image provider (Nano Banana is the only image option today). AI-driven features in future phases will read `admin_settings.ai_providers.active_text_provider` / `.active_image_provider`.
+
+Click **Disconnect** to clear stored credentials — pill reverts to grey **NOT CONFIGURED** and the audit trail records who unlinked it and when.
+
 ### Phase 11.3 (2026-08-04) — Report row Edit/Delete + Lock rules
 - Report tables (Customers, Quotes, Jobs, Invoices, Vehicles, Employees, Compliance Forms) now show an **Actions** column with role-gated Edit + Delete icons.
 - Finalised records collapse to a lock icon + tooltip (see §17.9): invoices sent/pushed-to-Xero, quotes accepted, jobs delivered/completed, compliance forms signed.

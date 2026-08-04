@@ -8,6 +8,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog";
 import { toast } from "sonner";
 
 const TABS = [
@@ -235,62 +236,180 @@ function EmailTemplatesPane({ settings, onSaved }) {
 }
 
 function AIProvidersPane({ settings, onSaved }) {
-  const { form, setForm, busy, save } = useSaver("ai_providers", settings, onSaved);
-  const [testing, setTesting] = useState(null);
+  const [form, setForm] = useState(settings || {});
+  const [busy, setBusy] = useState(false);
+  const [oauth, setOauth] = useState(null); // {google:{oauth_configured, redirect_uri, ...}}
+  const [modal, setModal] = useState(null); // {provider, kind}
+  const [modalKey, setModalKey] = useState("");
+  const [modalBusy, setModalBusy] = useState(false);
+  const [modalResult, setModalResult] = useState(null);
+  useEffect(() => { setForm(settings || {}); }, [settings]);
+  useEffect(() => { api.get("/admin/settings/ai_providers/oauth-status").then(r => setOauth(r.data)).catch(() => setOauth({google:{oauth_configured:false}})); }, []);
+
   const providers = [
-    { key: "openai",     label: "OpenAI (GPT)",       kind: "text" },
-    { key: "anthropic",  label: "Anthropic (Claude)", kind: "text" },
-    { key: "google",     label: "Google (Gemini)",    kind: "text" },
-    { key: "nano_banana",label: "Nano Banana (image)",kind: "image" },
+    { key: "openai",     label: "OpenAI (GPT)",       kind: "text",  keyUrl: "https://platform.openai.com/api-keys",  oauthAvailable: false },
+    { key: "anthropic",  label: "Anthropic (Claude)", kind: "text",  keyUrl: "https://console.anthropic.com/settings/keys", oauthAvailable: false },
+    { key: "google",     label: "Google (Gemini)",    kind: "text",  keyUrl: "https://aistudio.google.com/apikey",    oauthAvailable: true },
+    { key: "nano_banana",label: "Nano Banana (image)",kind: "image", keyUrl: "https://fal.ai/dashboard/keys",         oauthAvailable: false },
   ];
+
+  const statusOf = (p) => (form[p.key] || {}).status || "NOT_CONFIGURED";
+  const pill = (status) => {
+    const map = {
+      CONNECTED:      "bg-green-100 text-green-800",
+      MANUAL:         "bg-yellow-100 text-yellow-800",
+      NOT_CONFIGURED: "bg-gray-100 text-gray-600",
+      ERROR:          "bg-red-100 text-red-800",
+    };
+    return map[status] || map.NOT_CONFIGURED;
+  };
   const setActive = (kind, key) => {
-    setForm({
-      ...form,
-      active_text_provider: kind === "text" ? key : form.active_text_provider,
+    const next = { ...form,
+      active_text_provider:  kind === "text"  ? key : form.active_text_provider,
       active_image_provider: kind === "image" ? key : form.active_image_provider,
-    });
+    };
+    setForm(next);
+    // Persist active selection immediately (not the whole ai_providers doc — just the two active fields)
+    api.put("/admin/settings/ai_providers", next).catch(() => {});
   };
-  const testKey = async (key) => {
-    setTesting(key);
+  const openConnect = (p) => { setModal(p); setModalKey(""); setModalResult(null); };
+  const closeConnect = () => { setModal(null); setModalKey(""); setModalResult(null); };
+
+  const runVerify = async () => {
+    if (!modal) return;
+    if (!modalKey.trim()) { toast.error("Paste an API key first"); return; }
+    setModalBusy(true); setModalResult(null);
     try {
-      const { data } = await api.post("/admin/settings/ai_providers/test",
-        { provider: key, api_key: form[key]?.api_key || undefined });
-      toast[data.status === "OK" ? "success" : "info"](`${key}: ${data.message}`);
+      const { data } = await api.post(`/admin/settings/ai_providers/${modal.key}/connect`, { api_key: modalKey.trim() });
+      setModalResult(data);
+      if (data.status === "CONNECTED" || data.status === "MANUAL") { toast.success(data.message); onSaved?.(); }
+      else toast.error(data.message || "Connection failed");
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
-    finally { setTesting(null); }
+    finally { setModalBusy(false); }
   };
+  const disconnect = async (p) => {
+    if (!window.confirm(`Disconnect ${p.label}? Stored credentials will be cleared.`)) return;
+    try { await api.post(`/admin/settings/ai_providers/${p.key}/disconnect`); toast.success(`${p.label} disconnected`); onSaved?.(); }
+    catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
+  };
+  const startGoogleOAuth = async () => {
+    try {
+      const { data } = await api.get("/admin/settings/ai_providers/oauth/google/start");
+      window.open(data.authorize_url, "_blank", "width=560,height=720");
+      toast.info("Google sign-in opened in a new window. Return here after granting access.");
+      setTimeout(() => onSaved?.(), 4000); // poll refresh so status flips to CONNECTED
+    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
+  };
+
   return (
     <div className="space-y-3">
       {providers.map(p => {
+        const status = statusOf(p);
         const isActive = p.kind === "text" ? form.active_text_provider === p.key : form.active_image_provider === p.key;
+        const isConnected = status === "CONNECTED" || status === "MANUAL";
+        const isGoogleOauth = p.key === "google" && oauth?.google?.oauth_configured;
+        const providerNode = form[p.key] || {};
         return (
-          <div key={p.key} className="bg-white border border-gray-200 rounded p-4 space-y-2" data-testid={`ai-card-${p.key}`}>
-            <div className="flex items-center justify-between">
-              <div className="font-bold text-[#1F2A33]">{p.label}</div>
+          <div key={p.key} className="bg-white border border-gray-200 rounded p-4 space-y-3" data-testid={`ai-card-${p.key}`}>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-3">
+                <div className="font-bold text-[#1F2A33]">{p.label}</div>
+                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${pill(status)}`}
+                      data-testid={`ai-status-${p.key}`}
+                      title={status === "ERROR" ? (providerNode.last_error || "Error") : ""}>
+                  {status.replace("_"," ")}
+                </span>
+                {providerNode.connection_mode === "oauth" && providerNode.oauth_email && (
+                  <span className="text-xs text-gray-500" data-testid={`ai-oauth-email-${p.key}`}>as {providerNode.oauth_email}</span>
+                )}
+              </div>
               <label className="text-xs flex items-center gap-2">
                 <input type="radio" name={`active_${p.kind}`} checked={isActive}
+                       disabled={!isConnected}
                        onChange={() => setActive(p.kind, p.key)} data-testid={`ai-active-${p.key}`}/>
-                Set as active ({p.kind})
+                Set active ({p.kind})
               </label>
             </div>
-            <Input type="password" placeholder="API key" value={form[p.key]?.api_key || ""}
-                   onChange={(e)=>setForm({...form,[p.key]:{...(form[p.key]||{}),api_key:e.target.value,enabled:!!e.target.value}})}
-                   data-testid={`ai-key-${p.key}`}/>
-            <div className="flex justify-end">
-              <Button variant="outline" size="sm" disabled={testing === p.key} onClick={() => testKey(p.key)}
-                      data-testid={`ai-test-${p.key}`}>
-                {testing === p.key ? <Loader2 className="w-3 h-3 mr-1 animate-spin"/> : null} Test key
-              </Button>
+            <div className="flex flex-wrap gap-2">
+              {p.key === "google" && isGoogleOauth && !isConnected && (
+                <Button onClick={startGoogleOAuth} className="bg-[#3A6B8C] text-white hover:bg-[#1F2A33]"
+                        data-testid={`ai-oauth-${p.key}`}>
+                  <AppIcon name="google" size={14} decorative className="mr-1"/> Sign in with Google
+                </Button>
+              )}
+              {!isConnected && (
+                <Button onClick={() => openConnect(p)} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]"
+                        data-testid={`ai-connect-${p.key}`}>
+                  <AppIcon name="key" size={14} decorative className="mr-1"/> Connect account
+                </Button>
+              )}
+              {isConnected && (
+                <>
+                  <Button variant="outline" onClick={() => openConnect(p)} data-testid={`ai-reconnect-${p.key}`}>
+                    Update key
+                  </Button>
+                  <Button variant="outline" onClick={() => disconnect(p)}
+                          className="text-red-700 border-red-200 hover:bg-red-50" data-testid={`ai-disconnect-${p.key}`}>
+                    Disconnect
+                  </Button>
+                </>
+              )}
             </div>
+            {p.key === "google" && !isGoogleOauth && (
+              <div className="text-[11px] bg-yellow-50 border border-yellow-200 text-yellow-800 rounded px-2 py-1">
+                Google OAuth not yet configured on the server. Paste an API key from <a className="underline" target="_blank" rel="noreferrer" href={p.keyUrl}>aistudio.google.com/apikey</a> to use MANUAL mode.
+              </div>
+            )}
           </div>
         );
       })}
-      <div className="text-xs text-gray-500">
+      <div className="text-xs text-gray-500 pt-2">
         Active text provider: <strong>{form.active_text_provider || "(none)"}</strong> · Active image provider: <strong>{form.active_image_provider || "(none)"}</strong>
       </div>
-      <Button onClick={() => save()} disabled={busy} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]" data-testid="ai-save-btn">
-        {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : null} Save AI settings
-      </Button>
+
+      {/* Connect modal */}
+      <Dialog open={!!modal} onOpenChange={(v) => !v && closeConnect()}>
+        <DialogContent data-testid="ai-connect-dialog" className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="inline-flex items-center gap-2">
+              <AppIcon name="key" size={22} decorative/> Connect {modal?.label}
+            </DialogTitle>
+            <DialogDescription>
+              1. Sign in and create/copy an API key on the provider's site.<br/>
+              2. Paste it below and click <strong>Save &amp; verify</strong> — we'll make a live call to confirm it works.
+            </DialogDescription>
+          </DialogHeader>
+          {modal && (
+            <div className="space-y-3 py-2">
+              <a href={modal.keyUrl} target="_blank" rel="noreferrer"
+                 className="inline-flex items-center gap-1 text-sm font-semibold text-[#3A6B8C] hover:text-[#1F2A33] underline">
+                <ExternalLink className="w-4 h-4"/> Sign in to {modal.label} →
+              </a>
+              <div>
+                <Label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">API key</Label>
+                <Input type="password" value={modalKey} onChange={(e) => setModalKey(e.target.value)}
+                       placeholder={modal.key === "openai" ? "sk-…" : modal.key === "anthropic" ? "sk-ant-…" : "paste here"}
+                       data-testid="ai-connect-key-input" autoFocus/>
+              </div>
+              {modalResult && (
+                <div className={`text-xs px-3 py-2 rounded ${modalResult.status === "CONNECTED" || modalResult.status === "MANUAL"
+                  ? "bg-green-50 border border-green-200 text-green-800"
+                  : "bg-red-50 border border-red-200 text-red-800"}`} data-testid="ai-connect-result">
+                  <strong>{modalResult.status}</strong> — {modalResult.message}
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={closeConnect} disabled={modalBusy}>Cancel</Button>
+            <Button onClick={runVerify} disabled={modalBusy || !modalKey.trim()}
+                    className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]"
+                    data-testid="ai-connect-verify-btn">
+              {modalBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : null} Save &amp; verify
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

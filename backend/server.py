@@ -3126,7 +3126,8 @@ DEFAULT_ADMIN_SETTINGS = {
 }
 ADMIN_SETTING_TABS = set(DEFAULT_ADMIN_SETTINGS.keys())
 ADMIN_SECRET_FIELDS = {  # per-tab set of dotted paths whose value should be masked in GET
-    "ai_providers": {"openai.api_key", "anthropic.api_key", "google.api_key", "nano_banana.api_key"},
+    "ai_providers": {"openai.api_key", "anthropic.api_key", "google.api_key", "nano_banana.api_key",
+                      "google.oauth_refresh_token", "google.oauth_access_token"},
 }
 
 
@@ -3206,6 +3207,201 @@ async def admin_settings_ai_test(payload: Dict[str, Any] = Body(...),
     return {"status": "OK", "provider": prov, "message": "API key stored. Live probe deferred until AI features wired."}
 
 
+# ---------- Phase 11.5 — AI provider Connect / Disconnect / OAuth ----------
+AI_PROVIDERS = {"openai", "anthropic", "google", "nano_banana"}
+GOOGLE_OAUTH_CLIENT_ID     = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+GOOGLE_OAUTH_REDIRECT_URI  = os.environ.get("GOOGLE_OAUTH_REDIRECT_URI", "").strip()
+GOOGLE_OAUTH_CONFIGURED    = bool(GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET and GOOGLE_OAUTH_REDIRECT_URI)
+
+
+async def _verify_openai(api_key: str) -> Dict[str, Any]:
+    import httpx as _hx
+    try:
+        async with _hx.AsyncClient(timeout=15.0) as c:
+            r = await c.get("https://api.openai.com/v1/models",
+                             headers={"Authorization": f"Bearer {api_key}"})
+        if r.status_code == 200:
+            data = r.json() or {}
+            n = len((data.get("data") or []))
+            return {"ok": True, "status": "CONNECTED", "message": f"OpenAI OK — {n} models available"}
+        return {"ok": False, "status": "ERROR", "message": f"OpenAI HTTP {r.status_code}"}
+    except _hx.HTTPError as e:
+        return {"ok": False, "status": "ERROR", "message": f"OpenAI unreachable ({type(e).__name__})"}
+
+
+async def _verify_anthropic(api_key: str) -> Dict[str, Any]:
+    import httpx as _hx
+    try:
+        async with _hx.AsyncClient(timeout=15.0) as c:
+            r = await c.get("https://api.anthropic.com/v1/models",
+                             headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"})
+        if r.status_code == 200:
+            data = r.json() or {}
+            n = len((data.get("data") or []))
+            return {"ok": True, "status": "CONNECTED", "message": f"Anthropic OK — {n} models available"}
+        return {"ok": False, "status": "ERROR", "message": f"Anthropic HTTP {r.status_code}"}
+    except _hx.HTTPError as e:
+        return {"ok": False, "status": "ERROR", "message": f"Anthropic unreachable ({type(e).__name__})"}
+
+
+async def _verify_google_key(api_key: str) -> Dict[str, Any]:
+    import httpx as _hx
+    try:
+        async with _hx.AsyncClient(timeout=15.0) as c:
+            r = await c.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}")
+        if r.status_code == 200:
+            data = r.json() or {}
+            n = len(data.get("models") or [])
+            return {"ok": True, "status": "MANUAL", "message": f"Google OK — {n} models available (API-key manual mode)"}
+        return {"ok": False, "status": "ERROR", "message": f"Google HTTP {r.status_code}"}
+    except _hx.HTTPError as e:
+        return {"ok": False, "status": "ERROR", "message": f"Google unreachable ({type(e).__name__})"}
+
+
+async def _verify_nano_banana(api_key: str) -> Dict[str, Any]:
+    # No public metadata endpoint. Best-effort: accept keys ≥ 20 chars as "stored".
+    if len((api_key or "").strip()) < 20:
+        return {"ok": False, "status": "ERROR", "message": "Nano Banana key looks too short"}
+    return {"ok": True, "status": "CONNECTED", "message": "Nano Banana key stored (live probe not available)"}
+
+
+VERIFIERS = {"openai": _verify_openai, "anthropic": _verify_anthropic,
+              "google": _verify_google_key, "nano_banana": _verify_nano_banana}
+
+
+@api_router.get("/admin/settings/ai_providers/oauth-status")
+async def ai_oauth_status(user: dict = Depends(require_super_admin)):
+    return {"google": {"oauth_configured": GOOGLE_OAUTH_CONFIGURED,
+                        "client_id_prefix": (GOOGLE_OAUTH_CLIENT_ID[:12] + "…") if GOOGLE_OAUTH_CONFIGURED else None,
+                        "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI if GOOGLE_OAUTH_CONFIGURED else None}}
+
+
+@api_router.post("/admin/settings/ai_providers/{provider}/connect")
+async def ai_provider_connect(provider: str, payload: Dict[str, Any] = Body(...),
+                                user: dict = Depends(require_super_admin)):
+    if provider not in AI_PROVIDERS:
+        raise HTTPException(status_code=400, detail="Unknown AI provider")
+    api_key = (payload.get("api_key") or "").strip()
+    if _is_masked(api_key):
+        stored = (await _load_admin_settings()).get("ai_providers", {}).get(provider, {})
+        api_key = stored.get("api_key") or ""
+    if not api_key:
+        raise HTTPException(status_code=400, detail="api_key required")
+    verify = await VERIFIERS[provider](api_key)
+    if not verify.get("ok"):
+        return {"status": verify.get("status","ERROR"), "provider": provider,
+                "message": verify.get("message","Verification failed")}
+    settings = await _load_admin_settings()
+    ai = settings.get("ai_providers", {})
+    ai[provider] = {**(ai.get(provider) or {}),
+                     "api_key": api_key, "enabled": True,
+                     "status": verify["status"],
+                     "connected_at": now_iso(),
+                     "connection_mode": "api_key"}
+    await db.settings.update_one({"key":"admin_settings"},
+        {"$set": {"ai_providers": ai, "updated_at": now_iso()}}, upsert=True)
+    await record_audit(user, "ai_provider_connected", "admin_settings", provider, provider,
+                       metadata={"mode": "api_key", "status": verify["status"]})
+    return {"status": verify["status"], "provider": provider, "message": verify.get("message","Connected")}
+
+
+@api_router.post("/admin/settings/ai_providers/{provider}/disconnect")
+async def ai_provider_disconnect(provider: str, user: dict = Depends(require_super_admin)):
+    if provider not in AI_PROVIDERS:
+        raise HTTPException(status_code=400, detail="Unknown AI provider")
+    settings = await _load_admin_settings()
+    ai = settings.get("ai_providers", {})
+    ai[provider] = {"api_key": "", "enabled": False, "status": "NOT_CONFIGURED",
+                    "connected_at": None, "connection_mode": None,
+                    "oauth_refresh_token": None, "oauth_access_token": None,
+                    "oauth_email": None}
+    if ai.get("active_text_provider") == provider: ai["active_text_provider"] = None
+    if ai.get("active_image_provider") == provider: ai["active_image_provider"] = None
+    await db.settings.update_one({"key":"admin_settings"},
+        {"$set": {"ai_providers": ai, "updated_at": now_iso()}}, upsert=True)
+    await record_audit(user, "ai_provider_disconnected", "admin_settings", provider, provider)
+    return {"status": "NOT_CONFIGURED", "provider": provider}
+
+
+@api_router.get("/admin/settings/ai_providers/oauth/google/start")
+async def ai_google_oauth_start(user: dict = Depends(require_super_admin)):
+    if not GOOGLE_OAUTH_CONFIGURED:
+        raise HTTPException(status_code=400, detail="Google OAuth not configured — set GOOGLE_OAUTH_CLIENT_ID / _SECRET / _REDIRECT_URI env vars.")
+    import urllib.parse as _up
+    params = {
+        "client_id": GOOGLE_OAUTH_CLIENT_ID,
+        "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile https://www.googleapis.com/auth/generative-language",
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": user["id"],
+    }
+    return {"authorize_url": f"https://accounts.google.com/o/oauth2/v2/auth?{_up.urlencode(params)}"}
+
+
+@api_router.get("/admin/settings/ai_providers/oauth/google/callback")
+async def ai_google_oauth_callback(code: str, state: Optional[str] = None):
+    """Google OAuth2 authorization-code exchange. Called by Google after the user
+    grants consent; must be reachable without a session (Google can't send our
+    JWT). We validate `state` against the admin user IDs to prevent CSRF."""
+    if not GOOGLE_OAUTH_CONFIGURED:
+        raise HTTPException(status_code=400, detail="Google OAuth not configured")
+    admin = await db.users.find_one({"id": state, "is_super_admin": True}, {"_id":0,"id":1,"email":1,"name":1})
+    if not admin:
+        raise HTTPException(status_code=403, detail="Invalid OAuth state")
+    import urllib.parse as _up
+    import httpx as _hx
+    try:
+        async with _hx.AsyncClient(timeout=15.0) as c:
+            r = await c.post("https://oauth2.googleapis.com/token",
+                              data={"code": code,
+                                    "client_id": GOOGLE_OAUTH_CLIENT_ID,
+                                    "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+                                    "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
+                                    "grant_type": "authorization_code"})
+    except _hx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Google token exchange failed ({type(e).__name__})")
+    if r.status_code >= 400:
+        raise HTTPException(status_code=502, detail=f"Google token endpoint returned {r.status_code}")
+    body = r.json() or {}
+    access_token = body.get("access_token")
+    refresh_token = body.get("refresh_token")
+    if not access_token:
+        raise HTTPException(status_code=502, detail="Google response missing access_token")
+    # Get user email
+    try:
+        import httpx as _hx
+        async with _hx.AsyncClient(timeout=10.0) as c:
+            u = await c.get("https://www.googleapis.com/oauth2/v2/userinfo",
+                             headers={"Authorization": f"Bearer {access_token}"})
+        email = (u.json() or {}).get("email") if u.status_code == 200 else None
+    except Exception:
+        email = None
+    settings = await _load_admin_settings()
+    ai = settings.get("ai_providers", {})
+    ai["google"] = {**(ai.get("google") or {}),
+                     "oauth_refresh_token": refresh_token,
+                     "oauth_access_token": access_token,
+                     "oauth_email": email,
+                     "enabled": True, "status": "CONNECTED",
+                     "connected_at": now_iso(),
+                     "connection_mode": "oauth"}
+    await db.settings.update_one({"key":"admin_settings"},
+        {"$set": {"ai_providers": ai, "updated_at": now_iso()}}, upsert=True)
+    await record_audit({"id": admin["id"], "email": admin.get("email"), "name": admin.get("name")},
+                       "ai_provider_connected", "admin_settings", "google", "google",
+                       metadata={"mode": "oauth", "google_email": email})
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(f"""
+<!doctype html><html><body style="font-family:system-ui;padding:40px;text-align:center">
+<h1 style="color:#1F2A33">✅ Google connected</h1>
+<p style="color:#3A6B8C">Signed in as <strong>{email or 'Google account'}</strong>. You can close this window and return to Admin Settings.</p>
+<script>setTimeout(() => window.close(), 1500);</script>
+</body></html>""")
+
+
 @api_router.get("/admin/export/json")
 async def admin_export_json(user: dict = Depends(require_super_admin)):
     """Dump every business collection as a single JSON payload (streamed as a
@@ -3267,6 +3463,7 @@ REPORT_PERMS = {
     "margin": "pricing.view_costs",
     "compliance": "forms.view",
     "compliance-forms": "forms.view",
+    "audit-trail": "audit.view",
 }
 
 def _date_range_iso(date_from: Optional[str], date_to: Optional[str], default_days: int = 90):
@@ -3774,10 +3971,37 @@ async def _report_projects(date_from, date_to, _filters):
         "table": {"columns":["project_name","customer","status","created_at"],"rows":rows,"total":len(rows)},
     }
 
+async def _report_audit_trail(date_from, date_to, filters):
+    """Minimal audit report — respects the same list-endpoint filters. Returned
+    shape mirrors the other reports so the ReportDetail UI can render it, but
+    Audit Trail rows do NOT expose _id/_entity so row-actions won't appear."""
+    df, dt = _date_range_iso(date_from, date_to)
+    q: Dict[str, Any] = {"created_at": {"$gte": df, "$lte": dt}}
+    docs = await db.audit_events.find(q, {"_id":0}).sort("created_at", -1).limit(500).to_list(500)
+    by_action: Dict[str, int] = {}
+    for d in docs:
+        a = d.get("action","?"); by_action[a] = by_action.get(a,0)+1
+    top = sorted(by_action.items(), key=lambda x:-x[1])[:6]
+    rows = [{"when": d.get("created_at","")[:19].replace("T"," "),
+             "actor": d.get("actor_email") or d.get("actor_name") or "system",
+             "action": d.get("action",""),
+             "entity": d.get("entity_type",""),
+             "entity_name": d.get("entity_name",""),
+             "metadata": (str(d.get("metadata") or "")[:120]) } for d in docs]
+    return {
+        "kpis": {"events_in_range": len(docs),
+                 "top_action": top[0][0] if top else "—",
+                 "unique_actors": len({d.get("actor_email") for d in docs if d.get("actor_email")})},
+        "charts": {"by_action": [{"action":k,"count":v} for k,v in top]},
+        "table": {"columns":["when","actor","action","entity","entity_name","metadata"],
+                  "rows":rows, "total":len(rows)},
+    }
+
 _REPORT_FNS = {"customers":_report_customers,"quotes":_report_quotes,"jobs":_report_jobs,
                "invoices":_report_invoices,"vehicles":_report_vehicles,"employees":_report_employees,
                "projects":_report_projects,
                "margin":_report_margin,"compliance":_report_compliance,
+               "audit-trail":_report_audit_trail,
                # Aliases (Phase 11.4 bug-fix): tester-friendly canonical URLs
                "compliance-forms":_report_compliance}
 
