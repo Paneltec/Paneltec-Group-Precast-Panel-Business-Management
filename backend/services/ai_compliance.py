@@ -47,24 +47,26 @@ def check_rate_limit(user_id: str) -> Tuple[bool, int]:
 
 
 # --------------------- Step 1: Tavily search ---------------------
-async def tavily_search(api_key: str, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+async def tavily_search(api_key: str, query: str, max_results: int = 5) -> Dict[str, Any]:
+    """Return {"ok": bool, "results": [...], "error": str}.
+    Uses Tavily's `include_domains` array (site: operators + `country` field
+    caused HTTP 400 previously)."""
     if not api_key:
-        return []
-    site_scope = " OR ".join(f"site:{d}" for d in AU_STANDARDS_DOMAINS)
-    scoped = f"{query} ({site_scope})"
-    payload = {"api_key": api_key, "query": scoped,
+        return {"ok": False, "results": [], "error": "Missing Tavily API key"}
+    payload = {"api_key": api_key, "query": query,
                 "search_depth": "advanced", "max_results": max_results,
-                "include_answer": False, "country": "AU"}
+                "include_answer": False,
+                "include_domains": AU_STANDARDS_DOMAINS}
     try:
         async with httpx.AsyncClient(timeout=20.0) as c:
             r = await c.post("https://api.tavily.com/search", json=payload)
         if r.status_code != 200:
-            logger.warning("Tavily HTTP %s", r.status_code)
-            return []
-        return (r.json() or {}).get("results", [])
+            snippet = (r.text or "")[:200]
+            logger.warning("Tavily HTTP %s — %s", r.status_code, snippet)
+            return {"ok": False, "results": [], "error": f"Tavily HTTP {r.status_code}: {snippet}"}
+        return {"ok": True, "results": (r.json() or {}).get("results", []), "error": ""}
     except httpx.HTTPError as e:
-        logger.warning("Tavily unreachable: %s", type(e).__name__)
-        return []
+        return {"ok": False, "results": [], "error": f"Tavily unreachable ({type(e).__name__})"}
 
 
 async def tavily_verify(api_key: str) -> Dict[str, Any]:
@@ -81,14 +83,23 @@ async def tavily_verify(api_key: str) -> Dict[str, Any]:
 
 
 async def gather_sources(api_key: str, standards: List[str],
-                          template_keywords: str) -> List[Dict[str, Any]]:
-    """Gather Tavily snippets for every selected standard. Returns a flat list
-    of {standard, title, url, snippet} entries."""
+                          template_keywords: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """Gather Tavily snippets for every selected standard. Returns
+    (sources, error) where `error` is None on success. If EVERY per-standard
+    call errored, returns (empty, first error message) so the endpoint can
+    surface a useful 502 instead of silently continuing with 0 context."""
     out: List[Dict[str, Any]] = []
+    first_error: Optional[str] = None
+    ok_calls = 0
     for std in standards:
         q = f"{std} {template_keywords} Tasmania precast concrete"
-        results = await tavily_search(api_key, q, max_results=5)
-        for r in results:
+        res = await tavily_search(api_key, q, max_results=5)
+        if not res.get("ok"):
+            if first_error is None:
+                first_error = res.get("error") or "Tavily error"
+            continue
+        ok_calls += 1
+        for r in res.get("results") or []:
             out.append({
                 "standard": std,
                 "title": (r.get("title") or "")[:200],
@@ -105,7 +116,10 @@ async def gather_sources(api_key: str, standards: List[str],
         if running_chars + entry_chars > CONTEXT_TOKEN_BUDGET * _APPROX_CHARS_PER_TOKEN:
             break
         trimmed.append(e); running_chars += entry_chars
-    return trimmed
+    # If every search errored, propagate the failure
+    if ok_calls == 0 and first_error:
+        return trimmed, first_error
+    return trimmed, None
 
 
 # --------------------- Step 2: LLM call ---------------------

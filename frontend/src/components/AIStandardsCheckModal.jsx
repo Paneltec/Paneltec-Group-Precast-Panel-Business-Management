@@ -31,9 +31,11 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
   const [running, setRunning] = useState(false);
   const [step, setStep] = useState(-1);
   const [result, setResult] = useState(null);
+  const [error, setError] = useState(null); // { status, detail, canRetry }
   const [acceptedIds, setAcceptedIds] = useState(new Set());
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [abortCtrl, setAbortCtrl] = useState(null);
   const nav = useNavigate();
 
   const loadStatus = async () => {
@@ -85,7 +87,7 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
   useEffect(() => {
     if (!open) return;
     loadStatus();
-    setResult(null); setStep(-1); setAcceptedIds(new Set());
+    setResult(null); setError(null); setStep(-1); setAcceptedIds(new Set());
     setTemplateId(""); // Phase 11.6.2 — never pre-select a template; force explicit choice
     // eslint-disable-next-line
   }, [open]);
@@ -97,20 +99,47 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
 
   const runCheck = async () => {
     if (!canRun) return;
-    setRunning(true); setResult(null); setStep(0);
+    setRunning(true); setResult(null); setError(null); setStep(0);
     // Progressive step ticks — cosmetic timing, real work is one HTTP call
     const ticker = setInterval(() => setStep(s => Math.min(s + 1, STEPS.length - 1)), 8000);
+    const ctrl = new AbortController();
+    setAbortCtrl(ctrl);
     try {
       const body = { mode, standards: chosenStandards() };
       if (mode === "update") body.template_id = templateId;
       else body.template_type = templateType === "Custom" ? (customType || "Custom") : templateType;
-      const { data } = await api.post("/admin/compliance/ai-check", body);
+      const { data } = await api.post("/admin/compliance/ai-check", body, { signal: ctrl.signal });
       setResult(data);
       // Pre-check all changes by default
       if (data.mode === "update") setAcceptedIds(new Set((data.changes || []).map(c => c.id)));
     } catch (e) {
-      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
-    } finally { clearInterval(ticker); setRunning(false); setStep(STEPS.length); }
+      // Distinguish user-cancel vs real failure
+      const isCancel = e?.code === "ERR_CANCELED" || e?.name === "CanceledError" || e?.message === "canceled";
+      if (isCancel) {
+        // User pressed Cancel — silently return to form
+        setError(null);
+      } else {
+        const status = e?.response?.status || 0;
+        const detail = formatApiErrorDetail(e?.response?.data?.detail) || e?.message || "Unknown error";
+        setError({ status, detail, provider: aiSettings?.provider || null });
+      }
+    } finally {
+      clearInterval(ticker);
+      setRunning(false);
+      setStep(STEPS.length);
+      setAbortCtrl(null);
+    }
+  };
+
+  const cancelRun = () => {
+    if (abortCtrl) abortCtrl.abort();
+    setError(null);
+    setRunning(false);
+  };
+
+  const dismissError = () => {
+    setError(null);
+    setStep(-1);
   };
 
   const toggleChange = (id) => {
@@ -146,7 +175,7 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
           </DialogDescription>
         </DialogHeader>
 
-        {!result && (
+        {!result && !running && !error && (
           <div className="space-y-4 py-2">
             {/* Prerequisite check */}
             {aiSettings === null ? (
@@ -280,7 +309,7 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
             </div>
 
             <div className="bg-gray-50 border border-gray-200 rounded p-2 text-xs" data-testid="ai-modal-footer">
-              Active AI provider: <strong className="font-mono" data-testid="ai-modal-footer-provider">{aiSettings?.provider || "(none)"}</strong> · Region: <strong>Tasmania, Australia</strong> · Rate limit: 5 runs / hour <span className="text-gray-400">· ui v11.6.3</span>
+              Active AI provider: <strong className="font-mono" data-testid="ai-modal-footer-provider">{aiSettings?.provider || "(none)"}</strong> · Region: <strong>Tasmania, Australia</strong> · Rate limit: 5 runs / hour <span className="text-gray-400">· ui v11.6.4</span>
             </div>
           </div>
         )}
@@ -296,6 +325,35 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
               </div>
             ))}
             <div className="text-[11px] text-gray-500 pt-2">Typical run: 30–90 s. Live calls in flight — do not close this window.</div>
+          </div>
+        )}
+
+        {error && !running && (
+          <div className="py-4" data-testid="ai-error-panel">
+            <div className="bg-red-50 border border-red-300 text-red-900 rounded p-4 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-base">
+                <AppIcon name="warning" size={18} decorative/> AI Standards Check failed
+              </div>
+              <div className="text-xs uppercase tracking-wider font-bold text-red-700">
+                HTTP {error.status || "network"}
+              </div>
+              <div className="text-sm font-mono bg-white border border-red-200 rounded p-2 whitespace-pre-wrap break-words"
+                   data-testid="ai-error-detail">
+                {error.detail}
+              </div>
+              {(error.status === 429 || /quota|billing|credit/i.test(error.detail) || /HTTP 401|HTTP 403|invalid.*key/i.test(error.detail)) && (
+                <div className="text-xs bg-yellow-50 border border-yellow-200 text-yellow-900 rounded p-2">
+                  <strong>Hint:</strong> {error.status === 429 && !/HTTP 429/i.test(error.detail)
+                    ? "You've hit the internal 5-runs-per-hour cap for AI Standards Check. Wait an hour or try a different super-admin account."
+                    : "Your active AI provider is out of quota or the key is invalid. Try switching to a different active provider in Admin Settings → AI Providers, or top up your provider account."}
+                </div>
+              )}
+              {(/^Tavily:/i.test(error.detail) || /tavily/i.test(error.detail)) && (
+                <div className="text-xs bg-yellow-50 border border-yellow-200 text-yellow-900 rounded p-2">
+                  <strong>Hint:</strong> The Tavily web-search key looks invalid or the query returned nothing. Reconnect Tavily in Admin Settings → Web Search.
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -354,13 +412,28 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
         )}
 
         <DialogFooter>
-          {!result && (
+          {running && (
+            <Button variant="outline" onClick={cancelRun} data-testid="ai-cancel-run-btn"
+                    className="text-red-700 border-red-200 hover:bg-red-50">
+              <AppIcon name="cancel" size={14} decorative className="mr-1"/> Cancel run
+            </Button>
+          )}
+          {error && !running && (
             <>
-              <Button variant="outline" onClick={onClose} disabled={running}>Cancel</Button>
-              <Button onClick={runCheck} disabled={!canRun || running}
+              <Button variant="outline" onClick={onClose} data-testid="ai-error-close-btn">Close</Button>
+              <Button onClick={dismissError} data-testid="ai-error-retry-btn"
+                      className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]">
+                <AppIcon name="refresh" size={14} decorative className="mr-1"/> Try again
+              </Button>
+            </>
+          )}
+          {!result && !running && !error && (
+            <>
+              <Button variant="outline" onClick={onClose}>Cancel</Button>
+              <Button onClick={runCheck} disabled={!canRun}
                       className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]"
                       data-testid="ai-run-btn">
-                {running ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="robot" size={16} className="mr-1" decorative/>}
+                <AppIcon name="robot" size={16} className="mr-1" decorative/>
                 Run
               </Button>
             </>

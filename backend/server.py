@@ -4238,7 +4238,13 @@ async def ai_compliance_check(payload: AICheckPayload,
 
     # Step 1 — Tavily web search
     template_keywords = template_type or payload.template_type or "precast concrete compliance"
-    sources = await _tavily_gather(tav["api_key"], standards, template_keywords)
+    sources, tavily_error = await _tavily_gather(tav["api_key"], standards, template_keywords)
+    if tavily_error and not sources:
+        raise HTTPException(status_code=502, detail=f"Tavily: {tavily_error}")
+    if not sources:
+        raise HTTPException(status_code=502,
+            detail="Tavily returned no matching results for the selected standards. "
+                    "Try broader standards names or verify the Tavily API key.")
 
     # Step 2 — LLM call
     prompt = _ai_build_prompt(payload.mode, template_type, template, standards, sources)
