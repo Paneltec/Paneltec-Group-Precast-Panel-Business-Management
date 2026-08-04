@@ -12,18 +12,20 @@ import { Textarea } from "../components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog";
 import { formatAUD } from "../lib/format";
 import { toast } from "sonner";
-import ReportRowActions from "../components/ReportRowActions";
+import ReportRowActions, { evaluateLock as evaluateLockUnsafe } from "../components/ReportRowActions";
 
 // Phase 11.3 — Report keys that expose Edit/Delete row actions.
 // Audit Trail and Margin are intentionally excluded.
 const ROW_ACTION_BY_KEY = {
-  customers:  { entity: "customers",         editPerm: "customers.edit", deletePerm: "customers.delete" },
-  quotes:     { entity: "quotes",            editPerm: "quotes.edit",    deletePerm: "quotes.delete" },
-  jobs:       { entity: "jobs",              editPerm: "jobs.edit",      deletePerm: "jobs.delete" },
-  invoices:   { entity: "invoices",          editPerm: "invoices.create",deletePerm: "invoices.delete" },
-  vehicles:   { entity: "vehicles",          editPerm: "vehicles.edit",  deletePerm: "vehicles.delete" },
-  employees:  { entity: "employees",         editPerm: "employees.edit", deletePerm: "employees.delete" },
-  compliance: { entity: "compliance-forms",  editPerm: "forms.edit",     deletePerm: "forms.delete" },
+  customers:          { entity: "customers",         editPerm: "customers.edit", deletePerm: "customers.delete" },
+  quotes:             { entity: "quotes",            editPerm: "quotes.edit",    deletePerm: "quotes.delete" },
+  jobs:               { entity: "jobs",              editPerm: "jobs.edit",      deletePerm: "jobs.delete" },
+  invoices:           { entity: "invoices",          editPerm: "invoices.create",deletePerm: "invoices.delete" },
+  vehicles:           { entity: "vehicles",          editPerm: "vehicles.edit",  deletePerm: "vehicles.delete" },
+  employees:          { entity: "employees",         editPerm: "employees.edit", deletePerm: "employees.delete" },
+  projects:           { entity: "projects",          editPerm: "projects.edit",  deletePerm: "projects.delete" },
+  compliance:         { entity: "compliance-forms",  editPerm: "forms.edit",     deletePerm: "forms.delete" },
+  "compliance-forms": { entity: "compliance-forms",  editPerm: "forms.edit",     deletePerm: "forms.delete" },
 };
 
 const PALETTE = ["#3A6B8C", "#F5C518", "#1F2A33", "#7B9BB0", "#E0B416", "#5A8AA0", "#A53F2B"];
@@ -73,6 +75,39 @@ export default function ReportDetail() {
   const [ncrBody, setNcrBody] = useState("");
   const [ncrBusy, setNcrBusy] = useState(false);
   const [ncrResult, setNcrResult] = useState(null); // {mode:"email"|"download"|"empty", ...}
+
+  // Phase 11.4 — bulk-select
+  const [selected, setSelected] = useState(new Set());
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const clearSelection = () => setSelected(new Set());
+  const toggleRow = (id) => { const n = new Set(selected); if (n.has(id)) n.delete(id); else n.add(id); setSelected(n); };
+  const toggleAllVisible = () => {
+    if (!data?.table?.rows) return;
+    const eligibleIds = data.table.rows
+      .filter(r => r._id && !evaluateLockUnsafe(r).locked)
+      .map(r => r._id);
+    if (eligibleIds.every(id => selected.has(id))) clearSelection();
+    else setSelected(new Set([...selected, ...eligibleIds]));
+  };
+  const runBulkDelete = async () => {
+    setBulkBusy(true);
+    const ids = Array.from(selected);
+    let deleted = 0, skippedLocked = 0, failed = 0;
+    for (const id of ids) {
+      const row = data.table.rows.find(r => r._id === id);
+      if (!row) { failed++; continue; }
+      if (evaluateLockUnsafe(row).locked) { skippedLocked++; continue; }
+      try { await api.delete(`/${row._entity}/${id}`); deleted++; }
+      catch (_e) { failed++; }
+    }
+    setBulkBusy(false); setBulkConfirm(false); clearSelection();
+    const parts = [`${deleted} deleted`];
+    if (skippedLocked) parts.push(`${skippedLocked} skipped (locked)`);
+    if (failed) parts.push(`${failed} failed`);
+    (failed ? toast.error : toast.success)(parts.join(", "));
+    load();
+  };
 
   const load = async () => {
     setData(null); setErr("");
@@ -405,13 +440,39 @@ export default function ReportDetail() {
             <table className="w-full text-sm">
               <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider">
                 <tr>
+                  {rowActionCfg && canDeleteRows && (
+                    <th className="px-3 py-2 w-8 text-center">
+                      <input type="checkbox"
+                        aria-label="Select all visible"
+                        data-testid="bulk-select-all"
+                        onChange={toggleAllVisible}
+                        checked={(() => {
+                          const eligible = (data.table.rows || []).filter(r => r._id && !evaluateLockUnsafe(r).locked);
+                          return eligible.length > 0 && eligible.every(r => selected.has(r._id));
+                        })()}
+                      />
+                    </th>
+                  )}
                   {(data.table.columns ?? []).map(c => <th key={c} className="px-3 py-2 text-left">{c.replace(/_/g," ")}</th>)}
                   {rowActionCfg && (canEditRows || canDeleteRows) && <th className="px-3 py-2 text-right w-24">Actions</th>}
                 </tr>
               </thead>
               <tbody>
-                {(data.table.rows ?? []).map((r, i) => (
+                {(data.table.rows ?? []).map((r, i) => {
+                  const locked = rowActionCfg ? evaluateLockUnsafe(r).locked : false;
+                  return (
                   <tr key={r._id || i} className="border-t border-gray-200 hover:bg-gray-50">
+                    {rowActionCfg && canDeleteRows && (
+                      <td className="px-3 py-2 text-center">
+                        <input type="checkbox"
+                          data-testid={`bulk-select-${r._id}`}
+                          disabled={locked || !r._id}
+                          checked={r._id ? selected.has(r._id) : false}
+                          onChange={() => r._id && toggleRow(r._id)}
+                          title={locked ? "Locked — cannot bulk-delete" : ""}
+                        />
+                      </td>
+                    )}
                     {data.table.columns.map(c => {
                       const v = r[c];
                       const colored = c === "avg_margin_pct" && typeof v === "number";
@@ -424,12 +485,54 @@ export default function ReportDetail() {
                         <ReportRowActions row={r} canEdit={canEditRows} canDelete={canDeleteRows} onDeleted={load}/>
                       </td>
                     )}
-                  </tr>
-                ))}
-                {data.table.rows.length === 0 && <tr><td colSpan={(data.table.columns.length) + (rowActionCfg ? 1 : 0)} className="p-6 text-center text-sm text-gray-500">No data</td></tr>}
+                  </tr>);
+                })}
+                {data.table.rows.length === 0 && <tr><td colSpan={(data.table.columns.length) + (rowActionCfg ? 1 : 0) + (rowActionCfg && canDeleteRows ? 1 : 0)} className="p-6 text-center text-sm text-gray-500">No data</td></tr>}
               </tbody>
             </table>
           </div>
+
+          {/* Phase 11.4 — Floating bulk-action bar */}
+          {selected.size > 0 && rowActionCfg && canDeleteRows && (
+            <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-2xl w-[calc(100%-2rem)]"
+                 data-testid="bulk-action-bar">
+              <div className="bg-[#1F2A33] text-white rounded-lg shadow-2xl flex items-center gap-3 px-4 py-3">
+                <span className="text-sm font-semibold" data-testid="bulk-selected-count">{selected.size} selected</span>
+                <div className="flex-1"/>
+                <Button variant="outline" onClick={clearSelection}
+                        className="bg-transparent border-gray-500 text-white hover:bg-gray-700 h-9"
+                        data-testid="bulk-clear-btn">Clear</Button>
+                <Button onClick={() => setBulkConfirm(true)} disabled={bulkBusy}
+                        className="bg-red-600 hover:bg-red-700 h-9" data-testid="bulk-delete-btn">
+                  {bulkBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="delete" size={16} className="mr-1" decorative/>}
+                  Soft-delete selected
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <Dialog open={bulkConfirm} onOpenChange={(v) => !v && setBulkConfirm(false)}>
+            <DialogContent data-testid="bulk-delete-dialog" className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="text-red-700 inline-flex items-center gap-2">
+                  <AppIcon name="delete" size={22} decorative/> Delete {selected.size} record{selected.size !== 1 ? "s" : ""}?
+                </DialogTitle>
+                <DialogDescription className="pt-2 text-sm text-gray-700">
+                  They'll be hidden from all reports but retained in the audit trail. Locked rows in the selection will be skipped automatically.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => setBulkConfirm(false)} disabled={bulkBusy}
+                        data-testid="bulk-delete-cancel">Cancel</Button>
+                <Button onClick={runBulkDelete} disabled={bulkBusy}
+                        className="bg-red-600 text-white hover:bg-red-700"
+                        data-testid="bulk-delete-confirm">
+                  {bulkBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="delete" size={16} className="mr-2" decorative/>}
+                  Delete {selected.size}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </>
       )}
 

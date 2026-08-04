@@ -1,0 +1,24 @@
+{
+  "summary": "Phase 11.4 Admin Settings nav-visibility bug fix VERIFIED. Backend gating (6/6 pytest) and Frontend Playwright (7/7 checks) all pass. Super Admin sees nav-admin-settings and /admin/settings renders admin-settings-page with all 12 tab buttons (company, users, integrations, ai_providers, account, numbering, tax, email_templates, form_templates, bi_tokens, audit_log, backup). Estimator does NOT see nav-admin-settings and hitting /admin/settings directly renders admin-settings-forbidden with the 'available to Super Admins only' copy. Regression routes /reports/projects and /reports/compliance-forms both render data-testid='report-table' (previously reported 'Unknown report' bug is fixed). Backend: GET /api/admin/settings returns 200 for admin@ and 403 for staff@ and production@.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase11_admin_settings.py",
+    "/app/test_reports/pytest/phase11_admin.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Layout.jsx visibleNav filter chain now correctly honours superAdminOnly (line 47) in addition to perm (line 48) — the reported bug fix is in place and functional.",
+    "AdminSettings.jsx cleanly returns the forbidden pane before attempting to fetch /admin/settings for non-super-admins, avoiding an unnecessary 403 request and keeping the UX clean.",
+    "AdminSettings uses LinkTiles for 6 tabs (company, users, integrations, form_templates, audit_log, bi_tokens) that navigate to existing pages — this is by design per the review note and does not affect visibility test.",
+    "Backend correctly gates /api/admin/settings and related mutation endpoints via require_super_admin (403 for both estimator and production verified)."
+  ],
+  "updated_files": ["/app/backend/tests/test_phase11_admin_settings.py (new — 6 tests, ~2s)"],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% (7/7 checks)"},
+  "test_credentials": "admin@paneltec.com.au / Paneltec2026! (super); staff@paneltec.com.au / Staff2026! (estimator); production@paneltec.com.au / Prod2026! (production).",
+  "seed_data_creation": "None — read-only verification.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 11.4 regression at /app/backend/tests/test_phase11_admin_settings.py. Run: REACT_APP_BACKEND_URL=https://concrete-panel-app.preview.emergentagent.com pytest backend/tests/test_phase11_admin_settings.py -v. Key testids for Admin Settings: nav-admin-settings (sidebar), admin-settings-page (super admin), admin-settings-forbidden (non-super), admin-tab-{key} for each of the 12 tabs, admin-pane-{key}, admin-tabs (nav rail). /admin/settings ProtectedRoute in App.js has no permission (open) — the SuperAdmin gate is entirely inside AdminSettings.jsx via useAuth().isSuperAdmin — that's fine because backend gates the data endpoint too.",
+  "rca of the issue": "Original bug: Layout.jsx's visibleNav filter had only `filter((i) => !i.perm || hasPerm(i.perm))`, so items with `superAdminOnly:true` and no `perm` key were shown to everyone. Fix (verified present in code): additional filter `.filter((i) => (i.superAdminOnly ? isSuperAdmin : true))` inserted before the perm filter. Result: nav-admin-settings visible only when isSuperAdmin===true. Confirmed via Playwright: admin sees it, estimator does not."
+}

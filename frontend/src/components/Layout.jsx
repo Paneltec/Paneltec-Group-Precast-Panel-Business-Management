@@ -27,12 +27,13 @@ const NAV_ITEMS = [
   { to: "/settings/integrations", label: "Integrations", icon: "integrations", perm: "integrations.view", testid: "nav-integrations" },
   { to: "/users", label: "Users", icon: "users", perm: "users.view", testid: "nav-users" },
   { to: "/admin/audit", label: "Audit Trail", icon: "audit", perm: "audit.view", testid: "nav-audit" },
+  { to: "/admin/settings", label: "Admin Settings", icon: "settings", superAdminOnly: true, testid: "nav-admin-settings" },
   { to: "/reports", label: "Reports", icon: "reports", testid: "nav-reports" },
   { to: "/help", label: "Help", icon: "help", testid: "nav-help" },
 ];
 
 export default function Layout() {
-  const { user, logout, hasPerm } = useAuth();
+  const { user, logout, hasPerm, isSuperAdmin } = useAuth();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -41,7 +42,10 @@ export default function Layout() {
     navigate("/login");
   };
 
-  const visibleNav = NAV_ITEMS.filter((i) => !i.hidden).filter((i) => !i.perm || hasPerm(i.perm));
+  const visibleNav = NAV_ITEMS
+    .filter((i) => !i.hidden)
+    .filter((i) => (i.superAdminOnly ? isSuperAdmin : true))
+    .filter((i) => !i.perm || hasPerm(i.perm));
 
   return (
     <div className="min-h-screen bg-[#F5F6F7]">

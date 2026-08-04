@@ -38,6 +38,8 @@ import Forbidden from "./pages/Forbidden";
 import Audit from "./pages/Audit";
 import Reports from "./pages/Reports";
 import ReportDetail from "./pages/ReportDetail";
+import AdminSettings from "./pages/AdminSettings";
+import { Navigate } from "react-router-dom";
 import Help from "./pages/Help";
 import HelpPrint from "./pages/HelpPrint";
 
@@ -90,7 +92,9 @@ function App() {
                   <Route path="/settings/integrations" element={<ProtectedRoute permission="integrations.view"><IntegrationSettings /></ProtectedRoute>} />
                   <Route path="/users" element={<ProtectedRoute permission="users.view"><UsersPage /></ProtectedRoute>} />
                   <Route path="/admin/audit" element={<ProtectedRoute permission="audit.view"><Audit /></ProtectedRoute>} />
+                  <Route path="/admin/settings" element={<ProtectedRoute><AdminSettings /></ProtectedRoute>} />
                   <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+                  <Route path="/reports/audit-trail" element={<Navigate to="/admin/audit" replace/>} />
                   <Route path="/reports/:key" element={<ProtectedRoute><ReportDetail /></ProtectedRoute>} />
                   <Route path="/help" element={<Help />} />
                 </Route>

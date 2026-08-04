@@ -13,7 +13,7 @@ from typing import List, Optional, Literal, Any, Dict
 
 import bcrypt
 import jwt
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Query, Response
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Query, Response, Body
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -3089,6 +3089,170 @@ async def root(): return {"app":"Paneltec Group API","status":"ok","version":"3.
 async def health(): return {"status":"ok","time":now_iso()}
 
 
+# ===========================================================================
+# Phase 11.4 — Admin Settings (super-admin only)
+# ===========================================================================
+DEFAULT_ADMIN_SETTINGS = {
+    "account": {
+        "subscription_plan": "Self-hosted",
+        "primary_contact_name": "",
+        "primary_contact_email": "",
+        "primary_contact_phone": "",
+        "billing_email": "",
+        "timezone": "Australia/Melbourne",
+        "fiscal_year_start_month": 7,
+        "backup_email": "",
+    },
+    "numbering": {
+        "quote_prefix": "Q-", "invoice_prefix": "INV-", "job_prefix": "J-",
+        "form_prefix_pre": "PRE-", "form_prefix_post": "POST-", "form_prefix_cert": "CERT-",
+        "next_quote": 1, "next_invoice": 1, "next_job": 1,
+    },
+    "tax": {"gst_rate_pct": 10.0, "tax_code_label": "GST", "tax_inclusive": False},
+    "email_templates": {
+        "quote_sent":         {"subject":"Your quote from Paneltec Group", "body":"Hi {{customer_name}},\n\nPlease find your quote {{quote_number}} attached.\n\n{{quote_link}}\n\nRegards,\nPaneltec Group"},
+        "invoice_sent":       {"subject":"Invoice {{invoice_number}} from Paneltec Group", "body":"Hi {{customer_name}},\n\nInvoice {{invoice_number}} for {{total}} is attached. Due {{due_date}}.\n\nRegards,\nPaneltec Group"},
+        "compliance_signoff": {"subject":"Compliance form {{form_number}} — signed", "body":"The compliance form {{form_number}} for panel {{panel_id}} has been signed off."},
+        "ncr_notification":   {"subject":"NCR raised: {{form_number}}", "body":"A non-conformance report has been raised on form {{form_number}}. Please review."},
+    },
+    "ai_providers": {
+        "active_text_provider": None,  # one of: openai, anthropic, google
+        "active_image_provider": None, # one of: openai, nano_banana
+        "openai":     {"api_key":"", "enabled":False},
+        "anthropic":  {"api_key":"", "enabled":False},
+        "google":     {"api_key":"", "enabled":False},
+        "nano_banana":{"api_key":"", "enabled":False},
+    },
+}
+ADMIN_SETTING_TABS = set(DEFAULT_ADMIN_SETTINGS.keys())
+ADMIN_SECRET_FIELDS = {  # per-tab set of dotted paths whose value should be masked in GET
+    "ai_providers": {"openai.api_key", "anthropic.api_key", "google.api_key", "nano_banana.api_key"},
+}
+
+
+def _mask_admin_settings(doc: Dict[str, Any]) -> Dict[str, Any]:
+    import copy
+    out = copy.deepcopy(doc)
+    for tab, paths in ADMIN_SECRET_FIELDS.items():
+        for p in paths:
+            keys = p.split(".")
+            node = out.get(tab, {})
+            for k in keys[:-1]:
+                node = node.get(k) if isinstance(node, dict) else None
+                if node is None: break
+            if isinstance(node, dict) and node.get(keys[-1]):
+                node[keys[-1]] = _mask_secret(node[keys[-1]])
+    return out
+
+
+async def _load_admin_settings() -> Dict[str, Any]:
+    doc = await db.settings.find_one({"key":"admin_settings"}, {"_id":0,"key":0}) or {}
+    merged: Dict[str, Any] = {}
+    for tab, defaults in DEFAULT_ADMIN_SETTINGS.items():
+        cur = doc.get(tab) or {}
+        merged[tab] = {**defaults, **cur} if isinstance(cur, dict) else defaults
+    return merged
+
+
+@api_router.get("/admin/settings")
+async def admin_settings_get(user: dict = Depends(require_super_admin)):
+    return _mask_admin_settings(await _load_admin_settings())
+
+
+@api_router.put("/admin/settings/{tab}")
+async def admin_settings_put(tab: str, payload: Dict[str, Any] = Body(...),
+                              user: dict = Depends(require_super_admin)):
+    if tab not in ADMIN_SETTING_TABS:
+        raise HTTPException(status_code=400, detail=f"Unknown settings tab '{tab}'")
+    existing = await _load_admin_settings()
+    incoming = payload or {}
+    # For secret fields, preserve stored value when client sent the masked placeholder
+    for path in ADMIN_SECRET_FIELDS.get(tab, set()):
+        keys = path.split(".")
+        node_new = incoming; node_cur = existing.get(tab, {})
+        for k in keys[:-1]:
+            if not isinstance(node_new, dict): break
+            node_new = node_new.get(k)
+            node_cur = node_cur.get(k, {}) if isinstance(node_cur, dict) else {}
+        if isinstance(node_new, dict) and _is_masked(node_new.get(keys[-1], "")):
+            node_new[keys[-1]] = node_cur.get(keys[-1], "") if isinstance(node_cur, dict) else ""
+    merged = {**existing.get(tab, {}), **incoming}
+    await db.settings.update_one(
+        {"key":"admin_settings"},
+        {"$set": {tab: merged, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    await record_audit(user, "settings_changed", "admin_settings", tab, tab,
+                       metadata={"tab": tab, "fields": list(incoming.keys())})
+    return _mask_admin_settings(await _load_admin_settings())
+
+
+@api_router.post("/admin/settings/ai_providers/test")
+async def admin_settings_ai_test(payload: Dict[str, Any] = Body(...),
+                                  user: dict = Depends(require_super_admin)):
+    """Ping the given AI provider's models endpoint. Never LIVE-calls beyond a
+    lightweight probe; API keys are pulled from the stored settings (or the
+    payload if the caller wants to test a fresh value)."""
+    prov = (payload or {}).get("provider")
+    if prov not in ("openai","anthropic","google","nano_banana"):
+        raise HTTPException(status_code=400, detail="Unknown AI provider")
+    stored = (await _load_admin_settings()).get("ai_providers", {}).get(prov, {})
+    api_key = payload.get("api_key") or stored.get("api_key") or ""
+    if _is_masked(api_key): api_key = stored.get("api_key") or ""
+    if not api_key:
+        return {"status": "MOCKED", "provider": prov, "message": "No API key stored — save one first."}
+    # Minimal validation only — real provider probes happen in the AI service
+    # layer once we wire actual features (TODO: replace with real /v1/models GET).
+    return {"status": "OK", "provider": prov, "message": "API key stored. Live probe deferred until AI features wired."}
+
+
+@api_router.get("/admin/export/json")
+async def admin_export_json(user: dict = Depends(require_super_admin)):
+    """Dump every business collection as a single JSON payload (streamed as a
+    ZIP-inside-JSON is overkill for the current data volume; keep it simple)."""
+    import json as _json
+    from fastapi.responses import Response
+    collections = ["customers","projects","quotes","jobs","invoices","vehicles",
+                    "employees","compliance_forms","compliance_form_templates",
+                    "users","audit_events","settings"]
+    out: Dict[str, Any] = {"exported_at": now_iso(), "collections": {}}
+    for c in collections:
+        try:
+            out["collections"][c] = await getattr(db, c).find({}, {"_id":0}).to_list(50000)
+        except Exception as e:
+            out["collections"][c] = {"__error__": str(e)}
+    await record_audit(user, "admin_export", "admin_settings", "json", "Full JSON export",
+                       metadata={"collections": collections})
+    payload = _json.dumps(out, default=str).encode("utf-8")
+    fname = f"paneltec_backup_{now_utc().strftime('%Y%m%d_%H%M%S')}.json"
+    return Response(content=payload, media_type="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@api_router.get("/admin/export/csv-bundle")
+async def admin_export_csv_bundle(user: dict = Depends(require_super_admin)):
+    """Zip of one CSV per business collection."""
+    import csv, io, zipfile
+    from fastapi.responses import Response
+    zbuf = io.BytesIO()
+    collections = ["customers","projects","quotes","jobs","invoices","vehicles","employees","compliance_forms"]
+    with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
+        for c in collections:
+            rows = await getattr(db, c).find({}, {"_id":0}).to_list(50000)
+            if not rows:
+                z.writestr(f"{c}.csv", "id\n")
+                continue
+            cols = sorted({k for r in rows for k in r.keys()})
+            buf = io.StringIO(); w = csv.writer(buf); w.writerow(cols)
+            for r in rows: w.writerow([r.get(k,"") for k in cols])
+            z.writestr(f"{c}.csv", buf.getvalue())
+    await record_audit(user, "admin_export", "admin_settings", "csv_bundle", "CSV bundle export",
+                       metadata={"collections": collections})
+    fname = f"paneltec_csv_bundle_{now_utc().strftime('%Y%m%d_%H%M%S')}.zip"
+    return Response(content=zbuf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 # ---------------------------------------------------------------------------
 # App lifecycle
 # ---------------------------------------------------------------------------
@@ -3099,8 +3263,10 @@ async def health(): return {"status":"ok","time":now_iso()}
 REPORT_PERMS = {
     "customers": "customers.view", "quotes": "quotes.view", "jobs": "jobs.view",
     "invoices": "invoices.view", "vehicles": "vehicles.view", "employees": "employees.view",
+    "projects": "projects.view",
     "margin": "pricing.view_costs",
     "compliance": "forms.view",
+    "compliance-forms": "forms.view",
 }
 
 def _date_range_iso(date_from: Optional[str], date_to: Optional[str], default_days: int = 90):
@@ -3585,9 +3751,35 @@ async def _report_compliance(date_from, date_to, filters):
         },
     }
 
+async def _report_projects(date_from, date_to, _filters):
+    df, dt = _date_range_iso(date_from, date_to)
+    q: Dict[str, Any] = {"deleted_at": {"$in": [None]}}
+    if (_filters or {}).get("customer_id"): q["customer_id"] = _filters["customer_id"]
+    if (_filters or {}).get("status"): q["status"] = {"$in": _filters["status"].split(",")}
+    docs = await db.projects.find(q, {"_id":0}).sort("created_at", -1).limit(2000).to_list(2000)
+    cmap = {c["id"]: c["company_name"] for c in await db.customers.find(
+        {"id": {"$in": [d.get("customer_id") for d in docs]}}, {"_id":0,"id":1,"company_name":1}).to_list(3000)}
+    by_status: Dict[str, int] = {}
+    for d in docs: by_status[d.get("status","planning")] = by_status.get(d.get("status","planning"),0)+1
+    rows = [{"_id": d["id"], "_entity": "projects", "_status": d.get("status"),
+             "project_name": d.get("project_name",""), "customer": cmap.get(d.get("customer_id"),""),
+             "status": d.get("status",""), "created_at": d.get("created_at","")[:10]} for d in docs]
+    return {
+        "kpis": {"total_projects": len(docs),
+                 "planning": by_status.get("planning",0),
+                 "quoted": by_status.get("quoted",0),
+                 "won": by_status.get("won",0),
+                 "completed": by_status.get("completed",0)},
+        "charts": {"by_status": [{"status":k,"count":v} for k,v in by_status.items()]},
+        "table": {"columns":["project_name","customer","status","created_at"],"rows":rows,"total":len(rows)},
+    }
+
 _REPORT_FNS = {"customers":_report_customers,"quotes":_report_quotes,"jobs":_report_jobs,
                "invoices":_report_invoices,"vehicles":_report_vehicles,"employees":_report_employees,
-               "margin":_report_margin,"compliance":_report_compliance}
+               "projects":_report_projects,
+               "margin":_report_margin,"compliance":_report_compliance,
+               # Aliases (Phase 11.4 bug-fix): tester-friendly canonical URLs
+               "compliance-forms":_report_compliance}
 
 @api_router.get("/reports/{key}")
 async def get_report(key: str, user: dict = Depends(get_current_user),

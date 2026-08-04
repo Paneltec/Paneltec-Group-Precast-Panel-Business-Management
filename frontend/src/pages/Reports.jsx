@@ -23,6 +23,7 @@ const CARDS = [
   { key:"employees", title:"Employees", desc:"Workload & assignment trends",        icon:Wrench,     perm:"employees.view",  kpi:(k)=>[`Active: ${k.active_employees}`, `Assignments: ${k.total_assignments}`]},
   { key:"margin",    title:"Pricing & Margin", desc:"Margin by panel, finish, month — INTERNAL", icon:TrendingUp, perm:"pricing.view_costs", kpi:(k)=>[`Avg ${k.avg_margin_pct}%`, `Quoted: ${formatAUD(k.total_quoted_margin_aud||0)}`]},
   { key:"compliance",title:"Compliance",desc:"QC forms, NCR rate, QA sign-off pipeline",icon:BarChart3,perm:"forms.view",kpi:(k)=>[`Awaiting QA: ${k.awaiting_qa_signoff||0}`,`NCR ${k.ncr_rate_pct||0}%`]},
+  { key:"projects", title:"Projects", desc:"Live pipeline by project & status",icon:Briefcase,perm:"projects.view",kpi:(k)=>[`Total: ${k.total_projects||0}`,`Planning: ${k.planning||0}`]},
 ];
 
 // Phase 11.2 — themed banner per report tile
@@ -35,6 +36,7 @@ const TILE_BANNERS = {
   employees:  "/manual/sections/tile_employees.jpg",
   margin:     "/manual/sections/tile_margin.jpg",
   compliance: "/manual/sections/compliance_dashboard.jpg",
+  projects:   "/manual/sections/07_quotes.jpg",
 };
 
 function TileBanner({ src, Icon, title }) {
