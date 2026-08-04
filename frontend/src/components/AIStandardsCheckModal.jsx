@@ -60,6 +60,7 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
     if (!open) return;
     loadStatus();
     setResult(null); setStep(-1); setAcceptedIds(new Set());
+    setTemplateId(""); // Phase 11.6.2 — never pre-select a template; force explicit choice
     // eslint-disable-next-line
   }, [open]);
 
@@ -155,13 +156,54 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
 
             {mode === "update" && (
               <div>
-                <Label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Template</Label>
-                <Select value={templateId} onValueChange={setTemplateId}>
-                  <SelectTrigger data-testid="ai-template-picker"><SelectValue placeholder="Pick a template to audit"/></SelectTrigger>
-                  <SelectContent>
-                    {templates.map(t => <SelectItem key={t.id} value={t.id}>{t.code} — {t.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <div className="text-sm font-bold text-[#1F2A33] mb-1" data-testid="ai-tpl-picker-heading">
+                  Choose the template to update
+                </div>
+                <div className="text-xs text-gray-500 mb-2">
+                  Pick which template you want the AI to check and suggest updates for. Your source template is <strong>never modified</strong> — output lands as a new draft.
+                </div>
+                {templates.length === 0 ? (
+                  <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded p-3 text-sm" data-testid="ai-tpl-picker-empty">
+                    No compliance templates found — create one in Form Templates first, then re-open this check.
+                  </div>
+                ) : (
+                  <div className="border border-gray-200 rounded max-h-[260px] overflow-y-auto" data-testid="ai-tpl-picker">
+                    {templates.map(t => {
+                      const chosen = templateId === t.id;
+                      const statusLabel = t.is_system ? "System" : (t.status === "ai_draft" ? "AI Draft" : (t.active ? "Active" : "Draft"));
+                      const statusCls = t.is_system ? "bg-blue-100 text-blue-800"
+                        : t.status === "ai_draft" ? "bg-purple-100 text-purple-800"
+                        : t.active ? "bg-green-100 text-green-800"
+                        : "bg-gray-100 text-gray-600";
+                      const lm = (t.updated_at || t.created_at || "").slice(0,10);
+                      return (
+                        <label key={t.id}
+                               className={`flex items-start gap-3 p-3 border-b border-gray-100 cursor-pointer last:border-b-0 hover:bg-gray-50 transition-colors ${chosen ? "bg-amber-50" : ""}`}
+                               data-testid={`ai-tpl-option-${t.id}`}>
+                          <input type="radio" name="ai-template" value={t.id}
+                                 checked={chosen}
+                                 onChange={() => setTemplateId(t.id)}
+                                 className="mt-1"
+                                 data-testid={`ai-tpl-radio-${t.id}`}/>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-[#1F2A33]">{t.name}</span>
+                              <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${statusCls}`}>
+                                {statusLabel}
+                              </span>
+                              <span className="text-[10px] font-mono text-gray-500">{t.code}</span>
+                              {t.version != null && <span className="text-[10px] text-gray-500">v{t.version}</span>}
+                              {lm && <span className="text-[10px] text-gray-400">· updated {lm}</span>}
+                            </div>
+                            {t.description && (
+                              <div className="text-xs text-gray-600 mt-0.5 truncate">{t.description}</div>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
             {mode === "generate" && (

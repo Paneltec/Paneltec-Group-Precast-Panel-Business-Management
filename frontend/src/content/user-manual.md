@@ -551,7 +551,7 @@ Super Admin only. Available at **Form Templates → "AI Standards Check"** (top-
 **How to run**
 1. Click AI Standards Check → modal opens.
 2. Pick a **Mode**:
-   - *Suggest updates to this template* — pick an existing template; the AI compares each field/hold-point against fresh AU standards snippets and returns a per-change accept/reject list with clause citations.
+   - *Suggest updates to this template* — the modal shows a **radio-card list of every compliance template** in your workspace (system + custom, active + drafts). Click the row you want the AI to audit. Nothing is pre-selected — the **Run** button stays disabled until you actively choose one. Each row shows the template name, status pill (System / Active / Draft / AI Draft), code, version, and last-updated date.
    - *Generate a brand new template* — pick a type (Pre-Pour / Post-Pour / Certificate / Custom). AI outputs a full structured template with citation-tagged sections/criteria.
 3. **Standards to check against** — all 9 seeded AU standards are ticked by default; untick to narrow scope.
 4. Confirm the active AI provider shown at the bottom, then click **Run**. Live progress panel steps through: Searching standards → Fetching clauses → Analysing → Generating (30-90 s typical).
