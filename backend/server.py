@@ -176,8 +176,10 @@ PERMISSION_PRESETS = {
         "permissions": [
             "customers.view","projects.view","quotes.view",
             "jobs.view","jobs.edit","jobs.transition","jobs.cancel","jobs.delete",
-            "invoices.view","vehicles.view","employees.view",
-            "forms.view","forms.create","forms.edit",
+            "invoices.view",
+            "vehicles.view","vehicles.edit","vehicles.delete",
+            "employees.view","employees.edit","employees.delete",
+            "forms.view","forms.create","forms.edit","forms.delete",
         ],
     },
     "accounts": {
@@ -3162,7 +3164,8 @@ async def _report_customers(date_from, date_to, _filters):
     rows = []
     for c in docs:
         qx = qmap.get(c["id"], {})
-        rows.append({"company_name": c["company_name"], "state": (c.get("billing_address") or {}).get("state",""),
+        rows.append({"_id": c["id"], "_entity": "customers",
+                     "company_name": c["company_name"], "state": (c.get("billing_address") or {}).get("state",""),
                      "total_quotes": qx.get("cnt", 0), "total_accepted": qx.get("accepted", 0),
                      "total_invoiced_aud": _round2(imap.get(c["id"], 0)),
                      "last_activity_at": c.get("updated_at") or c.get("created_at")})
@@ -3218,7 +3221,8 @@ async def _report_quotes(date_from, date_to, _filters):
     # Table
     docs = await db.quotes.find(q, {"_id":0}).sort("created_at", -1).limit(500).to_list(500)
     cmap = {c["id"]: c["company_name"] for c in await db.customers.find({"id":{"$in":[d["customer_id"] for d in docs]}}, {"_id":0,"id":1,"company_name":1}).to_list(2000)}
-    rows = [{"quote_number": d["quote_number"], "customer": cmap.get(d["customer_id"], ""),
+    rows = [{"_id": d["id"], "_entity": "quotes", "_status": d["status"],
+             "quote_number": d["quote_number"], "customer": cmap.get(d["customer_id"], ""),
              "total_aud": _round2(d["total"]), "status": d["status"], "sent_at": d.get("sent_at",""),
              "accepted_at": d.get("accepted_at",""),
              "days_to_accept": days_between(d.get("sent_at",""), d.get("accepted_at","")) if d.get("accepted_at") and d.get("sent_at") else None} for d in docs]
@@ -3277,7 +3281,8 @@ async def _report_jobs(date_from, date_to, _filters):
     rows = []
     for d in docs:
         ad = next((h["at"] for h in (d.get("status_history") or []) if h["to"] == "delivered"), None)
-        rows.append({"job_number": d["job_number"], "customer": cmap.get(d["customer_id"],""),
+        rows.append({"_id": d["id"], "_entity": "jobs", "_status": d["status"],
+                     "job_number": d["job_number"], "customer": cmap.get(d["customer_id"],""),
                      "status": d["status"], "scheduled_delivery_date": d.get("scheduled_delivery_date",""),
                      "actual_delivered_at": ad or "", "cycle_days": cycle_days(d) or ""})
     return {"kpis": {"active_jobs": active_cnt, "completed_in_range": completed_in_range,
@@ -3339,7 +3344,9 @@ async def _report_invoices(date_from, date_to, _filters):
             except Exception: pass
         avg_dtp_trend.append({"month": label, "avg_days": round(sum(m_paid_days)/len(m_paid_days),1) if m_paid_days else 0})
     cmap = {c["id"]: c["company_name"] for c in await db.customers.find({"id":{"$in":[d["customer_id"] for d in docs]}}, {"_id":0,"id":1,"company_name":1}).to_list(2000)}
-    rows = [{"invoice_number": d["invoice_number"], "customer": cmap.get(d["customer_id"],""),
+    rows = [{"_id": d["id"], "_entity": "invoices", "_status": d["status"],
+             "_xero_push_status": d.get("xero_push_status","not_pushed"),
+             "invoice_number": d["invoice_number"], "customer": cmap.get(d["customer_id"],""),
              "total": _round2(d["total"]), "status": d["status"], "issue_date": d.get("issue_date",""),
              "due_date": d.get("due_date",""), "days_overdue": days_overdue(d),
              "xero_push_status": d.get("xero_push_status","not_pushed")} for d in docs]
@@ -3364,7 +3371,8 @@ async def _report_vehicles(date_from, date_to, _filters):
         total_cap += float(v.get("capacity_tonnes") or 0)
         c = counts.get(v["id"], 0)
         by_vehicle.append({"vehicle": v.get("vehicle_code") or v.get("name",""), "assignments": c})
-        rows.append({"vehicle_code": v.get("vehicle_code"), "rego": v.get("rego",""),
+        rows.append({"_id": v["id"], "_entity": "vehicles",
+                     "vehicle_code": v.get("vehicle_code"), "rego": v.get("rego",""),
                      "make_model": v.get("make_model") or v.get("name",""),
                      "capacity_tonnes": v.get("capacity_tonnes"), "status": v.get("status"),
                      "total_jobs_assigned": c})
@@ -3397,7 +3405,8 @@ async def _report_employees(date_from, date_to, _filters):
     total_asg = 0
     for e in docs:
         c = counts.get(e["id"], 0); total_asg += c
-        rows.append({"name": e.get("name"), "role": e.get("role"), "active": bool(e.get("is_active", True)),
+        rows.append({"_id": e["id"], "_entity": "employees",
+                     "name": e.get("name"), "role": e.get("role"), "active": bool(e.get("is_active", True)),
                      "total_jobs_assigned": c, "last_assigned_at": last_at.get(e["id"],"")})
         by_emp.append({"employee": e.get("name",""), "assignments": c})
         role_dist[e.get("role","unknown")] = role_dist.get(e.get("role","unknown"),0)+1
@@ -3546,7 +3555,8 @@ async def _report_compliance(date_from, date_to, filters):
     ]
 
     # Table
-    rows = [{"form_number": d.get("form_number"), "type": d.get("form_type"),
+    rows = [{"_id": d.get("id"), "_entity": "compliance-forms", "_status": d.get("status"),
+             "form_number": d.get("form_number"), "type": d.get("form_type"),
              "panel_id": d.get("panel_id"), "project": d.get("project_name") or "",
              "status": d.get("status"), "inspection": d.get("date_of_inspection") or "",
              "ncr": "Yes" if d.get("ncr_flag") else ""}
@@ -3807,6 +3817,21 @@ async def cf_patch(fid: str, payload: ComplianceFormPatch, user: dict = Depends(
     await record_audit(user, "updated", "compliance_form", fid, d["form_number"],
                        metadata={"fields": list(upd.keys())})
     return await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+
+
+@_cf_router.delete("/compliance-forms/{fid}")
+async def cf_delete(fid: str, user: dict = Depends(require_permission("forms.delete"))):
+    """Soft-delete a compliance form. Signed forms are locked (super admin only)."""
+    d = await db.compliance_forms.find_one({"id": fid}, {"_id": 0})
+    if not d: raise HTTPException(status_code=404, detail="Form not found")
+    if d.get("deleted_at"): raise HTTPException(status_code=400, detail="Form already deleted")
+    if d.get("status") == "signed" and not user.get("is_super_admin"):
+        raise HTTPException(status_code=400, detail="Signed forms are locked. Raise an NCR instead.")
+    await db.compliance_forms.update_one({"id": fid},
+        {"$set": {"deleted_at": now_iso(), "deleted_by_user_id": user["id"],
+                  "updated_at": now_iso()}})
+    await record_audit(user, "soft_deleted", "compliance_form", fid, d.get("form_number", fid))
+    return {"soft_deleted": True}
 
 
 @_cf_router.post("/compliance-forms/{fid}/transition")

@@ -4,6 +4,7 @@ import { ArrowLeft, Download, Lock, Loader2 } from "lucide-react";
 import AppIcon from "../components/AppIcon";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 import { api, tokenStore } from "../lib/api";
+import { useAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -11,6 +12,19 @@ import { Textarea } from "../components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog";
 import { formatAUD } from "../lib/format";
 import { toast } from "sonner";
+import ReportRowActions from "../components/ReportRowActions";
+
+// Phase 11.3 — Report keys that expose Edit/Delete row actions.
+// Audit Trail and Margin are intentionally excluded.
+const ROW_ACTION_BY_KEY = {
+  customers:  { entity: "customers",         editPerm: "customers.edit", deletePerm: "customers.delete" },
+  quotes:     { entity: "quotes",            editPerm: "quotes.edit",    deletePerm: "quotes.delete" },
+  jobs:       { entity: "jobs",              editPerm: "jobs.edit",      deletePerm: "jobs.delete" },
+  invoices:   { entity: "invoices",          editPerm: "invoices.create",deletePerm: "invoices.delete" },
+  vehicles:   { entity: "vehicles",          editPerm: "vehicles.edit",  deletePerm: "vehicles.delete" },
+  employees:  { entity: "employees",         editPerm: "employees.edit", deletePerm: "employees.delete" },
+  compliance: { entity: "compliance-forms",  editPerm: "forms.edit",     deletePerm: "forms.delete" },
+};
 
 const PALETTE = ["#3A6B8C", "#F5C518", "#1F2A33", "#7B9BB0", "#E0B416", "#5A8AA0", "#A53F2B"];
 
@@ -40,6 +54,10 @@ function defaultDate(days) { const d = new Date(); d.setDate(d.getDate() + days)
 
 export default function ReportDetail() {
   const { key } = useParams();
+  const { hasPerm, isSuperAdmin } = useAuth();
+  const rowActionCfg = ROW_ACTION_BY_KEY[key];
+  const canEditRows   = !!rowActionCfg && (isSuperAdmin || hasPerm(rowActionCfg.editPerm));
+  const canDeleteRows = !!rowActionCfg && (isSuperAdmin || hasPerm(rowActionCfg.deletePerm));
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
   const [dateFrom, setDateFrom] = useState(defaultDate(-90));
@@ -386,11 +404,14 @@ export default function ReportDetail() {
           <div className="bg-white border border-gray-200 rounded overflow-x-auto" data-testid="report-table">
             <table className="w-full text-sm">
               <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider">
-                <tr>{(data.table.columns ?? []).map(c => <th key={c} className="px-3 py-2 text-left">{c.replace(/_/g," ")}</th>)}</tr>
+                <tr>
+                  {(data.table.columns ?? []).map(c => <th key={c} className="px-3 py-2 text-left">{c.replace(/_/g," ")}</th>)}
+                  {rowActionCfg && (canEditRows || canDeleteRows) && <th className="px-3 py-2 text-right w-24">Actions</th>}
+                </tr>
               </thead>
               <tbody>
                 {(data.table.rows ?? []).map((r, i) => (
-                  <tr key={i} className="border-t border-gray-200 hover:bg-gray-50">
+                  <tr key={r._id || i} className="border-t border-gray-200 hover:bg-gray-50">
                     {data.table.columns.map(c => {
                       const v = r[c];
                       const colored = c === "avg_margin_pct" && typeof v === "number";
@@ -398,9 +419,14 @@ export default function ReportDetail() {
                         {typeof v === "number" && c.includes("aud") ? formatAUD(v) : String(v ?? "")}
                       </td>;
                     })}
+                    {rowActionCfg && (canEditRows || canDeleteRows) && (
+                      <td className="px-3 py-2 text-right" data-testid={`row-actions-cell-${r._id || i}`}>
+                        <ReportRowActions row={r} canEdit={canEditRows} canDelete={canDeleteRows} onDeleted={load}/>
+                      </td>
+                    )}
                   </tr>
                 ))}
-                {data.table.rows.length === 0 && <tr><td colSpan={data.table.columns.length} className="p-6 text-center text-sm text-gray-500">No data</td></tr>}
+                {data.table.rows.length === 0 && <tr><td colSpan={(data.table.columns.length) + (rowActionCfg ? 1 : 0)} className="p-6 text-center text-sm text-gray-500">No data</td></tr>}
               </tbody>
             </table>
           </div>

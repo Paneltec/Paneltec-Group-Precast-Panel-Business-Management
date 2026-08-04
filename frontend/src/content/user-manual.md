@@ -499,12 +499,46 @@ The reporting endpoints recursively scrub every key whose name contains any of:
 
 That means a Power BI token connected to `/api/reporting/v1/quotes` will see line items but **never** the internal cost breakdown, margin %, or any secret fields — even though super admins can see them in the UI. BI tools also cannot read the Pricing & Margin report, Pricing Settings cost inputs, integration secrets, or the user list. They are scoped strictly to operational facts about customers, quotes, jobs, invoices, vehicles and employees.
 
+### 17.9 Row-level Edit / Delete on report tables
+
+Every business-record report tile (Customers, Quotes, Jobs, Invoices, Vehicles, Employees, Compliance Forms) now shows an **Actions** column on its table:
+
+- **Edit** (blue pencil) — opens the record's detail / edit page.
+- **Delete** (red bin) — opens a confirmation dialog. On confirm the row is **soft-deleted**: it disappears from every default view and every report, but is retained in the audit trail as a `soft_deleted` event and can be restored by a Super Admin.
+- **Lock icon + tooltip** — replaces the Edit / Delete buttons when the record is finalised:
+  - Invoice → `sent` OR `xero_push_status == pushed / MOCKED_PUSHED` → *"Locked — already sent to customer or pushed to Xero. Void and reissue instead."*
+  - Quote → `accepted` / `approved` → *"Locked — customer-approved. Create a revision instead."*
+  - Job → `delivered` / `installed` / `completed` / `closed` → *"Locked — job completed."*
+  - Compliance Form → `signed` / `signed_off` → *"Locked — signed off. Raise an NCR instead."*
+  - Customers, Projects, Employees, Vehicles have no lock rules — always editable / deletable by permitted roles.
+
+Permission gating (super admin bypasses everything):
+
+| Role | Edit / Delete on |
+|---|---|
+| Accounts | Invoices |
+| Estimator | Quotes, Customers, Projects |
+| Production | Jobs, Compliance Forms, Vehicles, Employees |
+| Super Admin | Everything |
+
+If your role lacks the permission for a given entity the icons don't render at all — they aren't just greyed out. The **Audit Trail** report has no row actions by design (audit events are immutable).
+
+There is no restore UI in this release. Super Admins can undelete a record by removing its `deleted_at` field directly in Mongo if urgent.
+
 ---
 
 ## 16. Version & Change Log
 
 **App version**: v1.0 · Phase 11
 **Manual last updated**: 2026-06-22
+
+### Phase 11.3 (2026-08-04) — Report row Edit/Delete + Lock rules
+- Report tables (Customers, Quotes, Jobs, Invoices, Vehicles, Employees, Compliance Forms) now show an **Actions** column with role-gated Edit + Delete icons.
+- Finalised records collapse to a lock icon + tooltip (see §17.9): invoices sent/pushed-to-Xero, quotes accepted, jobs delivered/completed, compliance forms signed.
+- Soft-delete via existing `DELETE /:entity/:id` endpoint (new: `DELETE /compliance-forms/:id`). Audit event `soft_deleted` fires per delete.
+- Production role preset gains `employees.edit/delete`, `vehicles.edit/delete`, `forms.delete` per the RBAC matrix.
+- Audit Trail report intentionally excluded — audit events remain immutable.
+- No restore UI in this pass. Super Admins can undelete via Mongo if urgent.
 
 ### Phase 4 Part 2 (in progress) — Simpro LIVE wiring
 - New async `SimproClient` with OAuth 2.0 client-credentials, token caching, retry-on-401/429/5xx.

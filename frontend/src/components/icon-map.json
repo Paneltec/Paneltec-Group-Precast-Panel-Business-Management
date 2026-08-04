@@ -119,5 +119,6 @@
   "changelog": "Scroll",
   "audit_trail": "Magnifying glass tilted left",
   "help_book": "Open book",
-  "compliance_forms": "Clipboard"
+  "compliance_forms": "Clipboard",
+  "lock": "Locked"
 }
