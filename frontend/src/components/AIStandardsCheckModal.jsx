@@ -44,7 +44,21 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
       const active = ai.active_text_provider;
       const prov = active ? ai[active] : null;
       const ready = !!(active && prov && (prov.status === "CONNECTED" || prov.status === "MANUAL"));
-      setAiSettings({ provider: active, status: prov?.status || "NOT_CONFIGURED", ready });
+      // Phase 11.6.3 — surface any "orphan" connected text provider so we can
+      // offer a one-click Set-as-active button inside the banner.
+      const textOrder = ["openai", "anthropic", "google"];
+      const orphan = !active
+        ? textOrder.find(k => {
+            const p = ai[k] || {};
+            return p.status === "CONNECTED" || p.status === "MANUAL";
+          })
+        : null;
+      setAiSettings({
+        provider: active,
+        status: prov?.status || "NOT_CONFIGURED",
+        ready,
+        orphan_text_provider: orphan || null,
+      });
       setTavilyReady(!!(s.data.tavily?.enabled && s.data.tavily?.status === "CONNECTED"));
       const list = await api.get("/admin/settings/compliance-standards");
       setStandards(list.data);
@@ -54,6 +68,18 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
       }
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
     finally { setRefreshing(false); }
+  };
+
+  const setActiveTextProvider = async (key) => {
+    // Persist only the two active_* keys; backend does a shallow merge, so the
+    // stored provider credentials remain untouched.
+    try {
+      await api.put("/admin/settings/ai_providers", { active_text_provider: key });
+      toast.success(`Active text provider set to ${key}`);
+      await loadStatus();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    }
   };
 
   useEffect(() => {
@@ -137,9 +163,22 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
                 </div>
                 {!aiSettings.ready && (
                   <div>• Active AI text provider is <code>{aiSettings.provider || "(none)"}</code> — status {aiSettings.status}.
-                    {aiSettings.provider ? " Reconnect it or " : ""}
-                    <a href="/admin/settings" className="underline font-semibold">open Admin Settings → AI Providers</a>
-                    {aiSettings.provider ? "" : " and either connect a provider (which auto-elects it) or click the \"Set active (text)\" radio on an already-connected card"}.
+                    {aiSettings.orphan_text_provider ? (
+                      <>
+                        {" "}You have <code>{aiSettings.orphan_text_provider}</code> connected but not elected as the text provider.{" "}
+                        <button onClick={() => setActiveTextProvider(aiSettings.orphan_text_provider)}
+                                className="underline font-semibold text-red-900 hover:text-red-700"
+                                data-testid="ai-set-active-inline">
+                          Set {aiSettings.orphan_text_provider} as active text provider
+                        </button>.
+                      </>
+                    ) : (
+                      <>
+                        {aiSettings.provider ? " Reconnect it or " : ""}
+                        <a href="/admin/settings" className="underline font-semibold">open Admin Settings → AI Providers</a>
+                        {aiSettings.provider ? "" : " and connect a provider (which auto-elects it)"}.
+                      </>
+                    )}
                   </div>
                 )}
                 {!tavilyReady && <div>• Tavily web-search key not configured. Add it in <a href="/admin/settings" className="underline font-semibold">Admin Settings → Web Search</a>.</div>}
@@ -240,8 +279,8 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
               </div>
             </div>
 
-            <div className="bg-gray-50 border border-gray-200 rounded p-2 text-xs">
-              Active AI provider: <strong className="font-mono">{aiSettings?.provider || "(none)"}</strong> · Region: <strong>Tasmania, Australia</strong> · Rate limit: 5 runs / hour
+            <div className="bg-gray-50 border border-gray-200 rounded p-2 text-xs" data-testid="ai-modal-footer">
+              Active AI provider: <strong className="font-mono" data-testid="ai-modal-footer-provider">{aiSettings?.provider || "(none)"}</strong> · Region: <strong>Tasmania, Australia</strong> · Rate limit: 5 runs / hour <span className="text-gray-400">· ui v11.6.3</span>
             </div>
           </div>
         )}

@@ -5488,10 +5488,45 @@ app.add_middleware(CORSMiddleware,
     allow_credentials=True, allow_origins=os.environ.get('CORS_ORIGINS','*').split(','),
     allow_methods=["*"], allow_headers=["*"])
 
+async def _heal_active_ai_providers():
+    """Phase 11.6.3 — self-heal for orphan connections.
+    If a text/image provider is CONNECTED/MANUAL but no active_*_provider is set
+    (typically because the provider was connected before the auto-elect code
+    existed), promote the first eligible one so the AI Standards Check prereq
+    gate opens automatically."""
+    try:
+        doc = await db.settings.find_one({"key": "admin_settings"}) or {}
+        ai = doc.get("ai_providers") or {}
+        text_providers = ("openai", "anthropic", "google")
+        image_providers = ("openai", "nano_banana")
+        changed = False
+        def _connected(prov_key):
+            p = ai.get(prov_key) or {}
+            return p.get("status") in ("CONNECTED", "MANUAL")
+        if not ai.get("active_text_provider"):
+            elect = next((p for p in text_providers if _connected(p)), None)
+            if elect:
+                ai["active_text_provider"] = elect
+                changed = True
+                logger.info(f"[ai-heal] promoted '{elect}' → active_text_provider")
+        if not ai.get("active_image_provider"):
+            elect = next((p for p in image_providers if _connected(p)), None)
+            if elect:
+                ai["active_image_provider"] = elect
+                changed = True
+                logger.info(f"[ai-heal] promoted '{elect}' → active_image_provider")
+        if changed:
+            await db.settings.update_one({"key": "admin_settings"},
+                {"$set": {"ai_providers": ai, "updated_at": now_iso()}}, upsert=True)
+    except Exception as e:
+        logger.exception(f"AI provider heal failed: {e}")
+
+
 @app.on_event("startup")
 async def on_startup():
     try: await seed_database()
     except Exception as e: logger.exception(f"Seeding failed: {e}")
+    await _heal_active_ai_providers()
 
 @app.on_event("shutdown")
 async def on_shutdown(): client.close()
