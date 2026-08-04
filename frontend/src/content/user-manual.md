@@ -532,6 +532,41 @@ There is no restore UI in this release. Super Admins can undelete a record by re
 **App version**: v1.0 · Phase 11
 **Manual last updated**: 2026-06-22
 
+### Phase 11.6 (2026-08-04) — AI Standards Check for Compliance Templates
+- New super-admin feature under Form Template Builder → **AI Standards Check** button. Runs a real 3-step pipeline: Tavily web search across AU standards domains → active AI provider LLM call → new AI-draft template stored in `compliance_form_templates` with `status: ai_draft`. Existing templates are NEVER overwritten.
+- Region is hard-locked to Tasmania, Australia (prompt + Tavily search scope).
+- Modes: **Suggest updates** (diff-style change list with per-item accept/reject) or **Generate a brand new template** (full JSON preview). Every proposed change/criterion MUST include a `citation.source_url`; server-side filter drops any uncited output before returning.
+- Rate limit: 5 runs / super-admin / rolling hour (in-memory sliding window).
+- New Admin Settings tabs: **Web Search** (Tavily API key connect/disconnect with live verify) and **Compliance Standards** (editable list, seeded with 9 AU standards: AS 3600 / AS 3850.1-.2 / AS/NZS 4671 / NCC 2022 Vol 1-2 / Tasmanian Building Act 2016 / Director's Determinations Tas / WorkSafe Tas).
+- Audit event `ai_template_check` written per run with mode, template_id, draft_id, provider, model, standards, source URLs, prompt/completion token counts, and `dropped_for_missing_citation` count. `ai_template_accepted` on save-as-draft.
+- Fallback behaviour: with Tavily OR active AI provider missing/disconnected, the modal shows a red "Prerequisites missing" banner listing exactly what's needed and disables the Run button — no crash, no silent failure.
+
+### 18.5 AI Standards Check for Compliance Templates
+Super Admin only. Available at **Form Templates → "AI Standards Check"** (top-right, purple button with 🤖 icon).
+
+**Prerequisites** — the modal will block Run until both are green:
+1. Active text AI provider CONNECTED or MANUAL (Admin Settings → AI Providers)
+2. Tavily API key CONNECTED (Admin Settings → Web Search)
+
+**How to run**
+1. Click AI Standards Check → modal opens.
+2. Pick a **Mode**:
+   - *Suggest updates to this template* — pick an existing template; the AI compares each field/hold-point against fresh AU standards snippets and returns a per-change accept/reject list with clause citations.
+   - *Generate a brand new template* — pick a type (Pre-Pour / Post-Pour / Certificate / Custom). AI outputs a full structured template with citation-tagged sections/criteria.
+3. **Standards to check against** — all 9 seeded AU standards are ticked by default; untick to narrow scope.
+4. Confirm the active AI provider shown at the bottom, then click **Run**. Live progress panel steps through: Searching standards → Fetching clauses → Analysing → Generating (30-90 s typical).
+
+**Result screen**
+- Update mode: change list with per-item checkboxes, each showing before/after, rationale, and clickable clause citation (`AS 3850.1:2015 §7.3.2` + source URL).
+- Generate mode: full template JSON preview.
+- Click **Save as new draft** — creates a new template `{original} (AI draft {date})` with `status: "active"` (was `ai_draft` before accept). The source template is untouched.
+
+**Region + guardrails**
+- Prompt and Tavily search filter both hard-lock to Tasmania, Australia.
+- Every proposed change/criterion without a citation is server-side filtered before it reaches the UI (drop count shown at the top of the result panel).
+- Rate limit: 5 runs per super-admin per rolling hour.
+- Audit trail records provider, model, token counts, and every source URL cited.
+
 ### Phase 11.5 (2026-08-04) — AI Providers Connect flow + audit-trail report
 - New "Connect account" flow per provider under Admin Settings → AI Providers, replacing the flat paste-key input. OpenAI / Anthropic / Nano Banana use paste-key + live verify (real `GET /v1/models` roundtrip). Google Gemini uses OAuth2 when `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_REDIRECT_URI` env vars are set; otherwise renders a yellow fallback banner and accepts a manual API key.
 - Status pills per provider: `NOT CONFIGURED` (grey) · `MANUAL` (yellow) · `CONNECTED` (green) · `ERROR` (red, message on hover).

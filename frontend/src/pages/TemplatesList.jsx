@@ -11,12 +11,14 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "../components/ui/dialog";
 import { toast } from "sonner";
+import AIStandardsCheckModal from "../components/AIStandardsCheckModal";
 
 export default function TemplatesList() {
-  const { hasPerm } = useAuth();
+  const { hasPerm, isSuperAdmin } = useAuth();
   const nav = useNavigate();
   const [items, setItems] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
 
   const load = async () => {
     setItems(null);
@@ -59,11 +61,21 @@ export default function TemplatesList() {
             <h1 className="text-3xl font-black tracking-tighter text-[#1F2A33]">Form Templates</h1>
             <p className="text-sm text-gray-500 mt-1">Design and version the checklists your team uses on site. System templates are protected — clone to edit.</p>
           </div>
-          <Button onClick={() => setShowCreate(true)} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]" data-testid="new-template-btn">
-            <AppIcon name="add" size={16} className="mr-1" decorative/> New template
-          </Button>
+          <div className="flex gap-2 flex-wrap">
+            {isSuperAdmin && (
+              <Button onClick={() => setAiOpen(true)} className="bg-[#3A6B8C] text-white font-bold hover:bg-[#1F2A33]"
+                      data-testid="ai-standards-check-btn">
+                <AppIcon name="robot" size={16} className="mr-1" decorative/> AI Standards Check
+              </Button>
+            )}
+            <Button onClick={() => setShowCreate(true)} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]" data-testid="new-template-btn">
+              <AppIcon name="add" size={16} className="mr-1" decorative/> New template
+            </Button>
+          </div>
         </div>
       </div>
+
+      {isSuperAdmin && <AIStandardsCheckModal open={aiOpen} onClose={() => setAiOpen(false)} templates={items || []} onDone={load}/>}
 
       <div className="bg-white border border-gray-200 rounded overflow-hidden">
         {items === null ? (

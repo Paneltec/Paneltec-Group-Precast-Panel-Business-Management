@@ -3123,11 +3123,25 @@ DEFAULT_ADMIN_SETTINGS = {
         "google":     {"api_key":"", "enabled":False},
         "nano_banana":{"api_key":"", "enabled":False},
     },
+    "tavily": {"api_key": "", "enabled": False, "status": "NOT_CONFIGURED",
+                "connected_at": None},
+    "compliance_standards": [
+        {"name": "AS 3600 (Concrete Structures)", "url": "https://www.standards.org.au/standards-catalogue/sa-snz/building/bd-002/as--3600-colon-2018"},
+        {"name": "AS 3850.1 (Prefabricated concrete elements — General requirements)", "url": "https://www.standards.org.au"},
+        {"name": "AS 3850.2 (Prefabricated concrete elements — Building construction)", "url": "https://www.standards.org.au"},
+        {"name": "AS/NZS 4671 (Steel reinforcing materials)", "url": "https://www.standards.org.au"},
+        {"name": "NCC 2022 Volume 1 (Class 2–9 buildings)", "url": "https://ncc.abcb.gov.au/"},
+        {"name": "NCC 2022 Volume 2 (Class 1 & 10 buildings)", "url": "https://ncc.abcb.gov.au/"},
+        {"name": "Tasmanian Building Act 2016", "url": "https://www.legislation.tas.gov.au/view/html/inforce/current/act-2016-011"},
+        {"name": "Director's Determinations (Tasmania)", "url": "https://www.cbos.tas.gov.au/topics/technical-regulation/building/directors-determinations"},
+        {"name": "WorkSafe Tasmania — Precast concrete handling", "url": "https://worksafe.tas.gov.au/"},
+    ],
 }
 ADMIN_SETTING_TABS = set(DEFAULT_ADMIN_SETTINGS.keys())
-ADMIN_SECRET_FIELDS = {  # per-tab set of dotted paths whose value should be masked in GET
+ADMIN_SECRET_FIELDS = {
     "ai_providers": {"openai.api_key", "anthropic.api_key", "google.api_key", "nano_banana.api_key",
                       "google.oauth_refresh_token", "google.oauth_access_token"},
+    "tavily": {"api_key"},
 }
 
 
@@ -3135,9 +3149,11 @@ def _mask_admin_settings(doc: Dict[str, Any]) -> Dict[str, Any]:
     import copy
     out = copy.deepcopy(doc)
     for tab, paths in ADMIN_SECRET_FIELDS.items():
+        section = out.get(tab)
+        if not isinstance(section, dict): continue
         for p in paths:
             keys = p.split(".")
-            node = out.get(tab, {})
+            node = section
             for k in keys[:-1]:
                 node = node.get(k) if isinstance(node, dict) else None
                 if node is None: break
@@ -3150,8 +3166,13 @@ async def _load_admin_settings() -> Dict[str, Any]:
     doc = await db.settings.find_one({"key":"admin_settings"}, {"_id":0,"key":0}) or {}
     merged: Dict[str, Any] = {}
     for tab, defaults in DEFAULT_ADMIN_SETTINGS.items():
-        cur = doc.get(tab) or {}
-        merged[tab] = {**defaults, **cur} if isinstance(cur, dict) else defaults
+        cur = doc.get(tab)
+        if isinstance(defaults, list):
+            merged[tab] = cur if isinstance(cur, list) else defaults
+        elif isinstance(defaults, dict):
+            merged[tab] = {**defaults, **cur} if isinstance(cur, dict) else defaults
+        else:
+            merged[tab] = cur if cur is not None else defaults
     return merged
 
 
@@ -3161,11 +3182,21 @@ async def admin_settings_get(user: dict = Depends(require_super_admin)):
 
 
 @api_router.put("/admin/settings/{tab}")
-async def admin_settings_put(tab: str, payload: Dict[str, Any] = Body(...),
+async def admin_settings_put(tab: str, payload: Any = Body(...),
                               user: dict = Depends(require_super_admin)):
     if tab not in ADMIN_SETTING_TABS:
         raise HTTPException(status_code=400, detail=f"Unknown settings tab '{tab}'")
     existing = await _load_admin_settings()
+    # List-shaped tabs (e.g. compliance_standards) accept a raw list payload.
+    if isinstance(DEFAULT_ADMIN_SETTINGS.get(tab), list):
+        if not isinstance(payload, list):
+            raise HTTPException(status_code=400, detail=f"Payload for '{tab}' must be a list")
+        await db.settings.update_one(
+            {"key":"admin_settings"},
+            {"$set": {tab: payload, "updated_at": now_iso()}}, upsert=True)
+        await record_audit(user, "settings_changed", "admin_settings", tab, tab,
+                           metadata={"tab": tab, "count": len(payload)})
+        return _mask_admin_settings(await _load_admin_settings())
     incoming = payload or {}
     # For secret fields, preserve stored value when client sent the masked placeholder
     for path in ADMIN_SECRET_FIELDS.get(tab, set()):
@@ -3180,9 +3211,7 @@ async def admin_settings_put(tab: str, payload: Dict[str, Any] = Body(...),
     merged = {**existing.get(tab, {}), **incoming}
     await db.settings.update_one(
         {"key":"admin_settings"},
-        {"$set": {tab: merged, "updated_at": now_iso()}},
-        upsert=True,
-    )
+        {"$set": {tab: merged, "updated_at": now_iso()}}, upsert=True)
     await record_audit(user, "settings_changed", "admin_settings", tab, tab,
                        metadata={"tab": tab, "fields": list(incoming.keys())})
     return _mask_admin_settings(await _load_admin_settings())
@@ -4081,6 +4110,229 @@ async def data_export(module: str, user: dict = Depends(get_current_user),
     headers = {"Content-Disposition": f"attachment; filename={module}-export.csv"}
     if capped: headers["X-Export-Capped"] = "true"
     return Response(content=buf.getvalue(), media_type="text/csv", headers=headers)
+
+
+# ============================================================================
+# Phase 11.6 — Tavily connect + AI Compliance Standards Check
+# ============================================================================
+from services.ai_compliance import (
+    tavily_verify as _tavily_verify,
+    gather_sources as _tavily_gather,
+    call_llm as _ai_call_llm,
+    _build_prompt as _ai_build_prompt,
+    _extract_json as _ai_extract_json,
+    filter_cited_changes as _ai_filter_changes,
+    filter_cited_template as _ai_filter_template,
+    check_rate_limit as _ai_rate_check,
+)
+
+
+@api_router.post("/admin/settings/tavily/connect")
+async def tavily_connect(payload: Dict[str, Any] = Body(...),
+                          user: dict = Depends(require_super_admin)):
+    api_key = (payload.get("api_key") or "").strip()
+    if _is_masked(api_key):
+        stored = (await _load_admin_settings()).get("tavily", {})
+        api_key = stored.get("api_key") or ""
+    if not api_key:
+        raise HTTPException(status_code=400, detail="api_key required")
+    v = await _tavily_verify(api_key)
+    if not v.get("ok"):
+        return {"status": v.get("status","ERROR"), "message": v.get("message","Failed")}
+    settings = await _load_admin_settings()
+    settings["tavily"] = {"api_key": api_key, "enabled": True,
+                           "status": "CONNECTED", "connected_at": now_iso()}
+    await db.settings.update_one({"key":"admin_settings"},
+        {"$set": {"tavily": settings["tavily"], "updated_at": now_iso()}}, upsert=True)
+    await record_audit(user, "tavily_connected", "admin_settings", "tavily", "Tavily",
+                       metadata={"status": "CONNECTED"})
+    return {"status": "CONNECTED", "message": v.get("message","Connected")}
+
+
+@api_router.post("/admin/settings/tavily/disconnect")
+async def tavily_disconnect(user: dict = Depends(require_super_admin)):
+    await db.settings.update_one({"key":"admin_settings"},
+        {"$set": {"tavily": {"api_key":"","enabled":False,"status":"NOT_CONFIGURED","connected_at":None},
+                  "updated_at": now_iso()}}, upsert=True)
+    await record_audit(user, "tavily_disconnected", "admin_settings", "tavily", "Tavily")
+    return {"status": "NOT_CONFIGURED"}
+
+
+@api_router.get("/admin/settings/compliance-standards")
+async def get_compliance_standards(user: dict = Depends(require_super_admin)):
+    return (await _load_admin_settings()).get("compliance_standards", [])
+
+
+@api_router.put("/admin/settings/compliance-standards")
+async def put_compliance_standards(payload: List[Dict[str, Any]] = Body(...),
+                                     user: dict = Depends(require_super_admin)):
+    clean = [{"name": (s.get("name") or "").strip(),
+              "url": (s.get("url") or "").strip()}
+             for s in payload if (s.get("name") or "").strip()]
+    await db.settings.update_one({"key":"admin_settings"},
+        {"$set": {"compliance_standards": clean, "updated_at": now_iso()}}, upsert=True)
+    await record_audit(user, "settings_changed", "admin_settings", "compliance_standards",
+                       "compliance_standards", metadata={"count": len(clean)})
+    return clean
+
+
+class AICheckPayload(BaseModel):
+    mode: Literal["update", "generate"]
+    template_id: Optional[str] = None
+    template_type: Optional[str] = None
+    standards: List[str] = Field(default_factory=list)
+
+
+@api_router.post("/admin/compliance/ai-check")
+async def ai_compliance_check(payload: AICheckPayload,
+                                user: dict = Depends(require_super_admin)):
+    # Rate limit
+    ok, remaining = _ai_rate_check(user["id"])
+    if not ok:
+        raise HTTPException(status_code=429, detail=f"AI check rate limit reached ({5}/hour). Try again later.")
+
+    settings = await _load_admin_settings()
+    ai = settings.get("ai_providers", {})
+    active = ai.get("active_text_provider")
+    if not active:
+        raise HTTPException(status_code=400, detail="No active AI text provider set. Configure one in Admin Settings → AI Providers.")
+    prov = ai.get(active) or {}
+    status = prov.get("status")
+    if status not in ("CONNECTED", "MANUAL"):
+        raise HTTPException(status_code=400, detail=f"Active AI provider '{active}' is {status or 'NOT_CONFIGURED'}. Reconnect it.")
+    ai_key = prov.get("api_key") or ""
+    if not ai_key:
+        raise HTTPException(status_code=400, detail=f"Active AI provider '{active}' has no stored API key.")
+
+    tav = settings.get("tavily", {})
+    if not tav.get("enabled") or not tav.get("api_key"):
+        raise HTTPException(status_code=400, detail="Tavily web-search key not configured. Add it in Admin Settings → Integrations → Web Search.")
+
+    # Load standards list
+    if payload.standards:
+        standards = payload.standards
+    else:
+        standards = [s["name"] for s in (settings.get("compliance_standards") or [])]
+
+    # Load template (for update mode)
+    template = None; template_type = payload.template_type
+    if payload.mode == "update":
+        if not payload.template_id:
+            raise HTTPException(status_code=400, detail="template_id required for update mode")
+        template = await db.compliance_form_templates.find_one({"id": payload.template_id}, {"_id":0})
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+        template_type = template.get("category") or template.get("code")
+
+    # Step 1 — Tavily web search
+    template_keywords = template_type or payload.template_type or "precast concrete compliance"
+    sources = await _tavily_gather(tav["api_key"], standards, template_keywords)
+
+    # Step 2 — LLM call
+    prompt = _ai_build_prompt(payload.mode, template_type, template, standards, sources)
+    llm_result = await _ai_call_llm(active, ai_key, prompt)
+    if not llm_result.get("ok"):
+        raise HTTPException(status_code=502, detail=f"LLM call failed: {llm_result.get('error')}")
+
+    parsed = _ai_extract_json(llm_result["content"])
+    if not parsed:
+        raise HTTPException(status_code=502, detail="LLM did not return valid JSON")
+
+    dropped_changes = 0
+    changes: List[Dict[str, Any]] = []
+    new_template = None
+    if payload.mode == "update":
+        changes, dropped_changes = _ai_filter_changes(parsed.get("changes", []))
+    else:
+        new_template, dropped_changes = _ai_filter_template(parsed.get("template"))
+
+    # Step 3 — persist AI draft (never overwrite source)
+    draft_id = str(uuid.uuid4())
+    now = now_iso()
+    draft_doc: Dict[str, Any] = {
+        "id": draft_id,
+        "code": (new_template.get("code") if new_template else f"AI_DRAFT_{draft_id[:8]}"),
+        "name": (new_template.get("name") if new_template else
+                  f"{template.get('name','Template')} (AI draft {now[:10]})"),
+        "description": (new_template.get("description") if new_template else f"AI Standards Check draft — {now}"),
+        "category": template_type or "custom",
+        "sections": (new_template.get("sections", []) if new_template else template.get("sections", [])),
+        "header_fields": (new_template.get("header_fields", []) if new_template else template.get("header_fields", [])),
+        "signoff_stages": (new_template.get("signoff_stages", []) if new_template else template.get("signoff_stages", [])),
+        "is_system": False, "active": False, "version": 1,
+        "status": "ai_draft",
+        "parent_template_id": payload.template_id,
+        "ai_metadata": {
+            "mode": payload.mode,
+            "provider": active,
+            "model": llm_result.get("model"),
+            "prompt_tokens": llm_result.get("prompt_tokens", 0),
+            "completion_tokens": llm_result.get("completion_tokens", 0),
+            "sources": [{"standard": s["standard"], "title": s["title"], "url": s["url"]} for s in sources],
+            "generated_at": now,
+            "run_id": draft_id,
+            "summary": (parsed.get("summary") or "")[:1000],
+            "proposed_changes": changes,
+            "dropped_for_missing_citation": dropped_changes,
+        },
+        "created_at": now, "updated_at": now,
+        "created_by_user_id": user["id"], "deleted_at": None,
+    }
+    await db.compliance_form_templates.insert_one(draft_doc)
+    await record_audit(user, "ai_template_check", "compliance_form_template",
+                       draft_id, draft_doc["name"],
+                       metadata={"mode": payload.mode, "template_id": payload.template_id,
+                                  "draft_id": draft_id, "provider": active,
+                                  "model": llm_result.get("model"),
+                                  "standards_checked": standards,
+                                  "sources_cited": [s["url"] for s in sources[:20]],
+                                  "prompt_tokens": llm_result.get("prompt_tokens", 0),
+                                  "completion_tokens": llm_result.get("completion_tokens", 0),
+                                  "changes_kept": len(changes),
+                                  "dropped_for_missing_citation": dropped_changes})
+    return {
+        "draft_id": draft_id,
+        "mode": payload.mode,
+        "summary": (parsed.get("summary") or ""),
+        "changes": changes,
+        "sources": [{"standard": s["standard"], "title": s["title"], "url": s["url"]} for s in sources],
+        "provider_used": active,
+        "model": llm_result.get("model"),
+        "rate_remaining": remaining,
+        "dropped_for_missing_citation": dropped_changes,
+        "template_preview": new_template if payload.mode == "generate" else None,
+    }
+
+
+class AIAcceptPayload(BaseModel):
+    accepted_change_ids: List[str] = Field(default_factory=list)
+
+
+@api_router.post("/admin/compliance/ai-check/{draft_id}/accept")
+async def ai_check_accept(draft_id: str, payload: AIAcceptPayload,
+                           user: dict = Depends(require_super_admin)):
+    draft = await db.compliance_form_templates.find_one({"id": draft_id, "status":"ai_draft"}, {"_id":0})
+    if not draft:
+        raise HTTPException(status_code=404, detail="AI draft not found")
+    all_changes = (draft.get("ai_metadata") or {}).get("proposed_changes") or []
+    if payload.accepted_change_ids:
+        accepted = [c for c in all_changes if c.get("id") in set(payload.accepted_change_ids)]
+    else:
+        accepted = all_changes  # generate-mode drafts don't have separate change IDs
+
+    # Never overwrite source. Promote the draft to a regular customer template.
+    now = now_iso()
+    await db.compliance_form_templates.update_one(
+        {"id": draft_id},
+        {"$set": {"status": "active", "active": True,
+                  "ai_metadata.accepted_at": now,
+                  "ai_metadata.accepted_change_ids": [c.get("id") for c in accepted],
+                  "updated_at": now, "updated_by_user_id": user["id"]}})
+    await record_audit(user, "ai_template_accepted", "compliance_form_template",
+                       draft_id, draft.get("name"),
+                       metadata={"accepted_change_count": len(accepted),
+                                  "parent_template_id": draft.get("parent_template_id")})
+    return {"draft_id": draft_id, "status": "active", "accepted_changes": len(accepted)}
 
 
 app.include_router(api_router)

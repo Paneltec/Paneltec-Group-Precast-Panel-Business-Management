@@ -16,6 +16,8 @@ const TABS = [
   { key: "users",       label: "Users & Roles",     icon: "users" },
   { key: "integrations",label: "Integrations",      icon: "settings" },
   { key: "ai_providers",label: "AI Providers",      icon: "settings" },
+  { key: "web_search",  label: "Web Search",        icon: "search" },
+  { key: "compliance_standards", label: "Compliance Standards", icon: "compliance_forms" },
   { key: "account",     label: "Account Details",   icon: "profile" },
   { key: "numbering",   label: "Numbering",         icon: "reports" },
   { key: "tax",         label: "Tax",               icon: "money" },
@@ -87,6 +89,10 @@ export default function AdminSettings() {
             <LinkTile to="/reports" title="Open BI API Tokens (Reports → Power BI Integration tab)" desc="Generate + revoke tokens for Power BI / external analytics."/>
           ) : tab === "ai_providers" ? (
             <AIProvidersPane settings={settings.ai_providers} onSaved={load}/>
+          ) : tab === "web_search" ? (
+            <WebSearchPane settings={settings.tavily} onSaved={load}/>
+          ) : tab === "compliance_standards" ? (
+            <ComplianceStandardsPane settings={settings.compliance_standards} onSaved={load}/>
           ) : tab === "account" ? (
             <AccountPane settings={settings.account} onSaved={load}/>
           ) : tab === "numbering" ? (
@@ -410,6 +416,90 @@ function AIProvidersPane({ settings, onSaved }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function WebSearchPane({ settings, onSaved }) {
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const status = settings?.status || "NOT_CONFIGURED";
+  const pill = {
+    CONNECTED: "bg-green-100 text-green-800",
+    NOT_CONFIGURED: "bg-gray-100 text-gray-600",
+    ERROR: "bg-red-100 text-red-800",
+  }[status] || "bg-gray-100 text-gray-600";
+  const connect = async () => {
+    if (!key.trim()) return;
+    setBusy(true);
+    try {
+      const { data } = await api.post("/admin/settings/tavily/connect", { api_key: key.trim() });
+      if (data.status === "CONNECTED") { toast.success(data.message || "Connected"); onSaved?.(); setKey(""); }
+      else toast.error(data.message || "Failed");
+    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
+    finally { setBusy(false); }
+  };
+  const disconnect = async () => {
+    if (!window.confirm("Disconnect Tavily web search?")) return;
+    try { await api.post("/admin/settings/tavily/disconnect"); toast.success("Disconnected"); onSaved?.(); }
+    catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
+  };
+  return (
+    <div className="bg-white border border-gray-200 rounded p-5 space-y-3" data-testid="web-search-pane">
+      <div className="flex items-center gap-3">
+        <div className="font-bold text-[#1F2A33]">Tavily Web Search</div>
+        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${pill}`} data-testid="tavily-status">
+          {status.replace("_"," ")}
+        </span>
+      </div>
+      <p className="text-xs text-gray-500">Used by the AI Standards Check pipeline to gather clauses from AU standards bodies. Get a free key at <a target="_blank" rel="noreferrer" className="text-[#3A6B8C] underline" href="https://tavily.com">tavily.com</a>.</p>
+      {status !== "CONNECTED" ? (
+        <div className="flex gap-2">
+          <Input type="password" placeholder="tvly-…" value={key} onChange={(e)=>setKey(e.target.value)} data-testid="tavily-key-input"/>
+          <Button onClick={connect} disabled={busy || !key.trim()} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]" data-testid="tavily-save-btn">
+            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : null} Save &amp; verify
+          </Button>
+        </div>
+      ) : (
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={disconnect} className="text-red-700 border-red-200 hover:bg-red-50" data-testid="tavily-disconnect-btn">Disconnect</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ComplianceStandardsPane({ settings, onSaved }) {
+  const [rows, setRows] = useState(settings || []);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setRows(settings || []); }, [settings]);
+  const save = async () => {
+    setBusy(true);
+    try { await api.put("/admin/settings/compliance-standards", rows.filter(r => r.name?.trim())); toast.success("Saved"); onSaved?.(); }
+    catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="space-y-3" data-testid="compliance-standards-pane">
+      <div className="bg-white border border-gray-200 rounded p-5 space-y-2">
+        <div className="text-xs text-gray-500">Standards the AI Standards Check will consult. Region is hard-locked to <strong>Tasmania, Australia</strong>.</div>
+        {rows.map((r, i) => (
+          <div key={i} className="grid grid-cols-12 gap-2" data-testid={`cs-row-${i}`}>
+            <Input className="col-span-5" placeholder="Standard name" value={r.name || ""}
+                   onChange={(e)=>{ const c=[...rows]; c[i]={...c[i],name:e.target.value}; setRows(c); }}/>
+            <Input className="col-span-6" placeholder="URL (optional)" value={r.url || ""}
+                   onChange={(e)=>{ const c=[...rows]; c[i]={...c[i],url:e.target.value}; setRows(c); }}/>
+            <Button variant="outline" onClick={()=>setRows(rows.filter((_,x)=>x!==i))}
+                    className="col-span-1 text-red-700 border-red-200 hover:bg-red-50" data-testid={`cs-del-${i}`}>×</Button>
+          </div>
+        ))}
+        <Button variant="outline" onClick={()=>setRows([...rows,{name:"",url:""}])} data-testid="cs-add-btn">
+          <AppIcon name="add" size={14} decorative className="mr-1"/> Add standard
+        </Button>
+      </div>
+      <Button onClick={save} disabled={busy} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]" data-testid="cs-save-btn">
+        {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : null} Save standards
+      </Button>
     </div>
   );
 }
