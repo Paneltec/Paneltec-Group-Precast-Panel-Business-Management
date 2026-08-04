@@ -309,7 +309,7 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
             </div>
 
             <div className="bg-gray-50 border border-gray-200 rounded p-2 text-xs" data-testid="ai-modal-footer">
-              Active AI provider: <strong className="font-mono" data-testid="ai-modal-footer-provider">{aiSettings?.provider || "(none)"}</strong> · Region: <strong>Tasmania, Australia</strong> · Rate limit: 5 runs / hour <span className="text-gray-400">· ui v11.6.4</span>
+              Active AI provider: <strong className="font-mono" data-testid="ai-modal-footer-provider">{aiSettings?.provider || "(none)"}</strong> · Region: <strong>Tasmania, Australia</strong> · Rate limit: 20 runs / hour <span className="text-gray-400">· ui v11.6.5</span>
             </div>
           </div>
         )}
@@ -344,7 +344,7 @@ export default function AIStandardsCheckModal({ open, onClose, templates = [], o
               {(error.status === 429 || /quota|billing|credit/i.test(error.detail) || /HTTP 401|HTTP 403|invalid.*key/i.test(error.detail)) && (
                 <div className="text-xs bg-yellow-50 border border-yellow-200 text-yellow-900 rounded p-2">
                   <strong>Hint:</strong> {error.status === 429 && !/HTTP 429/i.test(error.detail)
-                    ? "You've hit the internal 5-runs-per-hour cap for AI Standards Check. Wait an hour or try a different super-admin account."
+                    ? "You've hit the internal 20-runs-per-hour cap for AI Standards Check. Wait an hour or try a different super-admin account."
                     : "Your active AI provider is out of quota or the key is invalid. Try switching to a different active provider in Admin Settings → AI Providers, or top up your provider account."}
                 </div>
               )}

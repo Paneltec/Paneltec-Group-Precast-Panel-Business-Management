@@ -4201,7 +4201,7 @@ async def ai_compliance_check(payload: AICheckPayload,
     # Rate limit
     ok, remaining = _ai_rate_check(user["id"])
     if not ok:
-        raise HTTPException(status_code=429, detail=f"AI check rate limit reached ({5}/hour). Try again later.")
+        raise HTTPException(status_code=429, detail=f"AI check rate limit reached ({20}/hour). Try again later.")
 
     settings = await _load_admin_settings()
     ai = settings.get("ai_providers", {})

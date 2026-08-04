@@ -536,7 +536,7 @@ There is no restore UI in this release. Super Admins can undelete a record by re
 - New super-admin feature under Form Template Builder → **AI Standards Check** button. Runs a real 3-step pipeline: Tavily web search across AU standards domains → active AI provider LLM call → new AI-draft template stored in `compliance_form_templates` with `status: ai_draft`. Existing templates are NEVER overwritten.
 - Region is hard-locked to Tasmania, Australia (prompt + Tavily search scope).
 - Modes: **Suggest updates** (diff-style change list with per-item accept/reject) or **Generate a brand new template** (full JSON preview). Every proposed change/criterion MUST include a `citation.source_url`; server-side filter drops any uncited output before returning.
-- Rate limit: 5 runs / super-admin / rolling hour (in-memory sliding window).
+- Rate limit: 20 runs / super-admin / rolling hour (in-memory sliding window).
 - New Admin Settings tabs: **Web Search** (Tavily API key connect/disconnect with live verify) and **Compliance Standards** (editable list, seeded with 9 AU standards: AS 3600 / AS 3850.1-.2 / AS/NZS 4671 / NCC 2022 Vol 1-2 / Tasmanian Building Act 2016 / Director's Determinations Tas / WorkSafe Tas).
 - Audit event `ai_template_check` written per run with mode, template_id, draft_id, provider, model, standards, source URLs, prompt/completion token counts, and `dropped_for_missing_citation` count. `ai_template_accepted` on save-as-draft.
 - Fallback behaviour: with Tavily OR active AI provider missing/disconnected, the modal shows a red "Prerequisites missing" banner listing exactly what's needed and disables the Run button — no crash, no silent failure.
@@ -564,7 +564,7 @@ Super Admin only. Available at **Form Templates → "AI Standards Check"** (top-
 **Region + guardrails**
 - Prompt and Tavily search filter both hard-lock to Tasmania, Australia.
 - Every proposed change/criterion without a citation is server-side filtered before it reaches the UI (drop count shown at the top of the result panel).
-- Rate limit: 5 runs per super-admin per rolling hour.
+- Rate limit: 20 runs per super-admin per rolling hour.
 - Audit trail records provider, model, token counts, and every source URL cited.
 
 ### Phase 11.5 (2026-08-04) — AI Providers Connect flow + audit-trail report

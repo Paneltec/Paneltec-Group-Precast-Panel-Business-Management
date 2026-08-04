@@ -31,7 +31,7 @@ _APPROX_CHARS_PER_TOKEN = 4  # rough heuristic — good enough for cap enforceme
 
 # In-memory sliding-window rate limiter keyed by user id.
 _RATE_WINDOW_SECONDS = 3600
-_RATE_MAX = 5
+_RATE_MAX = 20
 _rate_hits: Dict[str, deque] = defaultdict(deque)
 
 
