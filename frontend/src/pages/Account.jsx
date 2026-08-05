@@ -6,6 +6,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import PasswordInput from "../components/PasswordInput";
 import { Toaster, toast } from "sonner";
 import { formatDateTime } from "../lib/format";
 
@@ -96,9 +97,9 @@ export default function AccountPage() {
       <section className="bg-white border border-gray-200 rounded p-6 space-y-4">
         <h2 className="text-sm font-bold uppercase tracking-[0.15em] text-[#3A6B8C]">Change password</h2>
         <form onSubmit={savePassword} className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <Input type="password" placeholder="Current password" required value={currentPwd} onChange={(e) => setCurrentPwd(e.target.value)} data-testid="account-current-pwd"/>
-          <Input type="password" placeholder="New password (min 8)" required minLength={8} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} data-testid="account-new-pwd"/>
-          <Input type="password" placeholder="Confirm new" required minLength={8} value={confirm} onChange={(e) => setConfirm(e.target.value)} data-testid="account-confirm-pwd"/>
+          <PasswordInput placeholder="Current password" required value={currentPwd} onChange={(e) => setCurrentPwd(e.target.value)} data-testid="account-current-pwd" testIdSuffix="account-current"/>
+          <PasswordInput placeholder="New password (min 8)" required minLength={8} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} data-testid="account-new-pwd" testIdSuffix="account-new"/>
+          <PasswordInput placeholder="Confirm new" required minLength={8} value={confirm} onChange={(e) => setConfirm(e.target.value)} data-testid="account-confirm-pwd" testIdSuffix="account-confirm"/>
           <div className="md:col-span-3 flex justify-end">
             <Button type="submit" disabled={savingPwd} data-testid="account-save-pwd"
               className="bg-[#1F2A33] text-white font-bold hover:bg-[#3A6B8C]">

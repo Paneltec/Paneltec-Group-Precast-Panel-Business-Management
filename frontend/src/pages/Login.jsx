@@ -4,6 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import PasswordInput from "../components/PasswordInput";
 
 export default function Login() {
   const { user, loading, login } = useAuth();
@@ -64,9 +65,8 @@ export default function Login() {
             </div>
             <div>
               <Label htmlFor="password" className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">Password</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 autoComplete="current-password"
                 required
                 value={password}
@@ -74,6 +74,7 @@ export default function Login() {
                 placeholder="••••••••"
                 className="mt-1 h-11"
                 data-testid="login-password-input"
+                testIdSuffix="login"
               />
             </div>
 

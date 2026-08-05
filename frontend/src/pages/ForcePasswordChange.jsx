@@ -7,6 +7,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import PasswordInput from "../components/PasswordInput";
 
 export default function ForcePasswordChange() {
   const { user, logout, refresh } = useAuth();
@@ -54,15 +55,15 @@ export default function ForcePasswordChange() {
         <form onSubmit={onSubmit} className="space-y-3">
           <div>
             <Label className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">Current password</Label>
-            <Input type="password" required value={currentPwd} onChange={(e) => setCurrentPwd(e.target.value)} data-testid="fpc-current" />
+            <PasswordInput required value={currentPwd} onChange={(e) => setCurrentPwd(e.target.value)} data-testid="fpc-current" testIdSuffix="fpc-current" />
           </div>
           <div>
             <Label className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">New password</Label>
-            <Input type="password" required minLength={8} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} data-testid="fpc-new" />
+            <PasswordInput required minLength={8} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} data-testid="fpc-new" testIdSuffix="fpc-new" />
           </div>
           <div>
             <Label className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">Confirm new password</Label>
-            <Input type="password" required minLength={8} value={confirm} onChange={(e) => setConfirm(e.target.value)} data-testid="fpc-confirm" />
+            <PasswordInput required minLength={8} value={confirm} onChange={(e) => setConfirm(e.target.value)} data-testid="fpc-confirm" testIdSuffix="fpc-confirm" />
           </div>
           {error && <div className="text-sm text-red-700" data-testid="fpc-error">{error}</div>}
           <div className="flex items-center justify-between gap-3 pt-2">
