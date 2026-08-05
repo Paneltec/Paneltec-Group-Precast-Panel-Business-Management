@@ -67,6 +67,7 @@ export default function Login() {
               <Label htmlFor="password" className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">Password</Label>
               <PasswordInput
                 id="password"
+                name="password"
                 autoComplete="current-password"
                 required
                 value={password}
@@ -103,7 +104,7 @@ export default function Login() {
         </div>
 
         <div className="mt-6 text-center text-[10px] uppercase tracking-[0.25em] text-white/40">
-          © Paneltec Group · Phase 1
+          © Paneltec Group · Phase 11 · ui v11.6.6
         </div>
       </div>
     </div>
