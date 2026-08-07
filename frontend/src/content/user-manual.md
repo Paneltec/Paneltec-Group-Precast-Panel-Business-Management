@@ -297,9 +297,41 @@ Every business-critical action:
     successive attempts from the same IP). Metadata carries the client
     IP, cool-down seconds remaining, and the reason
     (`too_many_fails` or `ip_cooldown`).
+- **Meta-audit**: `audit_row_hidden`, `audit_row_unhidden` — recorded when a
+  Super Admin uses the bulk-hide action (see "Hidden rows" below). Metadata
+  captures the target row's id, action, actor, and timestamp so the tidy-up
+  is itself fully traceable. Meta-audit events are **immutable** — the API
+  refuses to hide or un-hide them.
 - **Permission events**: `permission_changed`
 - **Business actions**: `quote_sent`, `quote_viewed` (public link), `quote_accepted`, `quote_rejected`, `quote_revised`, `invoice_issued`, `invoice_paid`, `invoice_pushed_xero`, `email_sent`
 - **Settings**: `settings_changed` (cost edits included; secret API keys redacted in the diff)
+
+### Hidden rows (Super Admin only)
+
+Audit rows can never be truly deleted — the Audit Trail is the ONLY report
+where a bulk action is available on individual rows, and it flags rows
+**hidden from default view** rather than removing them.
+
+- **Bulk-select checkboxes** appear on every non-meta row for Super Admins.
+  The header checkbox toggles all visible rows.
+- **Hide selected** opens a confirm dialog with a compliance note and a
+  required "I understand this action is logged and non-destructive"
+  consent checkbox. The primary button stays disabled until consent is
+  given.
+- Each hidden row gets `hidden_from_view: true`, `hidden_at`, and
+  `hidden_by_user_id` fields on the audit document AND produces a NEW
+  `audit_row_hidden` meta-event with metadata that references the hidden
+  row.
+- **Show hidden rows** toggle in the page header (Super Admin only, URL
+  param `?show_hidden=1`) — when ON, hidden rows are visible at reduced
+  opacity with a "hidden" pill; each hidden row exposes an inline
+  **Un-hide** link that writes a matching `audit_row_unhidden` meta-event.
+- **CSV export always includes hidden rows** (regardless of the toggle).
+
+**Compliance note (Tasmania AU — AS 3850 / NCC 2022):** hidden rows remain
+in the database, are exportable on request, and every hide/un-hide action
+is itself audit-trailed. This satisfies the retention/immutability
+requirements of the standards for precast concrete panel manufacturers.
 
 ### Filtering
 URL-bound filters: action / entity type / search / **date range** (default last 30 days) / page. The URL is shareable + reload-safe.

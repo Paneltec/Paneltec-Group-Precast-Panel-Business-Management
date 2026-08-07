@@ -1162,9 +1162,10 @@ async def _seed_phase3_demo():
 AUDIT_ACTIONS = {"created","updated","soft_deleted","hard_deleted","restored","status_changed",
     "login_success","login_failed","login_rate_limited","password_changed","password_reset","permission_changed",
     "quote_sent","quote_viewed","quote_accepted","quote_rejected","quote_revised",
-    "invoice_issued","invoice_paid","invoice_pushed_xero","email_sent","settings_changed"}
+    "invoice_issued","invoice_paid","invoice_pushed_xero","email_sent","settings_changed",
+    "audit_row_hidden","audit_row_unhidden"}
 AUDIT_ENTITY_TYPES = {"customer","project","quote","job","invoice","vehicle","employee",
-    "user","pricing_settings","company_settings","integration_settings","system","bi_api_token","compliance_form"}
+    "user","pricing_settings","company_settings","integration_settings","system","bi_api_token","compliance_form","audit_event","admin_settings"}
 AUDIT_SECRET_KEYS = {"client_secret","api_key","password","password_hash"}
 
 async def record_audit(actor: Optional[dict], action: str, entity_type: str,
@@ -1511,10 +1512,11 @@ _USER_REF_FIELDS = {
 
 
 @api_router.get("/audit")
-async def list_audit(_u: dict = Depends(require_permission("audit.view")),
+async def list_audit(user: dict = Depends(require_permission("audit.view")),
                       date_from: Optional[str] = None, date_to: Optional[str] = None,
                       actor: Optional[str] = None, action: Optional[str] = None,
                       entity_type: Optional[str] = None, search: Optional[str] = None,
+                      show_hidden: bool = Query(False),
                       page: int = Query(1, ge=1), per_page: int = Query(50, ge=1, le=200)):
     q: Dict[str, Any] = {}
     if date_from: q.setdefault("timestamp", {})["$gte"] = date_from
@@ -1525,10 +1527,81 @@ async def list_audit(_u: dict = Depends(require_permission("audit.view")),
     if search:
         rx = {"$regex": re.escape(search), "$options": "i"}
         q["$or"] = [{"entity_label": rx},{"actor_email": rx},{"actor_name": rx}]
+    # Blocker-hardening: hide "hidden_from_view" rows unless super admin flips the toggle.
+    if show_hidden:
+        if not user.get("is_super_admin"):
+            raise HTTPException(status_code=403, detail="Only super admins can view hidden audit rows.")
+    else:
+        q["hidden_from_view"] = {"$ne": True}
     total = await db.audit_events.count_documents(q)
     skip = (page-1)*per_page
     items = await db.audit_events.find(q, {"_id":0}).sort("timestamp",-1).skip(skip).limit(per_page).to_list(per_page)
     return {"items": items, "total": total, "page": page, "per_page": per_page}
+
+_META_AUDIT_ACTIONS = {"audit_row_hidden", "audit_row_unhidden"}
+
+class AuditHidePayload(BaseModel):
+    event_ids: List[str] = Field(min_length=1, max_length=500)
+
+@api_router.post("/audit/hide")
+async def audit_hide(payload: AuditHidePayload, user: dict = Depends(require_super_admin)):
+    """Flag audit rows as hidden-from-view. Non-destructive — rows remain in
+    the DB and are exportable. Each hidden row produces an immutable
+    `audit_row_hidden` meta-event. Meta-events themselves cannot be hidden."""
+    rows = await db.audit_events.find(
+        {"id": {"$in": payload.event_ids}}, {"_id": 0}
+    ).to_list(len(payload.event_ids))
+    found_ids = {r["id"] for r in rows}
+    missing = [i for i in payload.event_ids if i not in found_ids]
+    if missing:
+        raise HTTPException(status_code=404,
+            detail=f"Audit event(s) not found: {', '.join(missing[:5])}{' …' if len(missing)>5 else ''}")
+    meta_rows = [r for r in rows if r.get("action") in _META_AUDIT_ACTIONS]
+    if meta_rows:
+        raise HTTPException(status_code=400,
+            detail=f"Refusing to hide meta-audit events (action={sorted({r['action'] for r in meta_rows})[0]}). Meta-audit is immutable.")
+    ts = now_iso()
+    await db.audit_events.update_many(
+        {"id": {"$in": payload.event_ids}, "hidden_from_view": {"$ne": True}},
+        {"$set": {"hidden_from_view": True, "hidden_at": ts, "hidden_by_user_id": user["id"]}}
+    )
+    # Write one meta-event per hidden row so the hiding action is itself audit-trailed.
+    for r in rows:
+        await record_audit(user, "audit_row_hidden", "audit_event", r["id"],
+                            r.get("entity_label") or r.get("action") or r["id"],
+                            metadata={"hidden_event_id": r["id"],
+                                       "hidden_event_action": r.get("action"),
+                                       "hidden_event_actor": r.get("actor_email"),
+                                       "hidden_event_timestamp": r.get("timestamp")})
+    return {"hidden": len(rows), "hidden_at": ts, "hidden_by_user_id": user["id"]}
+
+@api_router.post("/audit/unhide")
+async def audit_unhide(payload: AuditHidePayload, user: dict = Depends(require_super_admin)):
+    """Reverse an earlier hide. Meta-events themselves cannot be un-hidden."""
+    rows = await db.audit_events.find(
+        {"id": {"$in": payload.event_ids}}, {"_id": 0}
+    ).to_list(len(payload.event_ids))
+    found_ids = {r["id"] for r in rows}
+    missing = [i for i in payload.event_ids if i not in found_ids]
+    if missing:
+        raise HTTPException(status_code=404,
+            detail=f"Audit event(s) not found: {', '.join(missing[:5])}{' …' if len(missing)>5 else ''}")
+    meta_rows = [r for r in rows if r.get("action") in _META_AUDIT_ACTIONS]
+    if meta_rows:
+        raise HTTPException(status_code=400,
+            detail=f"Refusing to un-hide meta-audit events (action={sorted({r['action'] for r in meta_rows})[0]}). Meta-audit is immutable.")
+    await db.audit_events.update_many(
+        {"id": {"$in": payload.event_ids}, "hidden_from_view": True},
+        {"$unset": {"hidden_from_view": "", "hidden_at": "", "hidden_by_user_id": ""}}
+    )
+    for r in rows:
+        await record_audit(user, "audit_row_unhidden", "audit_event", r["id"],
+                            r.get("entity_label") or r.get("action") or r["id"],
+                            metadata={"hidden_event_id": r["id"],
+                                       "hidden_event_action": r.get("action"),
+                                       "hidden_event_actor": r.get("actor_email"),
+                                       "hidden_event_timestamp": r.get("timestamp")})
+    return {"unhidden": len(rows)}
 
 @api_router.get("/audit/recent")
 async def audit_recent(_u: dict = Depends(require_permission("audit.view")),

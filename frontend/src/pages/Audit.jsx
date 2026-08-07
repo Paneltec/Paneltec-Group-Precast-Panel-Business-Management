@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Loader2, RefreshCw, Download, FileSearch, ArrowRight, ExternalLink, X } from "lucide-react";
+import { Loader2, ArrowRight, ExternalLink, X, Eye, EyeOff, ChevronDown, ChevronRight } from "lucide-react";
 import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail, tokenStore } from "../lib/api";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
+import { Checkbox } from "../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Toaster, toast } from "sonner";
 import { formatDateTime } from "../lib/format";
@@ -12,19 +13,25 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from "../components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../components/ui/alert-dialog";
+import { useAuth } from "../contexts/AuthContext";
 import UserBadge from "../components/UserBadge";
 
 const ACTIONS = ["created","updated","soft_deleted","hard_deleted","restored","status_changed",
-  "login_success","login_failed","password_changed","password_reset","permission_changed",
+  "login_success","login_failed","login_rate_limited","password_changed","password_reset","permission_changed",
   "quote_sent","quote_viewed","quote_accepted","quote_rejected","quote_revised",
-  "invoice_issued","invoice_paid","invoice_pushed_xero","email_sent","settings_changed"];
+  "invoice_issued","invoice_paid","invoice_pushed_xero","email_sent","settings_changed",
+  "audit_row_hidden","audit_row_unhidden"];
 const ENTITIES = ["customer","project","quote","job","invoice","vehicle","employee","user",
-  "pricing_settings","company_settings","integration_settings","system"];
+  "pricing_settings","company_settings","integration_settings","system","audit_event","admin_settings","compliance_form"];
 
 const ACTION_ICON = {
   created:"created", updated:"updated", soft_deleted:"soft_deleted", hard_deleted:"hard_deleted",
   restored:"restored", status_changed:"status_changed",
-  login_success:"login_success", login_failed:"login_failed",
+  login_success:"login_success", login_failed:"login_failed", login_rate_limited:"login_failed",
   password_changed:"password_changed", password_reset:"password_reset",
   permission_changed:"permission_changed",
   quote_sent:"quote_sent", quote_viewed:"quote_viewed",
@@ -33,6 +40,7 @@ const ACTION_ICON = {
   invoice_issued:"invoice_issued", invoice_paid:"invoice_paid",
   invoice_pushed_xero:"invoice_pushed_xero",
   email_sent:"email_sent", settings_changed:"settings_changed", viewed:"viewed",
+  audit_row_hidden:"soft_deleted", audit_row_unhidden:"restored",
 };
 
 const ACTION_COLOR = {
@@ -40,6 +48,7 @@ const ACTION_COLOR = {
   soft_deleted:"bg-red-100 text-red-700", hard_deleted:"bg-red-200 text-red-900",
   restored:"bg-emerald-100 text-emerald-800", status_changed:"bg-purple-100 text-purple-800",
   login_success:"bg-gray-100 text-gray-700", login_failed:"bg-orange-100 text-orange-800",
+  login_rate_limited:"bg-orange-200 text-orange-900",
   password_changed:"bg-indigo-100 text-indigo-800", password_reset:"bg-indigo-100 text-indigo-800",
   permission_changed:"bg-pink-100 text-pink-800",
   quote_sent:"bg-sky-100 text-sky-800", quote_viewed:"bg-cyan-100 text-cyan-800",
@@ -48,17 +57,20 @@ const ACTION_COLOR = {
   invoice_issued:"bg-yellow-100 text-yellow-800", invoice_paid:"bg-green-100 text-green-800",
   invoice_pushed_xero:"bg-violet-100 text-violet-800",
   email_sent:"bg-blue-100 text-blue-800", settings_changed:"bg-slate-100 text-slate-800",
+  audit_row_hidden:"bg-zinc-200 text-zinc-800", audit_row_unhidden:"bg-zinc-100 text-zinc-700",
 };
+
+const META_ACTIONS = new Set(["audit_row_hidden", "audit_row_unhidden"]);
 
 const ENTITY_ROUTE = {
   customer: (id) => `/customers/${id}`,
-  project:  (id) => `/customers`,            // projects live under their customer page
+  project:  () => `/customers`,
   quote:    (id) => `/quotes/${id}`,
   job:      (id) => `/jobs/${id}`,
   invoice:  (id) => `/invoices/${id}`,
   vehicle:  (id) => `/vehicles/${id}`,
   employee: (id) => `/employees/${id}`,
-  user:     (id) => `/users`,
+  user:     () => `/users`,
 };
 
 const ENTITY_FETCH = {
@@ -69,10 +81,9 @@ const ENTITY_FETCH = {
   invoice:  (id) => `/invoices/${id}`,
   vehicle:  (id) => `/vehicles/${id}`,
   employee: (id) => `/employees/${id}`,
-  user:     (id) => `/users/${id}/references`, // /users/{id} has no GET, use refs as existence probe
+  user:     (id) => `/users/${id}/references`,
 };
 
-// Tiny UA → readable name parser (no dep)
 function parseUserAgent(ua) {
   if (!ua) return null;
   const browser =
@@ -80,73 +91,54 @@ function parseUserAgent(ua) {
     /OPR\/([\d.]+)/.exec(ua)?.[0]?.replace("OPR/", "Opera ") ||
     /Chrome\/([\d.]+)/.exec(ua)?.[0]?.replace("Chrome/", "Chrome ") ||
     /Firefox\/([\d.]+)/.exec(ua)?.[0]?.replace("Firefox/", "Firefox ") ||
-    /Safari\/([\d.]+)/.exec(ua)?.[0]?.replace("Safari/", "Safari ") ||
-    "Unknown browser";
-  const os =
-    (/Mac OS X ([\d_]+)/.exec(ua) ? "macOS " + RegExp.$1.replace(/_/g, ".") : null) ||
-    (/Windows NT ([\d.]+)/.exec(ua) ? "Windows " + RegExp.$1 : null) ||
-    (/Android ([\d.]+)/.exec(ua) ? "Android " + RegExp.$1 : null) ||
-    (/iPhone OS ([\d_]+)/.exec(ua) ? "iOS " + RegExp.$1.replace(/_/g, ".") : null) ||
-    (/Linux/.exec(ua) ? "Linux" : null) ||
-    "Unknown OS";
-  return `${browser.split(".")[0]} on ${os}`;
+    /Safari\/([\d.]+)/.exec(ua)?.[0]?.replace("Safari/", "Safari ") || null;
+  return browser;
 }
 
 function relativeTime(iso) {
   if (!iso) return "";
-  const t = new Date(iso).getTime();
-  const diff = Date.now() - t;
-  const abs = Math.abs(diff);
-  const m = Math.round(abs / 60000);
-  const h = Math.round(abs / 3600000);
-  const d = Math.round(abs / 86400000);
-  const past = diff >= 0;
-  const fmt = (n, unit) => `${n} ${unit}${n === 1 ? "" : "s"} ${past ? "ago" : "from now"}`;
-  if (m < 1) return "just now";
-  if (m < 60) return fmt(m, "min");
-  if (h < 24) return fmt(h, "hour");
-  if (d < 30) return fmt(d, "day");
-  return new Date(iso).toLocaleDateString("en-AU");
+  const d = new Date(iso); const now = new Date();
+  const diff = (now - d) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  const days = Math.floor(diff/86400);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString("en-AU", { day: "2-digit", month: "short" });
 }
 
-function isScalarDiff(v) {
-  return v && typeof v === "object" && !Array.isArray(v) && "from" in v && "to" in v
-    && (typeof v.from !== "object" || v.from === null)
-    && (typeof v.to   !== "object" || v.to   === null);
+function compactTimestamp(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const now = new Date();
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return d.toLocaleString("en-AU", {
+    day: "2-digit", month: "short",
+    ...(sameYear ? {} : { year: "2-digit" }),
+    hour: "2-digit", minute: "2-digit",
+    hour12: false,
+  });
 }
-function isAddedRemovedDiff(v) {
-  return v && typeof v === "object" && !Array.isArray(v) && ("added" in v || "removed" in v);
+
+function truncateMiddle(s, front = 6, back = 4) {
+  if (!s) return "";
+  if (s.length <= front + back + 1) return s;
+  return `${s.slice(0, front)}…${s.slice(-back)}`;
 }
 
 function PrettyDiff({ changes }) {
-  if (!changes || (typeof changes === "object" && Object.keys(changes).length === 0)) {
-    return <div className="text-xs text-gray-400">No changes recorded.</div>;
+  if (!changes || Object.keys(changes).length === 0) {
+    return <div className="text-xs text-gray-400 italic" data-testid="drawer-changes-empty">No field-level changes recorded.</div>;
   }
   return (
-    <div className="space-y-3 text-sm">
+    <div className="space-y-2" data-testid="drawer-changes">
       {Object.entries(changes).map(([key, v]) => {
-        if (isAddedRemovedDiff(v)) {
-          const added = v.added || [];
-          const removed = v.removed || [];
-          return (
-            <div key={key} className="bg-gray-50 border border-gray-200 rounded p-3" data-testid={`diff-${key}`}>
-              <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-1.5">{key}</div>
-              <div className="space-y-0.5 font-mono text-[11px]">
-                {added.map((k, i) => (<div key={`a${i}`} className="text-green-700"><span className="bg-green-100 px-1 rounded">+ {String(k)}</span></div>))}
-                {removed.map((k, i) => (<div key={`r${i}`} className="text-red-700"><span className="bg-red-100 px-1 rounded">− {String(k)}</span></div>))}
-              </div>
-            </div>
-          );
-        }
-        if (isScalarDiff(v)) {
+        if (v && typeof v === "object" && "from" in v && "to" in v) {
           const renderVal = (val) => {
-            const s = val === null || val === undefined ? "∅" : String(val);
-            return s.length > 80 ? (
-              <Tooltip>
-                <TooltipTrigger asChild><span className="truncate inline-block max-w-[18ch] align-bottom underline decoration-dotted">{s.slice(0, 78)}…</span></TooltipTrigger>
-                <TooltipContent className="max-w-md break-words">{s}</TooltipContent>
-              </Tooltip>
-            ) : s;
+            if (val === null || val === undefined) return <em className="text-gray-400">null</em>;
+            if (typeof val === "boolean") return val ? "true" : "false";
+            if (typeof val === "object") return JSON.stringify(val);
+            return String(val);
           };
           return (
             <div key={key} className="bg-gray-50 border border-gray-200 rounded p-3 flex items-center gap-2" data-testid={`diff-${key}`}>
@@ -159,7 +151,6 @@ function PrettyDiff({ changes }) {
             </div>
           );
         }
-        // fallback: dump as compact JSON
         return (
           <div key={key} className="bg-gray-50 border border-gray-200 rounded p-3" data-testid={`diff-${key}`}>
             <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-1.5">{key}</div>
@@ -184,14 +175,38 @@ function defaultDate(days) {
   return d.toISOString().slice(0, 10);
 }
 
+function summariseRow(e) {
+  if (e.changes && Object.keys(e.changes).length) {
+    return Object.keys(e.changes).slice(0, 3).join(", ");
+  }
+  if (e.metadata && Object.keys(e.metadata).length) {
+    const md = e.metadata;
+    // Prefer reason > ip > any first key
+    for (const k of ["reason", "ip", "status"]) {
+      if (md[k] !== undefined) return `${k}=${String(md[k]).slice(0, 40)}`;
+    }
+    return truncateMiddle(JSON.stringify(md), 40, 8);
+  }
+  return "—";
+}
+
 export default function AuditPage() {
+  const { user } = useAuth();
+  const isSuperAdmin = !!user?.is_super_admin;
+
   const [items, setItems] = useState(null);
   const [total, setTotal] = useState(0);
   const [drawer, setDrawer] = useState(null);
-  const [entityExists, setEntityExists] = useState(null); // for "Open <entity>" guard
+  const [entityExists, setEntityExists] = useState(null);
   const [params, setParams] = useSearchParams();
 
-  // ----- URL-bound filter state -----
+  const [checkedIds, setCheckedIds] = useState(new Set());
+  const [expandedMeta, setExpandedMeta] = useState(new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmConsent, setConfirmConsent] = useState(false);
+  const [hiding, setHiding] = useState(false);
+
+  // URL-bound filter state
   const page = parseInt(params.get("page") || "1", 10);
   const action = params.get("action") || "";
   const entityType = params.get("entity_type") || "";
@@ -199,6 +214,7 @@ export default function AuditPage() {
   const dateFrom = params.get("date_from") || defaultDate(-30);
   const dateTo = params.get("date_to") || defaultDate(0);
   const focusId = params.get("focus") || "";
+  const showHidden = params.get("show_hidden") === "1" && isSuperAdmin;
   const perPage = 50;
 
   const setFilter = (patch) => {
@@ -215,6 +231,7 @@ export default function AuditPage() {
 
   const load = async () => {
     setItems(null);
+    setCheckedIds(new Set());
     try {
       const qp = new URLSearchParams();
       qp.set("page", String(page));
@@ -222,18 +239,16 @@ export default function AuditPage() {
       if (action) qp.set("action", action);
       if (entityType) qp.set("entity_type", entityType);
       if (search) qp.set("search", search);
-      // Treat the date inputs as ISO date strings; broaden to full day on `to`
       if (dateFrom) qp.set("date_from", new Date(`${dateFrom}T00:00:00Z`).toISOString());
       if (dateTo)   qp.set("date_to",   new Date(`${dateTo}T23:59:59.999Z`).toISOString());
+      if (showHidden) qp.set("show_hidden", "true");
       const { data } = await api.get(`/audit?${qp}`);
       setItems(data.items); setTotal(data.total);
-      // If ?focus=<eventId> is set, auto-open that event's drawer
       if (focusId && !drawer) {
         const target = data.items.find((e) => e.id === focusId);
         if (target) setDrawer(target);
         else {
-          // Try direct fetch (could be on a different page)
-          try { const { data: ev } = await api.get(`/audit/${focusId}`); setDrawer(ev); } catch (_) {}
+          try { const { data: ev } = await api.get(`/audit/${focusId}`); setDrawer(ev); } catch (_) { /* silent */ }
         }
       }
     } catch (e) {
@@ -242,9 +257,8 @@ export default function AuditPage() {
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ },
-    [page, action, entityType, search, dateFrom, dateTo]);
+    [page, action, entityType, search, dateFrom, dateTo, showHidden]);
 
-  // Check entity existence when drawer opens
   useEffect(() => {
     if (!drawer) { setEntityExists(null); return; }
     if (!drawer.entity_id || !ENTITY_FETCH[drawer.entity_type]) { setEntityExists(false); return; }
@@ -275,18 +289,67 @@ export default function AuditPage() {
   };
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
-
   const closeDrawer = () => { setDrawer(null); if (focusId) setFilter({ focus: null }); };
-
   const drawerEntityHref = useMemo(() => {
     if (!drawer || !drawer.entity_id) return null;
     const make = ENTITY_ROUTE[drawer.entity_type];
     return make ? make(drawer.entity_id) : null;
   }, [drawer]);
 
+  // Selection helpers — meta rows are never selectable
+  const selectableIds = useMemo(() =>
+    (items || []).filter(e => !META_ACTIONS.has(e.action)).map(e => e.id),
+    [items]);
+  const allSelected = selectableIds.length > 0 && selectableIds.every(id => checkedIds.has(id));
+  const someSelected = selectableIds.some(id => checkedIds.has(id));
+
+  const toggleAll = () => {
+    if (allSelected) setCheckedIds(new Set());
+    else setCheckedIds(new Set(selectableIds));
+  };
+  const toggleOne = (id) => {
+    const next = new Set(checkedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setCheckedIds(next);
+  };
+  const toggleMetaExpand = (id) => {
+    const next = new Set(expandedMeta);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setExpandedMeta(next);
+  };
+
+  const doHide = async () => {
+    setHiding(true);
+    try {
+      const ids = Array.from(checkedIds);
+      const { data } = await api.post("/audit/hide", { event_ids: ids });
+      toast.success(`Hidden ${data.hidden} event${data.hidden === 1 ? "" : "s"} · meta-audit written.`);
+      setCheckedIds(new Set());
+      setConfirmConsent(false);
+      setConfirmOpen(false);
+      await load();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally {
+      setHiding(false);
+    }
+  };
+
+  const doUnhide = async (eventId) => {
+    try {
+      await api.post("/audit/unhide", { event_ids: [eventId] });
+      toast.success("Row un-hidden · meta-audit written.");
+      await load();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    }
+  };
+
+  const selectedCount = checkedIds.size;
+
   return (
     <TooltipProvider>
-    <div className="space-y-5" data-testid="audit-page">
+    <div className="space-y-5 pb-24" data-testid="audit-page">
       <Toaster richColors position="top-right" />
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
@@ -296,7 +359,14 @@ export default function AuditPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">Every business-critical action across the platform. Filter, inspect, export.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          {isSuperAdmin && (
+            <Button variant="outline" onClick={() => setFilter({ show_hidden: showHidden ? null : "1", page: 1 })}
+                    data-testid="audit-toggle-hidden"
+                    className={showHidden ? "bg-zinc-100 border-zinc-400 text-zinc-900" : ""}>
+              {showHidden ? <><Eye className="w-4 h-4 mr-2"/> Showing hidden rows</> : <><EyeOff className="w-4 h-4 mr-2"/> Show hidden rows</>}
+            </Button>
+          )}
           <Button variant="outline" onClick={load} data-testid="audit-refresh">
             <AppIcon name="refresh" size={16} className="mr-2" decorative/> Refresh
           </Button>
@@ -326,7 +396,6 @@ export default function AuditPage() {
           </SelectContent>
         </Select>
 
-        {/* Date range */}
         <div className="flex items-center gap-1.5 ml-1">
           <label className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">From</label>
           <Input type="date" value={dateFrom} onChange={(e) => setFilter({ date_from: e.target.value || null, page: 1 })}
@@ -343,6 +412,7 @@ export default function AuditPage() {
         <div className="ml-auto text-xs text-gray-500" data-testid="audit-total">{total.toLocaleString()} events</div>
       </div>
 
+      {/* ===== Table ===== */}
       <div className="bg-white border border-gray-200 rounded overflow-hidden">
         {items === null ? (
           <div className="p-6 flex items-center gap-2 text-sm text-gray-500"><Loader2 className="w-4 h-4 animate-spin"/> Loading…</div>
@@ -350,9 +420,28 @@ export default function AuditPage() {
           <div className="p-6 text-sm text-gray-500" data-testid="audit-empty">No events match the filters.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider">
+            <table className="w-full text-sm table-fixed min-w-[900px]" data-testid="audit-table-el">
+              <colgroup>
+                {isSuperAdmin && <col style={{ width: "44px" }} />}
+                <col style={{ width: "128px" }} />
+                <col style={{ width: "180px" }} />
+                <col style={{ width: "180px" }} />
+                <col style={{ width: "110px" }} />
+                <col />
+                <col style={{ width: "220px" }} />
+              </colgroup>
+              <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider select-none">
                 <tr>
+                  {isSuperAdmin && (
+                    <th className="px-3 py-2.5 text-left">
+                      <Checkbox
+                        checked={allSelected ? true : (someSelected ? "indeterminate" : false)}
+                        onCheckedChange={toggleAll}
+                        data-testid="audit-check-all"
+                        aria-label="Select all"
+                        className="border-white/40 data-[state=checked]:bg-white data-[state=checked]:text-[#3A6B8C] data-[state=indeterminate]:bg-white data-[state=indeterminate]:text-[#3A6B8C]"/>
+                    </th>
+                  )}
                   <th className="px-3 py-2.5 text-left">When</th>
                   <th className="px-3 py-2.5 text-left">Actor</th>
                   <th className="px-3 py-2.5 text-left">Action</th>
@@ -362,25 +451,114 @@ export default function AuditPage() {
                 </tr>
               </thead>
               <tbody data-testid="audit-table">
-                {(items ?? []).map((e) => (
-                  <tr key={e.id} onClick={() => setDrawer(e)}
-                    className="border-t border-gray-200 hover:bg-gray-50 cursor-pointer"
-                    data-testid={`audit-row-${e.id}`}>
-                    <td className="px-3 py-2 text-xs text-gray-600">{formatDateTime(e.timestamp)}</td>
-                    <td className="px-3 py-2 text-xs">
-                      <div className="font-medium text-[#1F2A33]">{e.actor_name || e.actor_email || "System"}</div>
-                      <div className="text-gray-400">{e.actor_email}</div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-flex items-center gap-1 ${ACTION_COLOR[e.action] || "bg-gray-100 text-gray-700"}`}><AppIcon name={ACTION_ICON[e.action] || "info"} size={14} decorative/>{e.action}</span>
-                    </td>
-                    <td className="px-3 py-2 text-xs text-gray-600">{e.entity_type}</td>
-                    <td className="px-3 py-2 text-xs font-mono">{e.entity_label}</td>
-                    <td className="px-3 py-2 text-xs text-gray-500 max-w-md truncate">
-                      {e.changes ? Object.keys(e.changes).slice(0,3).join(", ") : (e.metadata && Object.keys(e.metadata).length ? JSON.stringify(e.metadata).slice(0,80) : "—")}
-                    </td>
-                  </tr>
-                ))}
+                {items.map((e) => {
+                  const isMeta = META_ACTIONS.has(e.action);
+                  const isHidden = !!e.hidden_from_view;
+                  const checked = checkedIds.has(e.id);
+                  return (
+                    <tr key={e.id}
+                        className={`border-t border-gray-200 hover:bg-gray-50 cursor-pointer ${isHidden ? "opacity-60 bg-zinc-50/70" : ""} ${checked ? "bg-yellow-50/60" : ""}`}
+                        data-testid={`audit-row-${e.id}`}
+                        onClick={(ev) => {
+                          // Ignore clicks originating from the checkbox cell or its children
+                          if (ev.target.closest('[data-cell="check"]')) return;
+                          setDrawer(e);
+                        }}>
+                      {isSuperAdmin && (
+                        <td data-cell="check" className="px-3 py-2 align-middle">
+                          {isMeta ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex items-center justify-center w-5 h-5 text-[9px] font-bold uppercase tracking-wider text-zinc-500 bg-zinc-100 border border-zinc-300 rounded"
+                                      data-testid={`audit-meta-pill-${e.id}`}>M</span>
+                              </TooltipTrigger>
+                              <TooltipContent>Meta-audit event — immutable, cannot be hidden.</TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Checkbox checked={checked} onCheckedChange={() => toggleOne(e.id)}
+                                       data-testid={`audit-check-${e.id}`} aria-label="Select row"/>
+                          )}
+                        </td>
+                      )}
+                      <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span>{compactTimestamp(e.timestamp)}</span>
+                          </TooltipTrigger>
+                          <TooltipContent><span className="font-mono text-[11px]">{e.timestamp}</span></TooltipContent>
+                        </Tooltip>
+                        <div className="text-[10px] text-gray-400">{relativeTime(e.timestamp)}</div>
+                      </td>
+                      <td className="px-3 py-2 text-xs min-w-0">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="min-w-0">
+                              <div className="font-medium text-[#1F2A33] truncate" data-testid={`audit-actor-${e.id}`}>{e.actor_name || e.actor_email || "System"}</div>
+                              <div className="text-gray-400 text-[10px] truncate">{e.actor_email}</div>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent><div className="text-xs">{e.actor_name || "System"}<br/><span className="text-gray-300">{e.actor_email}</span></div></TooltipContent>
+                        </Tooltip>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-flex items-center gap-1 ${ACTION_COLOR[e.action] || "bg-gray-100 text-gray-700"}`}>
+                          <AppIcon name={ACTION_ICON[e.action] || "info"} size={14} decorative/>
+                          <span className="truncate max-w-[120px]">{e.action}</span>
+                        </span>
+                        {isHidden && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="ml-1 text-[9px] uppercase tracking-wider bg-zinc-200 text-zinc-800 px-1 py-0.5 rounded" data-testid={`audit-hidden-pill-${e.id}`}>hidden</span>
+                            </TooltipTrigger>
+                            <TooltipContent>Hidden by user_id={e.hidden_by_user_id?.slice(0,8) || "?"} at {compactTimestamp(e.hidden_at)}</TooltipContent>
+                          </Tooltip>
+                        )}
+                        {isMeta && (
+                          <span className="ml-1 text-[9px] uppercase tracking-wider bg-zinc-100 text-zinc-700 border border-zinc-300 px-1 py-0.5 rounded">meta</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-gray-600 truncate">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span>{e.entity_type}</span>
+                          </TooltipTrigger>
+                          <TooltipContent>{e.entity_id ? <span className="font-mono">{e.entity_id}</span> : "no entity id"}</TooltipContent>
+                        </Tooltip>
+                      </td>
+                      <td className="px-3 py-2 text-xs font-mono truncate">
+                        <Tooltip>
+                          <TooltipTrigger asChild><span className="truncate inline-block max-w-full align-bottom">{e.entity_label || "—"}</span></TooltipTrigger>
+                          <TooltipContent><span className="font-mono text-[11px] break-all">{e.entity_label}</span></TooltipContent>
+                        </Tooltip>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-gray-500 truncate">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            className="text-gray-400 hover:text-[#1F2A33] shrink-0"
+                            onClick={(ev) => { ev.stopPropagation(); toggleMetaExpand(e.id); }}
+                            aria-label="Expand metadata"
+                            data-testid={`audit-expand-${e.id}`}>
+                            {expandedMeta.has(e.id) ? <ChevronDown className="w-3.5 h-3.5"/> : <ChevronRight className="w-3.5 h-3.5"/>}
+                          </button>
+                          <span className="truncate">{summariseRow(e)}</span>
+                          {isHidden && isSuperAdmin && !isMeta && (
+                            <button
+                              type="button"
+                              onClick={(ev) => { ev.stopPropagation(); doUnhide(e.id); }}
+                              className="ml-auto text-[10px] uppercase tracking-wider text-emerald-700 hover:underline shrink-0"
+                              data-testid={`audit-unhide-${e.id}`}>Un-hide</button>
+                          )}
+                        </div>
+                        {expandedMeta.has(e.id) && (
+                          <pre className="mt-1 text-[10px] leading-tight bg-gray-50 border border-gray-200 rounded p-1.5 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+{JSON.stringify({ changes: e.changes || null, metadata: e.metadata || null }, null, 2)}
+                          </pre>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -394,6 +572,55 @@ export default function AuditPage() {
           <Button variant="outline" size="sm" disabled={page>=totalPages} onClick={() => setFilter({ page: page + 1 })} data-testid="audit-next">Next</Button>
         </div>
       </div>
+
+      {/* ===== Floating action bar (super admin, ≥1 selected) ===== */}
+      {isSuperAdmin && selectedCount > 0 && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-6 z-40 bg-[#1F2A33] text-white shadow-2xl rounded-full px-5 py-3 flex items-center gap-3 border border-black/20"
+             data-testid="audit-bulk-bar">
+          <span className="text-sm font-bold" data-testid="audit-bulk-count">{selectedCount} selected</span>
+          <Button size="sm" onClick={() => { setConfirmConsent(false); setConfirmOpen(true); }}
+                  className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]"
+                  data-testid="audit-bulk-hide-btn">
+            <EyeOff className="w-4 h-4 mr-1.5"/> Hide selected
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setCheckedIds(new Set())}
+                  className="border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white"
+                  data-testid="audit-bulk-clear-btn">Clear</Button>
+        </div>
+      )}
+
+      {/* ===== Confirm dialog ===== */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent data-testid="audit-hide-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hide {selectedCount} audit event{selectedCount === 1 ? "" : "s"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              These rows will be flagged <strong>hidden</strong> but retained in the database for
+              compliance. A meta-audit entry will be written for each. Only Super Admins can view
+              hidden rows via the toggle above.
+              <br/><br/>
+              <span className="text-[11px] text-gray-500">
+                Compliance note (Tasmania AU — AS 3850 / NCC 2022): hidden rows remain in the database
+                and are exportable via <code>Export CSV</code> if requested by auditors.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <label className="flex items-start gap-2 text-sm py-2 select-none cursor-pointer">
+            <Checkbox checked={confirmConsent} onCheckedChange={(v) => setConfirmConsent(!!v)}
+                       data-testid="audit-hide-consent"/>
+            <span>I understand this action is logged and non-destructive.</span>
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="audit-hide-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={doHide}
+              disabled={!confirmConsent || hiding}
+              className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] disabled:opacity-50"
+              data-testid="audit-hide-confirm-btn">
+              {hiding ? <><Loader2 className="w-4 h-4 mr-2 animate-spin"/>Hiding…</> : "Hide events"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ===== Right-side drawer ===== */}
       <Sheet open={!!drawer} onOpenChange={(v) => { if (!v) closeDrawer(); }}>
@@ -414,7 +641,16 @@ export default function AuditPage() {
               </SheetHeader>
 
               <div className="p-5 space-y-5 text-sm">
-                {/* Actor */}
+                {drawer.hidden_from_view && (
+                  <div className="bg-zinc-100 border border-zinc-300 rounded p-3 text-xs">
+                    <div className="font-bold uppercase tracking-wider text-zinc-800 mb-1">Row hidden from default view</div>
+                    <div className="text-zinc-700">
+                      Hidden by user <span className="font-mono">{drawer.hidden_by_user_id?.slice(0,12)}…</span> at {formatDateTime(drawer.hidden_at)}.
+                      This row remains in the database and CSV exports.
+                    </div>
+                  </div>
+                )}
+
                 <section>
                   <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-1.5">Actor</div>
                   <div className="flex items-center gap-3">
@@ -430,7 +666,6 @@ export default function AuditPage() {
                   </div>
                 </section>
 
-                {/* Entity */}
                 <section>
                   <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-1.5">Entity</div>
                   <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -462,13 +697,11 @@ export default function AuditPage() {
                   </div>
                 </section>
 
-                {/* Changes */}
                 <section data-testid="drawer-changes-section">
                   <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-1.5">Changes</div>
                   <PrettyDiff changes={drawer.changes} />
                 </section>
 
-                {/* Metadata */}
                 {drawer.metadata && Object.keys(drawer.metadata).length > 0 && (
                   <section data-testid="drawer-metadata-section">
                     <div className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C] mb-1.5">Metadata</div>
@@ -499,5 +732,4 @@ export default function AuditPage() {
   );
 }
 
-// Helper so `<UserBadge/>` is reachable for tree-shaking checks (not directly used here).
 export { UserBadge };
