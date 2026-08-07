@@ -2,7 +2,7 @@
   "_comment": "Phase 9 \u2014 Microsoft Fluent Emoji 3D icon map. Value = Fluent folder name (case sensitive). Filename is derived: folder.toLowerCase().replace(/ /g,'_') + '_3d.png'. Hyphens are preserved.",
   "dashboard": "House",
   "calculator": "Abacus",
-  "customers": "Busts in silhouette",
+  "customers": "Handshake",
   "projects": "Clipboard",
   "quotes": "Page facing up",
   "jobs": "Hammer",
@@ -12,7 +12,10 @@
     "folder": "Construction worker",
     "skin": "Default"
   },
-  "users": "Bust in silhouette",
+  "users": {
+    "folder": "Person raising hand",
+    "skin": "Default"
+  },
   "reports": "Bar chart",
   "help": "Open book",
   "settings": "Gear",
