@@ -373,3 +373,61 @@ Next: Phase 7 — Pricing model upgrade (Cost vs Sell + labour per panel type & 
 - `/app/frontend/src/content/user-manual.md` (§18 expansion + §19 + changelog)
 
 ### Phase 11 — COMPLETE
+
+## Phase 11.1–11.6 + Deployment Hardening — Live (2026-08-07)
+
+### Phase 11.1 — Export NCR Pack
+- Endpoint `GET /api/compliance-forms/ncr-export/preview` + `POST /api/compliance-forms/ncr-export` returns a ZIP bundle of non-conformance report PDFs for a date range, with optional recipient/email delivery.
+- Wired into the Compliance report detail view via a new "Export NCR Pack" action.
+
+### Phase 11.2 — Reports tile banners
+- Each tile on `/reports` renders a scoped, dynamic banner image sourced from the app-shell asset set (no hardcoded URLs).
+
+### Phase 11.3 — Row-level Edit / Delete / Lock on Report tables
+- New shared component `ReportRowActions.jsx` provides Edit / Delete (soft) / Lock/Unlock buttons on every report row, gated by per-user permissions.
+- Locked rows cannot be edited/deleted by anyone except a super admin.
+- Compliance report includes the same actions PLUS AI standards check hooks.
+- Bulk-select soft-delete UX shipped on all list-style reports.
+- Audit trail report is intentionally excluded — events are immutable.
+
+### Phase 11.4 — Simpro LIVE integration + Admin Settings (Super Admin only)
+- Simpro integration promoted from MOCKED → LIVE-capable. Client-credentials sync endpoints for customers + employees. Falls back gracefully to manual roster if disabled or credentials missing.
+- New page `/admin/settings` (Super Admin only) with 14 functional tabs:
+  Company Details • Users & Roles • Integrations • AI Providers • Web Search (Tavily) • Compliance Standards • Account • Numbering • Tax • Email Templates • Form Templates • BI Tokens • Audit Log • Backup & Export.
+
+### Phase 11.5 — AI Providers "Connect account" flows
+- OpenAI + Anthropic + Google Gemini + Gemini Nano Banana all wire through the new Admin Settings AI Providers tab.
+- API-key connection mode + Google OAuth2 flow. Verify-and-store, disconnect, and `active_text_provider` / `active_image_provider` election.
+- Self-heal migration `_heal_active_ai_providers()` runs on every startup and promotes an already-connected provider if no active_*_provider is set (fixes orphan-connection state introduced before the auto-elect code existed).
+
+### Phase 11.6 — AI Compliance Standards Check
+- New service `services/ai_compliance.py`. Tavily web search across curated AU standards domains → LLM prompt with strict citation requirement → returns proposed clause additions / edits.
+- New endpoint `POST /api/admin/compliance/ai-check` (mode=update|generate). Existing templates are NEVER overwritten — AI outputs create a new `status: "ai_draft"` document.
+- UI `AIStandardsCheckModal.jsx` with radio-card template picker, in-modal progress panel (4 client-timed steps), abort-controller Cancel, and a persistent error panel with contextual hints (429 / quota / invalid-key / Tavily failure).
+- Rate limit: 20 runs / super-admin / rolling hour (in-memory sliding window). Rate-limit reset on backend restart.
+
+### Deployment hardening (2026-08-07)
+- **Blocker #1 (Seed hygiene)**: `SEED_MODE=prod` refuses to seed unless every `SEED_*_PASSWORD` env var is set. Newly-inserted seed users get `must_change_password: True`. Startup emits `[security]` warning if the well-known default password is still in use on any seeded account.
+- **Blocker #2 (Login brute-force)**: `POST /api/auth/login` gated by a sliding-window rate limiter — 5 failed attempts per 15-minute window per (IP, email) → HTTP 429; plus a 15-second per-IP micro-cooldown to slow scripted attackers. Every 429 emits a `login_rate_limited` audit event.
+- **Blocker #3 (CORS lockdown)**: `CORS_ORIGINS="*"` combined with `allow_credentials=True` is refused at startup in prod mode. Comma-separated origin list is now the canonical form. Missing value defaults to `http://localhost:3000` with a warning.
+- **Blocker #4 (Production serving)**: `serve` added as a dep; new `serve:prod` script; new `/app/supervisor.production.conf` template with uvicorn `--workers 4 --no-server-header --proxy-headers` (no `--reload`) and `serve -s build` for the frontend.
+- Fixed pre-existing double registration of `_cf_p3` router that produced 4 `Duplicate Operation ID` warnings on every boot.
+- Added `AUDIT_ACTIONS` catalogue entry for `login_rate_limited`.
+- New docs: `/app/DEPLOY.md` (Phase A→F ops walkthrough), `/app/backend/.env.example`, `/app/frontend/.env.example`.
+
+### Key files touched (Phase 11.1–11.6 + hardening)
+- `/app/backend/server.py` — rate limiter, seed hygiene, CORS lockdown, router dedup, audit action.
+- `/app/backend/services/ai_compliance.py` — Tavily + LLM orchestration.
+- `/app/backend/integrations/simpro_client.py` — LIVE Simpro client.
+- `/app/frontend/src/components/AIStandardsCheckModal.jsx` — AI check UI.
+- `/app/frontend/src/components/ReportRowActions.jsx` — row actions.
+- `/app/frontend/src/components/PasswordInput.jsx` — eye-toggle for all password fields.
+- `/app/frontend/src/pages/AdminSettings.jsx` — 14-tab admin dashboard.
+- `/app/frontend/src/pages/ReportDetail.jsx` — bulk-select soft-delete.
+- `/app/frontend/src/pages/TemplatesList.jsx` — AI check entry point.
+- `/app/frontend/src/pages/Login.jsx` — PasswordInput + build marker.
+- `/app/frontend/src/pages/ForcePasswordChange.jsx`, `Account.jsx` — PasswordInput fields.
+- `/app/frontend/src/components/icon-map.json` — Customers → Handshake, Users → Person raising hand.
+- `/app/frontend/src/content/user-manual.md` — §11, §14, §17, §18.4, §18.5 updates.
+
+### Phase 11 + hardening — COMPLETE

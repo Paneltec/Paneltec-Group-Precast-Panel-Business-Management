@@ -291,12 +291,7 @@ Super admin only by default; can be opened to any user with `audit.view`.
 Every business-critical action:
 - **CRUD**: created / updated / soft_deleted / hard_deleted / restored on every entity
 - **Status transitions**: `status_changed` on quotes, jobs, invoices
-- **Auth events**: `login_success`, `login_failed`, `login_rate_limited`, `password_changed`, `password_reset`
-  - `login_rate_limited` — recorded when a client hits the brute-force
-    protection (5 failed attempts / 15 min window OR sub-15-second
-    successive attempts from the same IP). Metadata carries the client
-    IP, cool-down seconds remaining, and the reason
-    (`too_many_fails` or `ip_cooldown`).
+- **Auth events**: `login_success`, `login_failed`, `password_changed`, `password_reset`
 - **Permission events**: `permission_changed`
 - **Business actions**: `quote_sent`, `quote_viewed` (public link), `quote_accepted`, `quote_rejected`, `quote_revised`, `invoice_issued`, `invoice_paid`, `invoice_pushed_xero`, `email_sent`
 - **Settings**: `settings_changed` (cost edits included; secret API keys redacted in the diff)

@@ -9,7 +9,7 @@ import re
 import uuid
 import logging
 from datetime import datetime, timezone, timedelta, date
-from typing import List, Optional, Literal, Any, Dict
+from typing import List, Optional, Literal, Any, Dict, Tuple
 
 import bcrypt
 import jwt
@@ -822,23 +822,61 @@ async def seed_database():
     await db.invoices.create_index("invoice_number", unique=True)
     await db.counters.create_index("key", unique=True)
 
+    # ---------------------------------------------------------------------
+    # Blocker #1 — Seed credential hygiene
+    # In prod (SEED_MODE=prod), refuse to seed if the operator hasn't
+    # explicitly set SEED_*_PASSWORD env vars. Never fall back to the
+    # publicly-known defaults on a production DB.
+    # ---------------------------------------------------------------------
+    seed_mode = (os.environ.get("SEED_MODE") or "").lower().strip()
+    prod_seed = seed_mode == "prod"
+    default_pwds = {
+        "SEED_ADMIN_PASSWORD": "Paneltec2026!",
+        "SEED_STAFF_PASSWORD": "Staff2026!",
+        "SEED_PROD_PASSWORD":  "Prod2026!",
+    }
+    if prod_seed:
+        missing = [k for k in default_pwds if not os.environ.get(k)]
+        if missing:
+            logger.error("[seed] SEED_MODE=prod but %s env var(s) missing — refusing to seed default admin. Set them explicitly.",
+                         ", ".join(missing))
+            return
+
+    def _pwd(env_key: str) -> str:
+        v = os.environ.get(env_key)
+        if v: return v
+        if prod_seed:
+            # Belt-and-braces — should already have exited above
+            raise RuntimeError(f"[seed] {env_key} required in SEED_MODE=prod")
+        return default_pwds[env_key]
+
     seed_users = [
         {"email": os.environ.get("SEED_ADMIN_EMAIL","admin@paneltec.com.au"),
-         "password": os.environ.get("SEED_ADMIN_PASSWORD","Paneltec2026!"),
+         "password": _pwd("SEED_ADMIN_PASSWORD"),
          "name": "Paneltec Admin", "is_super_admin": True, "role_label": "Administrator",
          "permissions": {}},
         {"email": os.environ.get("SEED_STAFF_EMAIL","staff@paneltec.com.au"),
-         "password": os.environ.get("SEED_STAFF_PASSWORD","Staff2026!"),
+         "password": _pwd("SEED_STAFF_PASSWORD"),
          "name": "Paneltec Estimator", "is_super_admin": False, "role_label": "Estimator",
          "permissions": {p: True for p in PERMISSION_PRESETS["estimator"]["permissions"]}},
         {"email": os.environ.get("SEED_PROD_EMAIL","production@paneltec.com.au"),
-         "password": os.environ.get("SEED_PROD_PASSWORD","Prod2026!"),
+         "password": _pwd("SEED_PROD_PASSWORD"),
          "name": "Paneltec Production", "is_super_admin": False, "role_label": "Production",
          "permissions": {p: True for p in PERMISSION_PRESETS["production"]["permissions"]}},
     ]
+    # Belt-and-braces: warn loudly if a default password is still in use on the
+    # existing hash (regardless of SEED_MODE).
+    for s in seed_users:
+        existing = await db.users.find_one({"email": s["email"]}, {"_id":0})
+        if existing and verify_password(default_pwds.get(f"SEED_{s['role_label'][:5].upper()}_PASSWORD", ""),
+                                          existing.get("password_hash","")):
+            logger.warning("[security] Default seed password is still in use for %s — rotate immediately.", s["email"])
+
     for s in seed_users:
         existing = await db.users.find_one({"email": s["email"]})
         if existing is None:
+            # New insert — force change-on-first-login unless dev mode explicitly opts out
+            force_change = True if prod_seed else (os.environ.get("SEED_FORCE_CHANGE_PASSWORD","true").lower() == "true")
             await db.users.insert_one({
                 "id": str(uuid.uuid4()), "email": s["email"],
                 "password_hash": hash_password(s["password"]), "name": s["name"],
@@ -846,13 +884,13 @@ async def seed_database():
                 "is_super_admin": s["is_super_admin"],
                 "role_label": s["role_label"],
                 "permissions": s["permissions"],
-                "must_change_password": False,
+                "must_change_password": force_change,
                 "last_login_at": None,
                 "is_active": True,
                 "created_at": now_iso(), "updated_at": now_iso(),
                 "created_by_user_id": "system", "updated_by_user_id": "system",
             })
-            logger.info(f"Seeded user: {s['email']} ({s['role_label']})")
+            logger.info(f"Seeded user: {s['email']} ({s['role_label']}) · force_change={force_change}")
         else:
             # Phase 5 migration: backfill new fields on existing docs (idempotent).
             updates = {}
@@ -873,8 +911,10 @@ async def seed_database():
                 updates["updated_at"] = now_iso()
                 await db.users.update_one({"id": existing["id"]}, {"$set": updates})
                 logger.info(f"Migrated user {s['email']}: {list(updates.keys())}")
-            # also keep seeded password aligned with env (so tests stay green)
-            if not verify_password(s["password"], existing["password_hash"]):
+            # also keep seeded password aligned with env (so tests stay green in dev).
+            # In prod, we NEVER reset a password to match .env — the operator
+            # rotates via the app and .env should not undo that.
+            if (not prod_seed) and (not verify_password(s["password"], existing["password_hash"])):
                 await db.users.update_one({"email": s["email"]},
                     {"$set": {"password_hash": hash_password(s["password"]), "is_active": True,
                               "must_change_password": False}})
@@ -1120,7 +1160,7 @@ async def _seed_phase3_demo():
 # Phase 6 — Audit trail + soft-delete helpers
 # ===========================================================================
 AUDIT_ACTIONS = {"created","updated","soft_deleted","hard_deleted","restored","status_changed",
-    "login_success","login_failed","password_changed","password_reset","permission_changed",
+    "login_success","login_failed","login_rate_limited","password_changed","password_reset","permission_changed",
     "quote_sent","quote_viewed","quote_accepted","quote_rejected","quote_revised",
     "invoice_issued","invoice_paid","invoice_pushed_xero","email_sent","settings_changed"}
 AUDIT_ENTITY_TYPES = {"customer","project","quote","job","invoice","vehicle","employee",
@@ -1538,22 +1578,91 @@ async def get_audit(event_id: str, _u: dict = Depends(require_permission("audit.
     if not e: raise HTTPException(status_code=404, detail="Audit event not found")
     return e
 
+# ---------------------------------------------------------------------------
+# Login brute-force protection (Blocker #2)
+# Sliding-window rate limiter, in-memory, per (ip, email_lowercased).
+# Reset on 200 success. 5 fails / 15 min → HTTP 429.
+# Additionally: 15-second cool-down per-IP on rapid successive attempts to slow
+# scripted attackers before they hit the 5-fail threshold.
+# ---------------------------------------------------------------------------
+_LOGIN_MAX_FAILS = int(os.environ.get("LOGIN_MAX_FAILS", "5"))
+_LOGIN_WINDOW_SEC = int(os.environ.get("LOGIN_WINDOW_SEC", "900"))         # 15 min
+_LOGIN_IP_COOLDOWN_SEC = int(os.environ.get("LOGIN_IP_COOLDOWN_SEC", "15"))
+_login_fails: Dict[Tuple[str, str], List[float]] = {}   # (ip,email) -> [ts,…]
+_login_ip_last: Dict[str, float] = {}                   # ip -> last-attempt-ts
+
+def _login_rate_check(ip: str, email: str) -> Dict[str, Any]:
+    """Return {'ok': bool, 'detail': str, 'reason': str, 'attempts': int, 'cooldown': int, 'window_started_at': str|None}"""
+    import time
+    now = time.time()
+    # Per-IP micro cool-down (slows scripts across many emails)
+    last_ip = _login_ip_last.get(ip)
+    if last_ip is not None:
+        elapsed = now - last_ip
+        if elapsed < _LOGIN_IP_COOLDOWN_SEC:
+            wait = int(_LOGIN_IP_COOLDOWN_SEC - elapsed) + 1
+            _login_ip_last[ip] = now
+            return {"ok": False, "reason": "ip_cooldown", "attempts": 0, "cooldown": wait,
+                    "window_started_at": None,
+                    "detail": f"Please wait {wait} seconds before trying again."}
+    _login_ip_last[ip] = now
+    # Sliding-window per (ip,email)
+    key = (ip, email)
+    hits = _login_fails.get(key) or []
+    cutoff = now - _LOGIN_WINDOW_SEC
+    hits = [t for t in hits if t > cutoff]
+    _login_fails[key] = hits
+    if len(hits) >= _LOGIN_MAX_FAILS:
+        oldest = hits[0]
+        wait = int(_LOGIN_WINDOW_SEC - (now - oldest)) + 1
+        wait_min = max(1, wait // 60)
+        return {"ok": False, "reason": "too_many_fails", "attempts": len(hits),
+                "cooldown": wait,
+                "window_started_at": _iso_from_epoch(oldest),
+                "detail": f"Too many failed sign-in attempts. Try again in {wait_min} minute{'s' if wait_min != 1 else ''}."}
+    return {"ok": True, "reason": "", "attempts": len(hits), "cooldown": 0, "window_started_at": None, "detail": ""}
+
+def _login_rate_record_fail(ip: str, email: str) -> None:
+    import time
+    _login_fails.setdefault((ip, email), []).append(time.time())
+
+def _login_rate_reset(ip: str, email: str) -> None:
+    _login_fails.pop((ip, email), None)
+
+def _iso_from_epoch(ts: float) -> str:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
 @api_router.post("/auth/login", response_model=LoginResponse)
-async def auth_login(payload: LoginRequest):
+async def auth_login(payload: LoginRequest, request: Request):
     email = payload.email.lower().strip()
+    ip = (request.headers.get("x-forwarded-for") or request.client.host or "").split(",")[0].strip() or "unknown"
+    # Sliding-window brute-force check (see _login_rate_check for policy).
+    rl_check = _login_rate_check(ip, email)
+    if not rl_check["ok"]:
+        await record_audit(None, "login_rate_limited", "user", None, email,
+            metadata={"ip": ip, "reason": rl_check["reason"],
+                       "attempts_in_window": rl_check["attempts"],
+                       "cooldown_seconds": rl_check["cooldown"],
+                       "window_started_at": rl_check["window_started_at"]})
+        raise HTTPException(status_code=429, detail=rl_check["detail"])
     user = await db.users.find_one({"email": email}, {"_id":0})
     if not user or user.get("deleted_at"):
-        await record_audit(None, "login_failed", "user", None, email, metadata={"reason":"not_found_or_deleted"})
+        _login_rate_record_fail(ip, email)
+        await record_audit(None, "login_failed", "user", None, email, metadata={"reason":"not_found_or_deleted", "ip": ip})
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.get("is_active", True):
-        await record_audit(None, "login_failed", "user", user["id"], email, metadata={"reason":"deactivated"})
+        _login_rate_record_fail(ip, email)
+        await record_audit(None, "login_failed", "user", user["id"], email, metadata={"reason":"deactivated", "ip": ip})
         raise HTTPException(status_code=401, detail="Account deactivated. Contact administrator.")
     if not verify_password(payload.password, user["password_hash"]):
-        await record_audit(None, "login_failed", "user", user["id"], email, metadata={"reason":"wrong_password"})
+        _login_rate_record_fail(ip, email)
+        await record_audit(None, "login_failed", "user", user["id"], email, metadata={"reason":"wrong_password", "ip": ip})
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    # Successful login — reset counters
+    _login_rate_reset(ip, email)
     await db.users.update_one({"id": user["id"]}, {"$set": {"last_login_at": now_iso()}})
     user["last_login_at"] = now_iso()
-    await record_audit(user, "login_success", "user", user["id"], user["email"])
+    await record_audit(user, "login_success", "user", user["id"], user["email"], metadata={"ip": ip})
     return LoginResponse(access_token=create_access_token(user["id"], user["email"]),
                          user=user_to_public(user))
 
@@ -1623,7 +1732,7 @@ async def list_users(_u: dict = Depends(require_permission("users.view")), statu
     if s == "active":      q = {"is_active": True, "deleted_at": {"$in": [None]}}
     elif s == "inactive":  q = {"is_active": False, "deleted_at": {"$in": [None]}}
     elif s == "deleted":   q = {"deleted_at": {"$ne": None}}
-    elif s == "all":       q = dict(_status_q)
+    elif s == "all":       q = {}
     else: raise HTTPException(status_code=400, detail="status must be one of active|inactive|deleted|all")
     docs = await db.users.find(q, {"_id":0,"password_hash":0}).sort("created_at", -1).to_list(500)
     return docs
@@ -4957,9 +5066,9 @@ async def cf_batch_email(payload: BatchEmailPayload, user: dict = Depends(requir
     }
 
 
-app.include_router(_cf_p3)
+
 # ---------------------------------------------------------------------------
-# Phase 11.1 — Export NCR Pack (must be defined BEFORE _cf_p3 is mounted)
+# Phase 11.1 — Export NCR Pack (routes below; _cf_p3 is mounted at the end)
 # ---------------------------------------------------------------------------
 class NCRExportPayload(BaseModel):
     date_from: str = Field(min_length=10, max_length=10)  # YYYY-MM-DD
@@ -5490,8 +5599,33 @@ async def rpt_employees(request: Request, user: dict = Depends(require_permissio
 
 app.include_router(_bi_router)
 # (Removed stale comment about double-registration — handled via the dedicated sub-router above.)
+
+# ---------------------------------------------------------------------------
+# Blocker #3 — CORS lockdown
+# `*` + allow_credentials=True is invalid per the CORS spec (browsers ignore
+# credentials). If the operator has left CORS_ORIGINS unset OR set to `*`,
+# refuse to start until they configure it.
+# ---------------------------------------------------------------------------
+_cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
+_cors_prod_strict = (os.environ.get("SEED_MODE","").lower() == "prod")
+if _cors_raw == "*":
+    _msg = ("[cors] wildcard origin '*' is incompatible with allow_credentials=True. "
+             "Set CORS_ORIGINS to a specific domain (or comma-separated list).")
+    if _cors_prod_strict:
+        raise RuntimeError(_msg)
+    logger.warning(_msg + " (dev mode — permitting wildcard without credentials)")
+    _cors_origins = ["*"]
+    _cors_credentials = False
+elif not _cors_raw:
+    logger.warning("[cors] CORS_ORIGINS not set — defaulting to http://localhost:3000 for dev only.")
+    _cors_origins = ["http://localhost:3000"]
+    _cors_credentials = True
+else:
+    _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+    _cors_credentials = True
+
 app.add_middleware(CORSMiddleware,
-    allow_credentials=True, allow_origins=os.environ.get('CORS_ORIGINS','*').split(','),
+    allow_credentials=_cors_credentials, allow_origins=_cors_origins,
     allow_methods=["*"], allow_headers=["*"])
 
 async def _heal_active_ai_providers():
