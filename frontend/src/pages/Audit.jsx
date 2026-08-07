@@ -480,7 +480,7 @@ export default function AuditPage() {
                           )}
                         </td>
                       )}
-                      <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">
+                      <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap" title={e.timestamp}>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span>{compactTimestamp(e.timestamp)}</span>
@@ -492,7 +492,7 @@ export default function AuditPage() {
                       <td className="px-3 py-2 text-xs min-w-0">
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <div className="min-w-0">
+                            <div className="min-w-0" title={`${e.actor_name || "System"}${e.actor_email ? ` (${e.actor_email})` : ""}`}>
                               <div className="font-medium text-[#1F2A33] truncate" data-testid={`audit-actor-${e.id}`}>{e.actor_name || e.actor_email || "System"}</div>
                               <div className="text-gray-400 text-[10px] truncate">{e.actor_email}</div>
                             </div>
@@ -501,7 +501,8 @@ export default function AuditPage() {
                         </Tooltip>
                       </td>
                       <td className="px-3 py-2">
-                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-flex items-center gap-1 ${ACTION_COLOR[e.action] || "bg-gray-100 text-gray-700"}`}>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-flex items-center gap-1 ${ACTION_COLOR[e.action] || "bg-gray-100 text-gray-700"}`}
+                              title={e.action}>
                           <AppIcon name={ACTION_ICON[e.action] || "info"} size={14} decorative/>
                           <span className="truncate max-w-[120px]">{e.action}</span>
                         </span>
@@ -517,7 +518,7 @@ export default function AuditPage() {
                           <span className="ml-1 text-[9px] uppercase tracking-wider bg-zinc-100 text-zinc-700 border border-zinc-300 px-1 py-0.5 rounded">meta</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-xs text-gray-600 truncate">
+                      <td className="px-3 py-2 text-xs text-gray-600 truncate" title={e.entity_id ? `${e.entity_type} · ${e.entity_id}` : e.entity_type}>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span>{e.entity_type}</span>
@@ -525,13 +526,13 @@ export default function AuditPage() {
                           <TooltipContent>{e.entity_id ? <span className="font-mono">{e.entity_id}</span> : "no entity id"}</TooltipContent>
                         </Tooltip>
                       </td>
-                      <td className="px-3 py-2 text-xs font-mono truncate">
+                      <td className="px-3 py-2 text-xs font-mono truncate" title={e.entity_label || "—"}>
                         <Tooltip>
                           <TooltipTrigger asChild><span className="truncate inline-block max-w-full align-bottom">{e.entity_label || "—"}</span></TooltipTrigger>
                           <TooltipContent><span className="font-mono text-[11px] break-all">{e.entity_label}</span></TooltipContent>
                         </Tooltip>
                       </td>
-                      <td className="px-3 py-2 text-xs text-gray-500 truncate">
+                      <td className="px-3 py-2 text-xs text-gray-500 truncate" title={summariseRow(e)}>
                         <div className="flex items-center gap-1">
                           <button
                             type="button"

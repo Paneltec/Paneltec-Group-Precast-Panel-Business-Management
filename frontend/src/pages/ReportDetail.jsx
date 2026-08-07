@@ -476,8 +476,11 @@ export default function ReportDetail() {
                     {data.table.columns.map(c => {
                       const v = r[c];
                       const colored = c === "avg_margin_pct" && typeof v === "number";
-                      return <td key={c} className={`px-3 py-2 tabular-nums ${colored ? marginCls(v) : ""}`}>
-                        {typeof v === "number" && c.includes("aud") ? formatAUD(v) : String(v ?? "")}
+                      const display = typeof v === "number" && c.includes("aud") ? formatAUD(v) : String(v ?? "");
+                      return <td key={c}
+                                  title={typeof v === "string" ? v : undefined}
+                                  className={`px-3 py-2 tabular-nums ${colored ? marginCls(v) : ""}`}>
+                        {display}
                       </td>;
                     })}
                     {rowActionCfg && (canEditRows || canDeleteRows) && (
