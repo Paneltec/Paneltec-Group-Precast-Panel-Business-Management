@@ -238,6 +238,26 @@ Fields: code, name, rego, capacity (tonnes), status (active / maintenance / reti
 ### Employees (`/employees`)
 Fields: code, name, role, phone, status. Used by the Crew multi-select on Job detail.
 
+**Simpro import flow (Phase 11.7.2)**
+
+The primary CTA is now **Import from Simpro** (yellow, cloud-arrow-down). Clicking it opens a modal:
+
+1. **Companies to import from** — one segmented pill per company ID configured in `admin_settings.integrations.simpro.company_ids`. All selected by default. Tap a pill to deselect.
+2. **Filtering by positions** banner — shows the position chips from the same settings so you know what will (and won't) come across. Change them in Admin Settings → Integrations.
+3. **Preview** — hits the live Simpro API for every selected company. The result table shows Name / Position / Email / Status where Status is `NEW` (green pill) or `EXISTING` (grey — already in Paneltec).
+4. **Ticked rows only** are imported when you press **Import selected (N)**. New employees are pre-ticked; existing rows can be re-ticked to force an update (name / phone / position refresh).
+5. Cancel is safe — nothing is written until Import selected is pressed.
+
+**Add manually** — the classic `+ New Employee` form is still available via the small `Add manually →` toggle underneath the Import button, for contractors or people who don't exist in Simpro.
+
+**Per-row Delete + `excluded_from_sync` flag**
+
+Every employee row has a small trash icon on the right. Visible to Production role and Super Admin only. Delete confirms with a modal that explains:
+
+- Soft-delete only — the record stays in the DB and the audit trail forever.
+- For Simpro-sourced employees, an extra amber note appears: "Deleting won't remove them from Simpro — but this record will be flagged and future syncs will skip them." That flag is `excluded_from_sync: true` on the employee document. Restoring the employee (from the Deleted filter) clears the flag automatically.
+- **RBAC**: Estimator / Accounts / Read-only see NO delete button. Production and Super Admin see it. The backend `DELETE /api/employees/{id}` also enforces `employees.delete` — even if the UI leaked, the API would reject.
+
 Both lists support soft delete + restore + permanent delete (super admin), same as customers.
 
 ---

@@ -1484,11 +1484,18 @@ async def del_employee(eid: str, permanent: bool = Query(False), actor: dict = D
     if permanent:
         if not actor.get("is_super_admin"): raise HTTPException(status_code=403, detail="Super admin required for permanent delete")
         return await hard_delete_with_refs(db.employees, eid, actor, "employee", "name")
-    return await soft_delete_doc(db.employees, eid, actor, "name", "employee")
+    result = await soft_delete_doc(db.employees, eid, actor, "name", "employee")
+    # Phase 11.7.2 — flag Simpro-sourced employees as excluded so a future
+    # sync doesn't resurrect them.
+    await db.employees.update_one({"id": eid}, {"$set": {"excluded_from_sync": True}})
+    return result
 
 @api_router.post("/employees/{eid}/restore")
 async def rest_employee(eid: str, actor: dict = Depends(require_permission("employees.delete"))):
-    return await restore_doc(db.employees, eid, actor, "name", "employee")
+    result = await restore_doc(db.employees, eid, actor, "name", "employee")
+    # Restoring re-enables sync eligibility.
+    await db.employees.update_one({"id": eid}, {"$set": {"excluded_from_sync": False}})
+    return result
 
 @api_router.get("/employees/{eid}/references")
 async def employee_refs_ep(eid: str, admin: dict = Depends(require_super_admin)):
@@ -3304,10 +3311,57 @@ async def simpro_sync_customers(actor: dict = Depends(require_permission("integr
             "company_ids": target_company_ids}
 
 
+class SimproSyncEmployeesPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    company_ids: Optional[List[int]] = None
+    simpro_employee_ids: Optional[List[str]] = None    # Phase 11.7.2 — filtered import from Import Modal
+
+
+@api_router.post("/integrations/simpro/preview-employees")
+async def simpro_preview_employees(payload: SimproSyncEmployeesPayload,
+                                    actor: dict = Depends(require_permission("integrations.edit"))):
+    """Return the Simpro employee roster (per selected company_ids) with a
+    per-row `exists_in_paneltec` flag so the Import Modal can pre-tick just
+    the new ones."""
+    if not has_permission(actor, "employees.view"):
+        raise HTTPException(status_code=403, detail="employees.view permission required")
+    settings, sec = await _load_simpro_settings_or_error()
+    client = SimproClient(settings)
+    try:
+        remote = await client.iter_all(client.list_employees)
+    except SimproAuthError:
+        raise HTTPException(status_code=502, detail="Simpro authentication failed — check client_id / client_secret.")
+    except SimproError as e:
+        raise HTTPException(status_code=502, detail=f"Simpro API error: {e}")
+    known = {d["simpro_employee_id"]: True async for d in db.employees.find(
+        {"simpro_employee_id": {"$ne": None}}, {"_id":0, "simpro_employee_id":1})}
+    items: List[Dict[str, Any]] = []
+    for raw in remote:
+        m = _map_simpro_employee(raw)
+        sid = m.get("simpro_employee_id")
+        items.append({"simpro_employee_id": sid,
+                       "name": m.get("name"), "email": m.get("email"),
+                       "position": m.get("role") or "",
+                       "company_id": (raw or {}).get("_source_company_id"),
+                       "exists_in_paneltec": bool(known.get(sid))})
+    # Filter to selected company_ids if provided
+    if payload.company_ids:
+        cids = set(payload.company_ids)
+        items = [i for i in items if (i.get("company_id") in cids or i.get("company_id") is None)]
+    new_count = sum(1 for i in items if not i["exists_in_paneltec"])
+    return {"items": items, "count": len(items),
+            "new_count": new_count, "existing_count": len(items) - new_count,
+            "position_filter": sec.get("position_filter") or []}
+
+
 @api_router.post("/integrations/simpro/sync-employees")
-async def simpro_sync_employees(actor: dict = Depends(require_permission("integrations.edit"))):
+async def simpro_sync_employees(payload: Optional[SimproSyncEmployeesPayload] = None,
+                                 actor: dict = Depends(require_permission("integrations.edit"))):
     if not has_permission(actor, "employees.create"):
         raise HTTPException(status_code=403, detail="employees.create permission required to sync employees")
+    filter_ids: Optional[set] = None
+    if payload and payload.simpro_employee_ids:
+        filter_ids = {str(x) for x in payload.simpro_employee_ids}
     settings, sec = await _load_simpro_settings_or_error()
     target_company_ids = _simpro_target_company_ids(sec)
     client = SimproClient(settings)
@@ -3332,7 +3386,14 @@ async def simpro_sync_employees(actor: dict = Depends(require_permission("integr
             simpro_id = mapped["simpro_employee_id"]
             if not simpro_id or simpro_id == "None":
                 errors.append({"simpro_id": "?", "reason": "Missing Simpro ID"}); continue
-            existing = await db.employees.find_one({"simpro_employee_id": simpro_id}, {"_id":0,"id":1})
+            # Phase 11.7.2 — Import Modal filter: only import ticked IDs.
+            if filter_ids is not None and simpro_id not in filter_ids:
+                continue
+            existing = await db.employees.find_one({"simpro_employee_id": simpro_id},
+                                                    {"_id":0,"id":1,"excluded_from_sync":1})
+            if existing and existing.get("excluded_from_sync"):
+                # Deleted / excluded — skip. Sync worker will NOT resurrect the record.
+                continue
             if existing:
                 mapped["updated_at"] = now_iso()
                 mapped["updated_by_user_id"] = actor["id"]

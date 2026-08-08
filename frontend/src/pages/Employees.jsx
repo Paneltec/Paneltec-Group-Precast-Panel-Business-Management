@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { Loader2, Plus, ArrowLeft, Save, Trash2 } from "lucide-react";
+import { Loader2, Plus, ArrowLeft, Save, Trash2, CloudDownload } from "lucide-react";
 import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -9,6 +9,11 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../components/ui/alert-dialog";
+import SimproEmployeeImportModal from "../components/SimproEmployeeImportModal";
 import { Toaster, toast } from "sonner";
 import { formatDateTime } from "../lib/format";
 
@@ -23,8 +28,9 @@ export function EmployeesList() {
   const [items, setItems] = useState(null);
   const [statusFilter, setStatusFilter] = useState("active");
   const [simpro, setSimpro] = useState(null);       // integration_settings.simpro (or null while loading)
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState(null);  // {synced, created, updated, errors[]}
+  const [importOpen, setImportOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [showManual, setShowManual] = useState(false);
   const navigate = useNavigate();
 
   const load = async () => {
@@ -40,23 +46,23 @@ export function EmployeesList() {
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [statusFilter]);
   useEffect(() => { loadSimpro(); /* eslint-disable-next-line */ }, []);
 
-  const runSync = async () => {
-    setSyncing(true); setSyncResult(null);
+  const doDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      const { data } = await api.post("/integrations/simpro/sync-employees");
-      setSyncResult(data);
-      toast.success(`Synced ${data.synced} employees (${data.created} new, ${data.updated} updated)`);
-      await Promise.all([load(), loadSimpro()]);
+      await api.delete(`/employees/${deleteTarget.id}`);
+      toast.success(`Deleted ${deleteTarget.name}. They will be skipped on future Simpro syncs.`);
+      setDeleteTarget(null);
+      await load();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
-      setSyncResult({ error: formatApiErrorDetail(e.response?.data?.detail) || e.message });
-    } finally { setSyncing(false); }
+    }
   };
 
   const simproEnabled = !!(simpro && simpro.enabled);
-  const simproConfigured = simproEnabled && !!(simpro.build_name && simpro.client_id);
+  const simproConfigured = simproEnabled && !!(simpro.url && (simpro.company_ids || []).length > 0);
   const lastSyncOk = simpro?.last_sync_status === "ok" && simpro?.last_sync_at;
-  const canSync = hasPerm("integrations.edit") && hasPerm("employees.create") && simproConfigured;
+  const canImport = hasPerm("integrations.edit") && hasPerm("employees.create");
+  const canDelete = hasPerm("employees.delete");
 
   return (
     <div className="space-y-5" data-testid="employees-page">
@@ -66,19 +72,32 @@ export function EmployeesList() {
           <div className="overline">Crew</div>
           <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-[#1F2A33]">Employees</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {simproEnabled ? "Live Simpro sync configured. Records can be pulled from Simpro on demand." : "Manual roster. Enable Simpro in Settings → Integrations to sync automatically."}
+            {simproEnabled ? "Live Simpro sync configured. Import employees on demand." : "Manual roster. Enable Simpro in Admin Settings → Integrations to pull from Simpro."}
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          {canSync && (
-            <Button onClick={runSync} disabled={syncing} className="bg-purple-600 text-white font-bold hover:bg-purple-700 h-11" data-testid="simpro-sync-employees-btn">
-              {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="upload" size={16} className="mr-2" decorative/>}
-              Sync from Simpro
-            </Button>
-          )}
-          {hasPerm("employees.create") && (
-            <Button onClick={() => navigate("/employees/new")} className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-11" data-testid="new-employee-btn">
-              <AppIcon name="add" size={16} className="mr-1" decorative/> New Employee
+        <div className="flex gap-2 flex-wrap items-start">
+          <div className="flex flex-col items-end">
+            {canImport && (
+              <Button onClick={() => setImportOpen(true)}
+                      className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-11"
+                      data-testid="simpro-import-btn">
+                <CloudDownload className="w-4 h-4 mr-1.5"/> Import from Simpro
+              </Button>
+            )}
+            {hasPerm("employees.create") && (
+              <button type="button" onClick={() => setShowManual(v => !v)}
+                       className="text-[11px] text-[#3A6B8C] hover:text-[#1F2A33] mt-1 uppercase tracking-wider font-semibold"
+                       data-testid="employees-add-manual-toggle">
+                {showManual ? "Hide" : "Add manually"} →
+              </button>
+            )}
+          </div>
+          {showManual && hasPerm("employees.create") && (
+            <Button onClick={() => navigate("/employees/new")}
+                    variant="outline"
+                    className="h-11 border-[#3A6B8C] text-[#3A6B8C]"
+                    data-testid="new-employee-btn">
+              <Plus className="w-4 h-4 mr-1"/> New Employee
             </Button>
           )}
         </div>
@@ -87,19 +106,19 @@ export function EmployeesList() {
       {/* Sync-status banner */}
       {simpro === null ? null : !simproEnabled ? (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 text-xs px-4 py-2 rounded" data-testid="employees-banner-mocked">
-          Currently MANUAL. Enable Simpro in Settings → Integrations and click "Sync from Simpro" to pull the live roster.
+          Currently MANUAL. Enable Simpro in Admin Settings → Integrations and click &ldquo;Import from Simpro&rdquo; to pull the live roster.
         </div>
       ) : !simproConfigured ? (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 text-xs px-4 py-2 rounded" data-testid="employees-banner-not-configured">
-          Simpro enabled but credentials are incomplete. Finish setup in Settings → Integrations, then click Sync.
+          Simpro enabled but credentials are incomplete. Finish setup in Admin Settings → Integrations, then click Import.
         </div>
       ) : !lastSyncOk ? (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 text-xs px-4 py-2 rounded" data-testid="employees-banner-not-synced">
-          Simpro enabled but not yet synced. {canSync && "Click Sync from Simpro to pull the roster."}
+          Simpro enabled but not yet imported. Click Import from Simpro to preview and select employees.
         </div>
       ) : (
         <div className="bg-green-50 border border-green-200 text-green-800 text-xs px-4 py-2 rounded" data-testid="employees-banner-live">
-          <span className="font-bold">LIVE</span> · Synced from Simpro {formatDateTime(simpro.last_sync_at)} · {simpro.last_sync_employees_count || 0} employees
+          <span className="font-bold">LIVE</span> · Last import {formatDateTime(simpro.last_sync_at)} · {simpro.last_sync_employees_count || 0} employees
         </div>
       )}
 
@@ -117,52 +136,80 @@ export function EmployeesList() {
           <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider">
             <tr><th className="px-4 py-3 text-left">Name</th><th className="px-4 py-3 text-left">Role</th>
             <th className="px-4 py-3 text-left">Email</th><th className="px-4 py-3 text-left">Phone</th>
-            <th className="px-4 py-3 text-left">Source</th></tr>
+            <th className="px-4 py-3 text-left">Source</th>
+            {canDelete && <th className="px-4 py-3 text-right w-14">Actions</th>}
+            </tr>
           </thead>
           <tbody>{items.map(e => (
-            <tr key={e.id} onClick={() => navigate(`/employees/${e.id}`)}
-              className={`border-t border-gray-200 hover:bg-gray-50 cursor-pointer ${e.deleted_at ? "opacity-60" : ""}`}
+            <tr key={e.id}
+              className={`border-t border-gray-200 hover:bg-gray-50 ${e.deleted_at ? "opacity-60" : ""}`}
               data-testid={`employee-row-${e.id}`}>
-              <td className="px-4 py-3 font-semibold text-[#1F2A33]">
+              <td className="px-4 py-3 font-semibold text-[#1F2A33] cursor-pointer" onClick={() => navigate(`/employees/${e.id}`)}>
                 {e.name}
                 {e.source === "SIMPRO" && (
                   <span className="ml-2 text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded" data-testid={`simpro-chip-${e.id}`}>Simpro</span>
                 )}
+                {e.excluded_from_sync && (
+                  <span className="ml-2 text-[10px] font-bold uppercase tracking-wider bg-orange-100 text-orange-800 px-1.5 py-0.5 rounded" title="Deleted here — Simpro sync will skip this employee." data-testid={`excluded-chip-${e.id}`}>excluded from sync</span>
+                )}
                 {e.deleted_at && <span className="ml-2 text-[10px] text-red-700 italic">(deleted)</span>}
               </td>
-              <td className="px-4 py-3 text-gray-600">{e.role || "—"}</td>
-              <td className="px-4 py-3 text-gray-600 text-xs">{e.email || "—"}</td>
-              <td className="px-4 py-3 text-gray-600 text-xs">{e.phone || "—"}</td>
-              <td className="px-4 py-3"><span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${SOURCE_BADGE[e.source]||"bg-gray-100"}`}>{e.source}</span></td>
+              <td className="px-4 py-3 text-gray-600 cursor-pointer" onClick={() => navigate(`/employees/${e.id}`)}>{e.role || "—"}</td>
+              <td className="px-4 py-3 text-gray-600 text-xs cursor-pointer" onClick={() => navigate(`/employees/${e.id}`)}>{e.email || "—"}</td>
+              <td className="px-4 py-3 text-gray-600 text-xs cursor-pointer" onClick={() => navigate(`/employees/${e.id}`)}>{e.phone || "—"}</td>
+              <td className="px-4 py-3 cursor-pointer" onClick={() => navigate(`/employees/${e.id}`)}><span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${SOURCE_BADGE[e.source]||"bg-gray-100"}`}>{e.source}</span></td>
+              {canDelete && (
+                <td className="px-4 py-3 text-right">
+                  {!e.deleted_at && (
+                    <button type="button"
+                            onClick={(ev) => { ev.stopPropagation(); setDeleteTarget(e); }}
+                            className="text-gray-400 hover:text-red-700 p-1 rounded"
+                            title="Delete employee"
+                            data-testid={`employee-delete-btn-${e.id}`}
+                            aria-label={`Delete ${e.name}`}>
+                      <Trash2 className="w-4 h-4"/>
+                    </button>
+                  )}
+                </td>
+              )}
             </tr>))}
           </tbody>
         </table>)}
       </div>
 
-      {/* Sync result modal */}
-      <Dialog open={!!syncResult} onOpenChange={(v) => !v && setSyncResult(null)}>
-        <DialogContent data-testid="simpro-sync-result">
-          <DialogHeader>
-            <DialogTitle className="inline-flex items-center gap-2">
-              <AppIcon name={syncResult?.error ? "warning" : "success"} size={22} decorative/>
-              {syncResult?.error ? "Simpro sync failed" : "Simpro sync complete"}
-            </DialogTitle>
-            <DialogDescription>
-              {syncResult?.error ? syncResult.error :
-                `Fetched ${syncResult?.fetched_from_simpro} from Simpro · created ${syncResult?.created} · updated ${syncResult?.updated}${(syncResult?.errors?.length||0) ? ` · ${syncResult.errors.length} row error(s)` : ""}.`}
-            </DialogDescription>
-          </DialogHeader>
-          {(syncResult?.errors?.length||0) > 0 && (
-            <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 max-h-40 overflow-auto space-y-1">
-              {syncResult.errors.slice(0, 10).map((e, i) => (<div key={i}><strong>#{e.simpro_id}</strong> — {e.reason}</div>))}
-              {syncResult.errors.length > 10 && <div className="italic">+{syncResult.errors.length - 10} more</div>}
-            </div>
-          )}
-          <DialogFooter>
-            <Button onClick={() => setSyncResult(null)} className="bg-[#1F2A33] text-white hover:bg-[#3A6B8C]">Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Import modal */}
+      <SimproEmployeeImportModal
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        simpro={simpro}
+        onImported={async () => { await Promise.all([load(), loadSimpro()]); }}
+      />
+
+      {/* Delete confirm dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>
+        <AlertDialogContent data-testid="employee-delete-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              They will be hidden from the crew list but retained in the audit trail.
+              {(deleteTarget?.source === "SIMPRO" || deleteTarget?.source === "MOCKED_SIMPRO") && (
+                <>
+                  <br/><br/>
+                  <span className="text-orange-800 bg-orange-50 border border-orange-200 rounded p-2 block text-xs">
+                    <strong>Note:</strong> this employee came from Simpro. Deleting won&apos;t remove them from Simpro — but this record will be flagged and future syncs will skip them. To make the exclusion permanent, also remove their position from the <a href="/admin/settings" className="underline">Position Filter</a>.
+                  </span>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="employee-delete-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={doDelete}
+              className="bg-red-600 text-white hover:bg-red-700"
+              data-testid="employee-delete-confirm-btn">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
