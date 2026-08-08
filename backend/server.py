@@ -479,7 +479,7 @@ class IntegrationSimpro(BaseModel):
     last_test_status: Optional[Literal["ok","error","mocked"]] = None
     # Phase 11.7 — full Simpro settings mockup (personal-access-token flow)
     url: str = ""                                             # e.g. https://paneltec.simprosuite.com/
-    company_id: int = 0
+    company_ids: List[int] = Field(default_factory=lambda: [2, 3])
     api_token: str = ""
     whitelist_source_companies: List[int] = Field(default_factory=list)
     staff_custom_field: str = ""
@@ -760,7 +760,7 @@ DEFAULT_INTEGRATIONS = {
                 "last_test_at":None,"last_test_status":None,
                 # Phase 11.7 defaults matching the mockup
                 "url":"https://paneltec.simprosuite.com/",
-                "company_id":2, "api_token":"",
+                "company_ids":[2, 3], "api_token":"",
                 "whitelist_source_companies":[2, 3],
                 "staff_custom_field":"Interactive Scheduler Status",
                 "staff_field_value":"Assign This User To The White Board",
@@ -3128,7 +3128,8 @@ async def test_integration(integration: str, _u: dict = Depends(require_permissi
 class SimproProbePayload(BaseModel):
     url: str = Field(min_length=1)
     api_token: str = Field(min_length=1)
-    company_id: Optional[int] = None
+    company_id: Optional[int] = None               # legacy single-value (kept for LIST modal)
+    company_ids: Optional[List[int]] = None        # Phase 11.7.1 — multi-company probe
 
 def _simpro_normalise_url(u: str) -> str:
     """Return the API root URL, e.g. https://paneltec.simprosuite.com/api/v1.0"""
@@ -3139,32 +3140,49 @@ def _simpro_normalise_url(u: str) -> str:
         base = f"{base}/api/v1.0"
     return base
 
+async def _simpro_probe_one(client: httpx.AsyncClient, api_root: str,
+                             headers: Dict[str, str], cid: Optional[int]) -> Dict[str, Any]:
+    endpoint = f"{api_root}/companies/{cid}/" if cid else f"{api_root}/companies/"
+    try:
+        r = await client.get(endpoint, headers=headers)
+        if r.status_code == 401:
+            return {"ok": False, "company_id": cid, "message": "Unauthorised — check the API token."}
+        if r.status_code == 404 and cid:
+            return {"ok": False, "company_id": cid, "message": f"Company {cid} not found."}
+        if r.status_code >= 400:
+            return {"ok": False, "company_id": cid,
+                    "message": f"Simpro HTTP {r.status_code}: {(r.text or '')[:120]}"}
+        data = r.json()
+        if isinstance(data, dict):
+            name = data.get("Name") or data.get("CompanyName") or f"Company {cid}"
+            return {"ok": True, "company_id": cid, "company_name": name, "message": "OK"}
+        return {"ok": True, "company_id": cid,
+                "company_name": None, "message": f"{len(data)} companies visible"}
+    except httpx.HTTPError as e:
+        return {"ok": False, "company_id": cid, "message": f"Cannot reach Simpro ({type(e).__name__})."}
+
 @api_router.post("/integrations/simpro/test-connection")
 async def simpro_test_live(payload: SimproProbePayload,
                             actor: dict = Depends(require_permission("integrations.edit"))):
-    """Live probe using the form's current URL + api_token + company_id.
-    User can test BEFORE saving. Returns {ok, message, company_name?}."""
+    """Live probe. If `company_ids` is present, probe every one of them and
+    return a per-company result list; otherwise probe the legacy single
+    `company_id` (or the untyped root)."""
     api_root = _simpro_normalise_url(payload.url)
     headers = {"Authorization": f"Bearer {payload.api_token}", "Accept": "application/json"}
-    endpoint = f"{api_root}/companies/{payload.company_id}/" if payload.company_id else f"{api_root}/companies/"
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as c:
-            r = await c.get(endpoint, headers=headers)
-        if r.status_code == 401:
-            return {"ok": False, "message": "Unauthorised — check the API token."}
-        if r.status_code == 404 and payload.company_id:
-            return {"ok": False, "message": f"Company {payload.company_id} not found on this Simpro build."}
-        if r.status_code >= 400:
-            return {"ok": False, "message": f"Simpro HTTP {r.status_code}: {(r.text or '')[:180]}"}
-        data = r.json()
-        # /companies/{id}/ returns dict; /companies/ returns list
-        if isinstance(data, dict):
-            name = data.get("Name") or data.get("CompanyName") or f"Company {payload.company_id}"
-            return {"ok": True, "message": "Connection OK.", "company_name": name}
-        return {"ok": True, "message": f"Connection OK — {len(data)} companies visible.",
-                "company_name": None}
-    except httpx.HTTPError as e:
-        return {"ok": False, "message": f"Cannot reach Simpro ({type(e).__name__})."}
+    async with httpx.AsyncClient(timeout=15.0) as c:
+        if payload.company_ids:
+            results = []
+            for cid in payload.company_ids:
+                results.append(await _simpro_probe_one(c, api_root, headers, cid))
+            all_ok = all(r["ok"] for r in results)
+            return {"ok": all_ok,
+                     "message": "All companies reachable." if all_ok else "One or more companies failed — see per-company results.",
+                     "results": results}
+        # Legacy single-probe path (used implicitly by test-modal LIST view)
+        one = await _simpro_probe_one(c, api_root, headers, payload.company_id)
+        return {"ok": one["ok"], "message": one["message"],
+                 "company_name": one.get("company_name"),
+                 "results": [one]}
 
 
 @api_router.post("/integrations/simpro/companies")
@@ -3210,12 +3228,25 @@ async def _load_simpro_settings_or_error():
         raise HTTPException(status_code=400, detail="Missing Simpro credentials — enter build_name, client_id and client_secret.")
     return settings, section
 
+def _simpro_target_company_ids(section: Dict[str, Any]) -> List[int]:
+    """Phase 11.7.1 — union of primary company_ids + whitelist_source_companies,
+    de-duplicated (whitelist entries that duplicate a primary are dropped
+    silently on save; this call re-de-dupes at sync time as belt-and-braces)."""
+    primary = [int(x) for x in (section.get("company_ids") or []) if str(x).strip()]
+    wl = [int(x) for x in (section.get("whitelist_source_companies") or []) if str(x).strip()]
+    seen: set = set(); out: List[int] = []
+    for cid in primary + wl:
+        if cid not in seen:
+            seen.add(cid); out.append(cid)
+    return out
+
 
 @api_router.post("/integrations/simpro/sync-customers")
 async def simpro_sync_customers(actor: dict = Depends(require_permission("integrations.edit"))):
     if not has_permission(actor, "customers.create"):
         raise HTTPException(status_code=403, detail="customers.create permission required to sync customers")
-    settings, _sec = await _load_simpro_settings_or_error()
+    settings, sec = await _load_simpro_settings_or_error()
+    target_company_ids = _simpro_target_company_ids(sec)
     client = SimproClient(settings)
     created = updated = 0
     errors: List[Dict[str, str]] = []
@@ -3266,16 +3297,19 @@ async def simpro_sync_customers(actor: dict = Depends(require_permission("integr
                  "simpro.last_sync_error": None,
                  "simpro.last_sync_customers_count": total}})
     await record_audit(actor, "simpro_customer_sync", "integration_settings", "simpro", "Simpro",
-                       metadata={"synced": total, "created": created, "updated": updated, "errors": len(errors)})
+                       metadata={"synced": total, "created": created, "updated": updated,
+                                  "errors": len(errors), "company_ids": target_company_ids})
     return {"synced": total, "created": created, "updated": updated,
-            "errors": errors, "fetched_from_simpro": len(remote)}
+            "errors": errors, "fetched_from_simpro": len(remote),
+            "company_ids": target_company_ids}
 
 
 @api_router.post("/integrations/simpro/sync-employees")
 async def simpro_sync_employees(actor: dict = Depends(require_permission("integrations.edit"))):
     if not has_permission(actor, "employees.create"):
         raise HTTPException(status_code=403, detail="employees.create permission required to sync employees")
-    settings, _sec = await _load_simpro_settings_or_error()
+    settings, sec = await _load_simpro_settings_or_error()
+    target_company_ids = _simpro_target_company_ids(sec)
     client = SimproClient(settings)
     created = updated = 0
     errors: List[Dict[str, str]] = []
@@ -3326,9 +3360,11 @@ async def simpro_sync_employees(actor: dict = Depends(require_permission("integr
                  "simpro.last_sync_error": None,
                  "simpro.last_sync_employees_count": total}})
     await record_audit(actor, "simpro_employee_sync", "integration_settings", "simpro", "Simpro",
-                       metadata={"synced": total, "created": created, "updated": updated, "errors": len(errors)})
+                       metadata={"synced": total, "created": created, "updated": updated,
+                                  "errors": len(errors), "company_ids": target_company_ids})
     return {"synced": total, "created": created, "updated": updated,
-            "errors": errors, "fetched_from_simpro": len(remote)}
+            "errors": errors, "fetched_from_simpro": len(remote),
+            "company_ids": target_company_ids}
 
 
 # Universal email-sent recording
@@ -5836,6 +5872,28 @@ async def on_startup():
     try: await seed_database()
     except Exception as e: logger.exception(f"Seeding failed: {e}")
     await _heal_active_ai_providers()
+    await _migrate_simpro_company_id()
+
+
+async def _migrate_simpro_company_id():
+    """Phase 11.7.1 — migrate legacy `simpro.company_id: int` → `simpro.company_ids: [int]`.
+    Runs once on startup. Idempotent. Safe when both/neither is present."""
+    try:
+        doc = await db.settings.find_one({"key": "integrations"}) or {}
+        sp = (doc.get("simpro") or {})
+        legacy = sp.get("company_id")
+        if legacy is not None and not sp.get("company_ids"):
+            new_ids = [int(legacy)] if isinstance(legacy, (int, float, str)) and str(legacy).strip() else []
+            await db.settings.update_one({"key": "integrations"},
+                {"$set": {"simpro.company_ids": new_ids},
+                 "$unset": {"simpro.company_id": ""}})
+            logger.info("[migrate] simpro.company_id (%s) → company_ids (%s)", legacy, new_ids)
+        elif legacy is not None:
+            # Both present — drop the legacy key silently
+            await db.settings.update_one({"key": "integrations"},
+                {"$unset": {"simpro.company_id": ""}})
+    except Exception as e:
+        logger.exception(f"[migrate] simpro.company_id migration failed: {e}")
 
 @app.on_event("shutdown")
 async def on_shutdown(): client.close()

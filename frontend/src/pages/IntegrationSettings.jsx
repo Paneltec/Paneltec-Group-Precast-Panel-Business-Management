@@ -150,16 +150,18 @@ function ChipInput({ chips, onChange, placeholder, prefix = "", tone = "green", 
   const remove = (idx) => onChange(chips.filter((_, i) => i !== idx));
   const toneCls = tone === "blue"
     ? "bg-blue-100 border-blue-300 text-blue-900"
-    : "bg-emerald-100 border-emerald-300 text-emerald-900";
+    : tone === "green-outline"
+    ? "bg-transparent border-emerald-400 text-emerald-800 border-dashed"
+    : "bg-emerald-500 border-emerald-600 text-white shadow-sm";
   return (
     <div className="flex flex-wrap items-center gap-1.5 bg-[#FCFBF7] border border-gray-300 rounded px-2 py-2 min-h-[44px]" data-testid={testid}>
       {chips.map((c, i) => (
         <span key={`${c}-${i}`}
               className={`inline-flex items-center gap-1 text-xs font-semibold border rounded-full px-2 py-0.5 ${toneCls}`}
               data-testid={`${testid}-chip-${i}`}>
-          {prefix && <span className="opacity-60 uppercase tracking-wider text-[10px]">{prefix}</span>}
+          {prefix && <span className="opacity-70 uppercase tracking-wider text-[10px]">{prefix}</span>}
           <span>{c}</span>
-          <button type="button" onClick={() => remove(i)} className="hover:text-red-700"
+          <button type="button" onClick={() => remove(i)} className={tone === "green" ? "hover:text-red-200" : "hover:text-red-700"}
                   aria-label={`Remove ${c}`} data-testid={`${testid}-chip-remove-${i}`}>
             <X className="w-3 h-3"/>
           </button>
@@ -185,10 +187,9 @@ function SimproTestPill({ state }) {
   if (!state) return null;
   const map = {
     testing: { txt: "Testing…", cls: "bg-yellow-100 border-yellow-300 text-yellow-900" },
-    ok:      { txt: `CONNECTED${state.company_name ? " · " + state.company_name : ""}`,
-                cls: "bg-emerald-100 border-emerald-300 text-emerald-900" },
-    error:   { txt: `ERROR: ${state.message || "connection failed"}`,
-                cls: "bg-red-100 border-red-300 text-red-900" },
+    ok:      { txt: "ALL CONNECTED", cls: "bg-emerald-100 border-emerald-300 text-emerald-900" },
+    partial: { txt: "PARTIAL — SEE PER-COMPANY BELOW", cls: "bg-amber-100 border-amber-300 text-amber-900" },
+    error:   { txt: "ERROR — SEE PER-COMPANY BELOW", cls: "bg-red-100 border-red-300 text-red-900" },
   };
   const cfg = map[state.kind] || null;
   if (!cfg) return null;
@@ -201,30 +202,63 @@ function SimproTestPill({ state }) {
   );
 }
 
+function SimproPerCompanyPills({ results }) {
+  if (!results || results.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2" data-testid="simpro-per-company-pills">
+      {results.map((r, i) => (
+        <span key={`${r.company_id}-${i}`}
+              className={`inline-flex items-center gap-1 text-[11px] font-semibold border rounded-full px-2 py-0.5
+                          ${r.ok ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+                                 : "bg-red-50 border-red-300 text-red-800"}`}
+              data-testid={`simpro-per-company-pill-${r.company_id}`}>
+          <span className="uppercase tracking-wider text-[9px] opacity-70">CO {r.company_id ?? "?"}</span>
+          <span>{r.ok ? "✓" : "✗"}</span>
+          <span className="truncate max-w-[220px]">{r.ok ? (r.company_name || "OK") : r.message}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function SimproCompanyPickerModal({ open, onOpenChange, form, onPick }) {
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState("");
+  const [ticked, setTicked] = useState(new Set());
   useEffect(() => {
-    if (!open) { setRows(null); setErr(""); return; }
+    if (!open) { setRows(null); setErr(""); setTicked(new Set()); return; }
     (async () => {
       setRows(null); setErr("");
       try {
         const { data } = await api.post("/integrations/simpro/companies",
           { url: form.url, api_token: form.api_token });
         setRows(data.items || []);
+        // Pre-tick companies already in company_ids
+        const existing = new Set((form.company_ids || []).map(Number));
+        setTicked(new Set((data.items || []).filter(x => existing.has(x.id)).map(x => x.id)));
       } catch (e) {
         setErr(formatApiErrorDetail(e.response?.data?.detail) || e.message);
       }
     })();
-  }, [open, form.url, form.api_token]);
+  }, [open, form.url, form.api_token, form.company_ids]);
+  const toggleRow = (id) => {
+    const next = new Set(ticked);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setTicked(next);
+  };
+  const pickSelected = () => {
+    if (!rows) return;
+    const picked = rows.filter(r => ticked.has(r.id));
+    onPick(picked);
+  };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg" data-testid="simpro-companies-modal">
         <DialogHeader>
-          <DialogTitle>Pick a Simpro company</DialogTitle>
+          <DialogTitle>Pick Simpro companies</DialogTitle>
           <DialogDescription>
-            Companies visible to the API token stored in this Simpro build.
-            Click a row to fill Company ID.
+            Tick one or more companies. Duplicates are ignored. Rows already in
+            your Company IDs list are pre-selected.
           </DialogDescription>
         </DialogHeader>
         {err && <div className="text-xs bg-red-50 border border-red-200 text-red-800 rounded p-2" data-testid="simpro-companies-err">{err}</div>}
@@ -234,18 +268,25 @@ function SimproCompanyPickerModal({ open, onOpenChange, form, onPick }) {
           <div className="border border-gray-200 rounded overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-100 uppercase text-[10px] tracking-wider text-gray-600">
-                <tr><th className="px-3 py-2 text-left w-16">ID</th><th className="px-3 py-2 text-left">Name</th>
-                  <th className="px-3 py-2 text-left w-20">Enabled</th><th className="w-16"/></tr>
+                <tr>
+                  <th className="px-3 py-2 text-left w-10"/>
+                  <th className="px-3 py-2 text-left w-16">ID</th>
+                  <th className="px-3 py-2 text-left">Name</th>
+                  <th className="px-3 py-2 text-left w-20">Enabled</th>
+                </tr>
               </thead>
               <tbody>
                 {rows.map(r => (
-                  <tr key={r.id} className="border-t border-gray-200 hover:bg-gray-50" data-testid={`simpro-company-row-${r.id}`}>
+                  <tr key={r.id} className="border-t border-gray-200 hover:bg-gray-50 cursor-pointer"
+                      onClick={() => toggleRow(r.id)}
+                      data-testid={`simpro-company-row-${r.id}`}>
+                    <td className="px-3 py-2">
+                      <Checkbox checked={ticked.has(r.id)} onCheckedChange={() => toggleRow(r.id)}
+                                 data-testid={`simpro-company-tick-${r.id}`}/>
+                    </td>
                     <td className="px-3 py-2 font-mono">{r.id}</td>
                     <td className="px-3 py-2">{r.name}</td>
                     <td className="px-3 py-2 text-xs">{r.enabled ? "Yes" : "No"}</td>
-                    <td className="px-3 py-2 text-right">
-                      <Button size="sm" variant="outline" onClick={() => onPick(r)} data-testid={`simpro-company-pick-${r.id}`}>Pick</Button>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -253,7 +294,14 @@ function SimproCompanyPickerModal({ open, onOpenChange, form, onPick }) {
           </div>
         )}
         <DialogFooter>
+          <span className="mr-auto text-xs text-gray-500 self-center" data-testid="simpro-companies-tick-count">{ticked.size} ticked</span>
           <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="simpro-companies-close">Close</Button>
+          <Button onClick={pickSelected}
+                   disabled={ticked.size === 0}
+                   className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416]"
+                   data-testid="simpro-companies-pick-selected">
+            Pick selected
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -263,7 +311,7 @@ function SimproCompanyPickerModal({ open, onOpenChange, form, onPick }) {
 function SimproCard({ section, onSave }) {
   const defaults = {
     url: "https://paneltec.simprosuite.com/",
-    company_id: 2,
+    company_ids: [2, 3],
     api_token: "",
     whitelist_source_companies: [2, 3],
     staff_custom_field: "Interactive Scheduler Status",
@@ -276,45 +324,61 @@ function SimproCard({ section, onSave }) {
   };
   const [s, setS] = useState({ ...defaults, ...(section || {}) });
   useEffect(() => { setS({ ...defaults, ...(section || {}) }); /* eslint-disable-next-line */ }, [section]);
-  const [testState, setTestState] = useState(null); // {kind:'testing'|'ok'|'error', ...}
+  const [testState, setTestState] = useState(null); // {kind, results}
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const canProbe = !!(s.url && s.api_token && !isMasked(s.api_token));
+  const companyIds = (s.company_ids || []).map(x => parseInt(x, 10)).filter(Number.isFinite);
 
   const doTest = async () => {
     if (!canProbe) {
       toast.error("Enter URL and API token before testing.");
       return;
     }
-    setTestState({ kind: "testing" });
+    if (companyIds.length === 0) {
+      toast.error("Add at least one Company ID before testing.");
+      return;
+    }
+    setTestState({ kind: "testing", results: [] });
     try {
       const { data } = await api.post("/integrations/simpro/test-connection", {
-        url: s.url, api_token: s.api_token, company_id: Number(s.company_id) || null,
+        url: s.url, api_token: s.api_token, company_ids: companyIds,
       });
-      setTestState(data.ok
-        ? { kind: "ok", company_name: data.company_name, message: data.message }
-        : { kind: "error", message: data.message });
+      const results = data.results || [];
+      const okCount = results.filter(r => r.ok).length;
+      const kind = okCount === results.length ? "ok"
+                  : okCount === 0 ? "error"
+                  : "partial";
+      setTestState({ kind, results });
     } catch (e) {
-      setTestState({ kind: "error", message: formatApiErrorDetail(e.response?.data?.detail) || e.message });
+      setTestState({ kind: "error", results: [{ ok: false, company_id: null,
+        message: formatApiErrorDetail(e.response?.data?.detail) || e.message }] });
     }
   };
   const doSave = async () => {
     setSaving(true);
     try {
-      // Cast numeric-looking chips to integers on save.
-      const wl = (s.whitelist_source_companies || []).map(v => parseInt(v, 10)).filter(Number.isFinite);
+      // De-dupe whitelist against company_ids (drop any whitelist entry that's already primary).
+      const primarySet = new Set(companyIds);
+      const rawWl = (s.whitelist_source_companies || []).map(v => parseInt(v, 10)).filter(Number.isFinite);
+      const wl = rawWl.filter(x => !primarySet.has(x));
+      if (wl.length < rawWl.length) {
+        toast.info(`Removed ${rawWl.length - wl.length} duplicate${rawWl.length - wl.length === 1 ? "" : "s"} from whitelist (already in Company IDs).`);
+      }
       const payload = { ...s,
-        company_id: parseInt(s.company_id, 10) || 0,
+        company_ids: companyIds,
         whitelist_source_companies: wl,
         sync_interval_minutes: parseInt(s.sync_interval_minutes, 10) || 60,
         completed_jobs_history_days: Math.min(365, Math.max(7, parseInt(s.completed_jobs_history_days, 10) || 30)),
       };
+      // Server rejects extra keys — strip legacy `company_id` if the section still had it.
+      delete payload.company_id;
       await onSave(payload);
       setTestState(null);
     } finally { setSaving(false); }
   };
-  const configured = !!(s.url && s.api_token);
+  const configured = !!(s.url && s.api_token && companyIds.length > 0);
 
   return (
     <section className="bg-white border border-gray-200 rounded p-6" data-testid="simpro-card">
@@ -326,27 +390,35 @@ function SimproCard({ section, onSave }) {
             then <span className="font-semibold">Save Simpro</span> to persist.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <StatusBadge configured={configured}/>
-          <SimproTestPill state={testState}/>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <StatusBadge configured={configured}/>
+            <SimproTestPill state={testState}/>
+          </div>
+          <SimproPerCompanyPills results={testState?.results}/>
         </div>
       </div>
 
-      {/* Row 1 — URL + Company ID */}
+      {/* Row 1 — URL + Company IDs */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <F label="URL" hint="Your SimPRO build URL — the same hostname you use in the browser.">
           <Input value={s.url} onChange={(e) => setS({ ...s, url: e.target.value })}
                   className="h-10 bg-[#FCFBF7] font-mono text-xs"
                   data-testid="simpro-url" placeholder="https://your-build.simprosuite.com/"/>
         </F>
-        <F label="Company ID" hint={<span>If <em>&ldquo;Company does not exist&rdquo;</em>, tap <strong>List Companies</strong> to pick the right one.</span>}>
-          <div className="flex items-center gap-2">
-            <Input type="number" value={s.company_id} onChange={(e) => setS({ ...s, company_id: e.target.value })}
-                    className="h-10 bg-[#FCFBF7] w-32" data-testid="simpro-company-id"/>
+        <F label="Company IDs" hint={<span>One or more SimPRO company IDs to sync from. If <em>&ldquo;Company does not exist&rdquo;</em>, tap <strong>List Companies</strong> to pick from your Simpro account.</span>}>
+          <div className="flex items-start gap-2">
+            <div className="flex-1">
+              <ChipInput chips={(s.company_ids || []).map(String)}
+                          onChange={(chips) => setS({ ...s, company_ids: chips.map(x => parseInt(x, 10)).filter(Number.isFinite) })}
+                          prefix="CO" tone="green" testid="simpro-company-ids"
+                          placeholder="Enter a company ID and press Enter"/>
+            </div>
             <Button type="button" variant="outline" onClick={() => setPickerOpen(true)}
                      disabled={!canProbe}
                      title={!canProbe ? "Enter URL and API token first." : undefined}
-                     data-testid="simpro-list-companies-btn">
+                     data-testid="simpro-list-companies-btn"
+                     className="h-11">
               <ListIcon className="w-4 h-4 mr-1.5"/> LIST
             </Button>
           </div>
@@ -363,12 +435,12 @@ function SimproCard({ section, onSave }) {
         </F>
       </div>
 
-      {/* Row 3 — Whitelist Source Companies */}
+      {/* Row 3 — Whitelist Source Companies (dashed-outline green = secondary) */}
       <div className="mb-4">
-        <F label="Whitelist Source Companies" hint="SimPRO company IDs whose employee directory the Gate Whitelist Name typeahead searches. Leave empty to use just the main Company ID. Example: 2, 3.">
+        <F label="Whitelist Source Companies" hint="SimPRO company IDs whose employee directory the Gate Whitelist Name typeahead searches. Any ID that's already in Company IDs above is dropped on save. Leave empty to use just the Company IDs above. Example: 2, 3.">
           <ChipInput chips={(s.whitelist_source_companies || []).map(String)}
                       onChange={(chips) => setS({ ...s, whitelist_source_companies: chips.map(x => parseInt(x, 10)).filter(Number.isFinite) })}
-                      prefix="CO" tone="green" testid="simpro-whitelist"
+                      prefix="CO" tone="green-outline" testid="simpro-whitelist"
                       placeholder="Enter a company ID and press Enter"/>
         </F>
       </div>
@@ -447,7 +519,17 @@ function SimproCard({ section, onSave }) {
         open={pickerOpen}
         onOpenChange={setPickerOpen}
         form={s}
-        onPick={(r) => { setS({ ...s, company_id: r.id }); setPickerOpen(false); toast.success(`Company ${r.id} · ${r.name}`); }}
+        onPick={(picked) => {
+          const nextIds = [...(s.company_ids || [])];
+          let added = 0;
+          picked.forEach(r => {
+            if (!nextIds.includes(r.id)) { nextIds.push(r.id); added++; }
+          });
+          setS({ ...s, company_ids: nextIds });
+          setPickerOpen(false);
+          if (added === 0) toast.info("All ticked companies were already in the list.");
+          else toast.success(`Added ${added} compan${added === 1 ? "y" : "ies"} to Company IDs.`);
+        }}
       />
     </section>
   );
