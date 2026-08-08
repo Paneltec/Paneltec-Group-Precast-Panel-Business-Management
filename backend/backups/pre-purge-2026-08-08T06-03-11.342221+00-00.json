@@ -1,0 +1,1551 @@
+{
+  "timestamp": "2026-08-08T06-03-11.342221+00-00",
+  "counts": {
+    "customers": 0,
+    "projects": 0,
+    "quotes": 0,
+    "jobs": 0,
+    "invoices": 0,
+    "employees": 6,
+    "vehicles": 5,
+    "compliance_forms": 0,
+    "compliance_form_templates": 5
+  },
+  "docs": {
+    "customers": [],
+    "projects": [],
+    "quotes": [],
+    "jobs": [],
+    "invoices": [],
+    "employees": [
+      {
+        "id": "e-001",
+        "name": "Mark Henderson",
+        "role": "Production Manager",
+        "email": "mark.h@paneltec.com.au",
+        "phone": "0411 222 333",
+        "notes": "",
+        "source": "MOCKED_SIMPRO",
+        "is_active": true,
+        "deleted_at": "2026-08-08T05:53:16.414091+00:00",
+        "deleted_by_user_id": "system-cleanup",
+        "created_at": "2026-06-14T21:29:21.870291+00:00",
+        "updated_at": "2026-08-08T05:53:16.414091+00:00",
+        "created_by_user_id": "system",
+        "updated_by_user_id": "system",
+        "excluded_from_sync": true
+      },
+      {
+        "id": "e-002",
+        "name": "Sarah Chen",
+        "role": "Foreman",
+        "email": "sarah.c@paneltec.com.au",
+        "phone": "0412 333 444",
+        "notes": "",
+        "source": "MOCKED_SIMPRO",
+        "is_active": true,
+        "deleted_at": "2026-08-08T05:53:16.414091+00:00",
+        "deleted_by_user_id": "system-cleanup",
+        "created_at": "2026-06-14T21:29:21.870299+00:00",
+        "updated_at": "2026-08-08T05:53:16.414091+00:00",
+        "created_by_user_id": "system",
+        "updated_by_user_id": "system",
+        "excluded_from_sync": true
+      },
+      {
+        "id": "e-003",
+        "name": "Daniel O'Brien",
+        "role": "Crane Operator",
+        "email": "daniel.o@paneltec.com.au",
+        "phone": "0413 444 555",
+        "notes": "",
+        "source": "MOCKED_SIMPRO",
+        "is_active": true,
+        "deleted_at": "2026-08-08T05:53:16.414091+00:00",
+        "deleted_by_user_id": "system-cleanup",
+        "created_at": "2026-06-14T21:29:21.870302+00:00",
+        "updated_at": "2026-08-08T05:53:16.414091+00:00",
+        "created_by_user_id": "system",
+        "updated_by_user_id": "system",
+        "excluded_from_sync": true
+      },
+      {
+        "id": "e-004",
+        "name": "Priya Patel",
+        "role": "Estimator",
+        "email": "priya.p@paneltec.com.au",
+        "phone": "0414 555 666",
+        "notes": "",
+        "source": "MOCKED_SIMPRO",
+        "is_active": true,
+        "deleted_at": "2026-08-08T05:53:16.414091+00:00",
+        "deleted_by_user_id": "system-cleanup",
+        "created_at": "2026-06-14T21:29:21.870305+00:00",
+        "updated_at": "2026-08-08T05:53:16.414091+00:00",
+        "created_by_user_id": "system",
+        "updated_by_user_id": "system",
+        "excluded_from_sync": true
+      },
+      {
+        "id": "e-005",
+        "name": "Liam Walsh",
+        "role": "Driver",
+        "email": "liam.w@paneltec.com.au",
+        "phone": "0415 666 777",
+        "notes": "",
+        "source": "MOCKED_SIMPRO",
+        "is_active": true,
+        "deleted_at": "2026-08-08T05:53:16.414091+00:00",
+        "deleted_by_user_id": "system-cleanup",
+        "created_at": "2026-06-14T21:29:21.870309+00:00",
+        "updated_at": "2026-08-08T05:53:16.414091+00:00",
+        "created_by_user_id": "system",
+        "updated_by_user_id": "system",
+        "excluded_from_sync": true
+      },
+      {
+        "id": "e-006",
+        "name": "Aisha Mohamed",
+        "role": "Driver",
+        "email": "aisha.m@paneltec.com.au",
+        "phone": "0416 777 888",
+        "notes": "",
+        "source": "MOCKED_SIMPRO",
+        "is_active": true,
+        "deleted_at": "2026-08-08T05:53:16.414091+00:00",
+        "deleted_by_user_id": "system-cleanup",
+        "created_at": "2026-06-14T21:29:21.870312+00:00",
+        "updated_at": "2026-08-08T05:53:16.414091+00:00",
+        "created_by_user_id": "system",
+        "updated_by_user_id": "68fa4af8-b083-4175-8fc1-782d3c795656",
+        "excluded_from_sync": true
+      }
+    ],
+    "vehicles": [
+      {
+        "id": "v-001",
+        "vehicle_code": "V-001",
+        "make_model": "Kenworth K200 Prime Mover",
+        "rego": "BX12-AC",
+        "capacity_tonnes": 42.0,
+        "status": "available",
+        "notes": "",
+        "source": "MOCKED_NAVIXY",
+        "is_active": true,
+        "deleted_at": null,
+        "deleted_by_user_id": null,
+        "created_at": "2026-06-14T21:29:21.858962+00:00",
+        "updated_at": "2026-06-14T21:29:21.858974+00:00",
+        "created_by_user_id": "system",
+        "updated_by_user_id": "system"
+      },
+      {
+        "id": "v-002",
+        "vehicle_code": "V-002",
+        "make_model": "Volvo FH16 Tilt-tray",
+        "rego": "BX84-RT",
+        "capacity_tonnes": 36.0,
+        "status": "on_delivery",
+        "notes": "",
+        "source": "MOCKED_NAVIXY",
+        "is_active": true,
+        "deleted_at": null,
+        "deleted_by_user_id": null,
+        "created_at": "2026-06-14T21:29:21.858977+00:00",
+        "updated_at": "2026-06-14T21:29:21.858979+00:00",
+        "created_by_user_id": "system",
+        "updated_by_user_id": "system"
+      },
+      {
+        "id": "v-003",
+        "vehicle_code": "V-003",
+        "make_model": "Mercedes Actros Crane Truck",
+        "rego": "BX02-MK",
+        "capacity_tonnes": 28.0,
+        "status": "maintenance",
+        "notes": "",
+        "source": "MOCKED_NAVIXY",
+        "is_active": true,
+        "deleted_at": null,
+        "deleted_by_user_id": null,
+        "created_at": "2026-06-14T21:29:21.858982+00:00",
+        "updated_at": "2026-06-14T21:29:21.858983+00:00",
+        "created_by_user_id": "system",
+        "updated_by_user_id": "system"
+      },
+      {
+        "id": "v-004",
+        "vehicle_code": "V-004",
+        "make_model": "Hino 700 Series Flatbed",
+        "rego": "BX55-HQ",
+        "capacity_tonnes": 24.0,
+        "status": "available",
+        "notes": "",
+        "source": "MOCKED_NAVIXY",
+        "is_active": true,
+        "deleted_at": null,
+        "deleted_by_user_id": null,
+        "created_at": "2026-06-14T21:29:21.858986+00:00",
+        "updated_at": "2026-06-14T21:29:21.858987+00:00",
+        "created_by_user_id": "system",
+        "updated_by_user_id": "system"
+      },
+      {
+        "id": "v-005",
+        "vehicle_code": "V-005",
+        "make_model": "Scania R620 B-Double",
+        "rego": "BX91-SC",
+        "capacity_tonnes": 48.0,
+        "status": "available",
+        "notes": "",
+        "source": "MOCKED_NAVIXY",
+        "is_active": true,
+        "deleted_at": null,
+        "deleted_by_user_id": null,
+        "created_at": "2026-06-14T21:29:21.858990+00:00",
+        "updated_at": "2026-06-14T21:29:21.858991+00:00",
+        "created_by_user_id": "system",
+        "updated_by_user_id": "system"
+      }
+    ],
+    "compliance_forms": [],
+    "compliance_form_templates": [
+      {
+        "id": "7cee1882-f138-4892-91de-ae54155eb359",
+        "code": "AI_DRAFT_7cee1882",
+        "name": "Manufacturer's Certificate of Compliance (9.1.4) (AI draft 2026-08-04)",
+        "description": "AI Standards Check draft \u2014 2026-08-04T12:47:15.701882+00:00",
+        "category": "Compliance",
+        "sections": [],
+        "header_fields": [
+          {
+            "key": "client",
+            "label": "Client",
+            "required": true
+          },
+          {
+            "key": "project",
+            "label": "Project",
+            "required": true
+          },
+          {
+            "key": "site_address",
+            "label": "Site Address",
+            "required": true
+          },
+          {
+            "key": "precast_manufacturer",
+            "label": "Precast Manufacturer",
+            "default": "The Paneltec Group"
+          },
+          {
+            "key": "project_design_engineer",
+            "label": "Project Design Engineer",
+            "required": true
+          }
+        ],
+        "signoff_stages": [
+          "checked_by",
+          "checked_by_qa",
+          "signed"
+        ],
+        "is_system": false,
+        "active": true,
+        "version": 1,
+        "status": "ai_draft",
+        "parent_template_id": "b7f4ae36-3deb-48b3-b785-5b1a2e70882d",
+        "ai_metadata": {
+          "mode": "update",
+          "provider": "openai",
+          "model": "gpt-4o-mini",
+          "prompt_tokens": 12071,
+          "completion_tokens": 16,
+          "sources": [
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "SECTION H CLASS 1 AND 10 BUILDINGS - 2022 NCC BUILDING CODE OF AUSTRALIA VOLUME TWO",
+              "url": "https://codes.iccsafe.org/content/ABCBNCCBCAV22022P1/section-h-class-1-and-10-buildings"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "NCC 2022 Volume Two - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-two.pdf"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "as/nzs 4671:2019 - steel for the reinforcement of concrete",
+              "url": "https://cdn.ymaws.com/concretenz.org.nz/resource/resmgr/docs/cnz/c_asnzs_4671_note.pdf"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "AS NZS 4671 Requirements Explained - Quality Steel Supplies",
+              "url": "https://qualitysteelsupplies.co.nz/as-nzs-4671-requirements"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "as/nzs 4671 \u2013 steel for the reinforcement of concrete ms palmer1",
+              "url": "https://cdn.ymaws.com/concretenz.org.nz/resource/resmgr/docs/conf/2019/s2a_p2.pdf"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "NCC 2022 Volume One - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-one.pdf"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "NCC 2022 Volume One - Building Code of Australia Class 2 to 9 buildings",
+              "url": "https://au.i2.saiglobal.com/management/ncc/2023/html/vol1/ncc-vol1.html"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "NCC 2022 Volume One - Building Code of Australia Class 2 to 9 buildings | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "AS/NZS 4671:2019  Steel for the reinforcement of concrete | Building CodeHub",
+              "url": "https://codehub.building.govt.nz/resources/asnzs-46712019"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "Precast Concrete Australian Standards Guide | Ozcast Precast",
+              "url": "https://www.ozcast.com.au/precast-concrete-australian-standards"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "NCC 2022 Volume Two - Building Code of Australia Class 1 ...",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-two"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "NCC 2022 Consolidated Requirements",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-consolidated-performance-requirements.pdf"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "TAS Footnote: Other legislation affecting buildings | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-two/9-tasmania/tas-footnote-other-legislation-affecting-buildings"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "Part C1 Fire resistance and stability | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/2019/ncc-2019-volume-one/section-c-fire-resistance/part-c1-fire-resistance-and-stability"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Class 1 and Class 10 Buildings Housing Provisions (Amdt 1)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_Two_Amdt_01_0.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "BCA96 - Volume Two - Housing Provisions (Amdt 8)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_Two_Amdt_08.pdf"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "Changes to Australian Standards to Better Utilise Higher ...",
+              "url": "http://www.ciaconference.com.au/concrete2021/pdf/full-paper_113.pdf"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "Introduction to NCC Volume One | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/preface/introduction-ncc-volume-one"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "NCC 2022 Volume One - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-one.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Part B1 Structural provisions (DtS) | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/2019/ncc-2019-volume-one/section-b-structure/part-b1-structural-provisions-dts"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "NCC 2022 Volume Three - Plumbing Code of Australia",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-three.pdf"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "3850.2 - 2015 Prefabricated Concrete Elements Part 2 Building Construction (ID 12673) | PDF",
+              "url": "https://www.scribd.com/document/815967736/3850-2-2015-Prefabricated-Concrete-Elements-Part-2-Building-Construction-ID-12673"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "NCC 2016 Volume One - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/NCC_2016_Volume_One_0.pdf"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "BCA96 - Volume Two - Housing Provisions (Amdt 8)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_Two_Amdt_08.pdf"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "Prefabricated, modular and offsite construction handbook",
+              "url": "https://www.abcb.gov.au/sites/default/files/resources/2024/Prefabricated%2C%20modular%20and%20offsite%20construction%20handbook%20NCC%202022%20Final.pdf"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "NCC 2022 Consolidated Requirements",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-consolidated-performance-requirements.pdf"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "Prefabricated, modular and offsite construction handbook",
+              "url": "https://www.abcb.gov.au/sites/default/files/resources/2024/Prefabricated%2C%20modular%20and%20offsite%20construction%20handbook%20NCC%202022%20Final.pdf"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Specification 1 Fire-resistance of building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "Volume One - Class 2 to Class 9 Buildings (Amdt 12)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_12.pdf"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "Specification 28 Sound insulation for building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/f-health-and-amenity/28-sound-insulation-building-elements"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Electrical Compliance in Prefabricated Structures",
+              "url": "https://www.cbos.tas.gov.au/topics/technical-regulation/electrical-standard-safety/electrical-compliance-in-prefabricated-structures"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "NCC 2022 Volume Three - Plumbing Code of Australia",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-three.pdf"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "NCC 2022 Consolidated Requirements",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-consolidated-performance-requirements.pdf"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "Prefabricated, modular and offsite construction handbook",
+              "url": "https://www.abcb.gov.au/sites/default/files/resources/2024/Prefabricated%2C%20modular%20and%20offsite%20construction%20handbook%20NCC%202022%20Final.pdf"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "Building Code of Australia 1996 \u2013 Volume One",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_09.pdf"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "Building Code of Australia",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_05.pdf"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "Building Code of Australia 1990 (BCA) - Amendment 10",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_1990_Amdt_10.pdf"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "Volume One - Class 2 to Class 9 Buildings (Amdt 12)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_12.pdf"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "Prefabricated, modular and offsite construction handbook",
+              "url": "https://www.abcb.gov.au/sites/default/files/resources/2024/Prefabricated%2C%20modular%20and%20offsite%20construction%20handbook%20NCC%202022%20Final.pdf"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "BCA96 - Volume Two - Housing Provisions (Amdt 8)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_Two_Amdt_08.pdf"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "Building Code of Australia",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_05.pdf"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Specification 8 Performance of external walls in fire | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/c-fire-resistance/8-performance-external-walls-fire"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "AS 3610.1:2018 | Standards Australia Store",
+              "url": "https://store.standards.org.au/product/as-3610-1-2018"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Specification 1 Fire-resistance of building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "New Prefabricated, modular and offsite construction handbook | ABCB",
+              "url": "https://www.abcb.gov.au/news/2024/new-prefabricated-modular-and-offsite-construction-handbook"
+            }
+          ],
+          "generated_at": "2026-08-04T12:47:15.701882+00:00",
+          "run_id": "7cee1882-f138-4892-91de-ae54155eb359",
+          "summary": "No changes needed.",
+          "proposed_changes": [],
+          "dropped_for_missing_citation": 0
+        },
+        "created_at": "2026-08-04T12:47:15.701882+00:00",
+        "updated_at": "2026-08-04T13:10:44.025564+00:00",
+        "created_by_user_id": "68fa4af8-b083-4175-8fc1-782d3c795656",
+        "deleted_at": null
+      },
+      {
+        "id": "d1542cf3-3c4b-40c6-9e12-d612b4449ec2",
+        "code": "AI_DRAFT_d1542cf3",
+        "name": "Manufacturer's Certificate of Compliance (9.1.4) (AI draft 2026-08-04)",
+        "description": "AI Standards Check draft \u2014 2026-08-04T12:48:16.573803+00:00",
+        "category": "Compliance",
+        "sections": [],
+        "header_fields": [
+          {
+            "key": "client",
+            "label": "Client",
+            "required": true
+          },
+          {
+            "key": "project",
+            "label": "Project",
+            "required": true
+          },
+          {
+            "key": "site_address",
+            "label": "Site Address",
+            "required": true
+          },
+          {
+            "key": "precast_manufacturer",
+            "label": "Precast Manufacturer",
+            "default": "The Paneltec Group"
+          },
+          {
+            "key": "project_design_engineer",
+            "label": "Project Design Engineer",
+            "required": true
+          }
+        ],
+        "signoff_stages": [
+          "checked_by",
+          "checked_by_qa",
+          "signed"
+        ],
+        "is_system": false,
+        "active": false,
+        "version": 1,
+        "status": "ai_draft",
+        "parent_template_id": "b7f4ae36-3deb-48b3-b785-5b1a2e70882d",
+        "ai_metadata": {
+          "mode": "update",
+          "provider": "openai",
+          "model": "gpt-4o-mini",
+          "prompt_tokens": 2092,
+          "completion_tokens": 16,
+          "sources": [
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Class 1 and Class 10 Buildings Housing Provisions (Amdt 1)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_Two_Amdt_01_0.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "BCA96 - Volume Two - Housing Provisions (Amdt 8)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_Two_Amdt_08.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "NCC 2022 Volume One - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-one.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Part B1 Structural provisions (DtS) | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/2019/ncc-2019-volume-one/section-b-structure/part-b1-structural-provisions-dts"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "NCC 2022 Volume Three - Plumbing Code of Australia",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-three.pdf"
+            }
+          ],
+          "generated_at": "2026-08-04T12:48:16.573803+00:00",
+          "run_id": "d1542cf3-3c4b-40c6-9e12-d612b4449ec2",
+          "summary": "No changes needed.",
+          "proposed_changes": [],
+          "dropped_for_missing_citation": 0
+        },
+        "created_at": "2026-08-04T12:48:16.573803+00:00",
+        "updated_at": "2026-08-04T12:48:16.573803+00:00",
+        "created_by_user_id": "68fa4af8-b083-4175-8fc1-782d3c795656",
+        "deleted_at": null
+      },
+      {
+        "id": "6d5b5983-18a9-44a9-a8c6-537ddeb637e3",
+        "code": "AI_DRAFT_6d5b5983",
+        "name": "Manufacturer's Certificate of Compliance (9.1.4) (AI draft 2026-08-04)",
+        "description": "AI Standards Check draft \u2014 2026-08-04T12:48:17.725295+00:00",
+        "category": "Compliance",
+        "sections": [],
+        "header_fields": [
+          {
+            "key": "client",
+            "label": "Client",
+            "required": true
+          },
+          {
+            "key": "project",
+            "label": "Project",
+            "required": true
+          },
+          {
+            "key": "site_address",
+            "label": "Site Address",
+            "required": true
+          },
+          {
+            "key": "precast_manufacturer",
+            "label": "Precast Manufacturer",
+            "default": "The Paneltec Group"
+          },
+          {
+            "key": "project_design_engineer",
+            "label": "Project Design Engineer",
+            "required": true
+          }
+        ],
+        "signoff_stages": [
+          "checked_by",
+          "checked_by_qa",
+          "signed"
+        ],
+        "is_system": false,
+        "active": false,
+        "version": 1,
+        "status": "ai_draft",
+        "parent_template_id": "b7f4ae36-3deb-48b3-b785-5b1a2e70882d",
+        "ai_metadata": {
+          "mode": "update",
+          "provider": "openai",
+          "model": "gpt-4o-mini",
+          "prompt_tokens": 2092,
+          "completion_tokens": 29,
+          "sources": [
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Class 1 and Class 10 Buildings Housing Provisions (Amdt 1)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_Two_Amdt_01_0.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "BCA96 - Volume Two - Housing Provisions (Amdt 8)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_Two_Amdt_08.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "NCC 2022 Volume One - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-one.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Part B1 Structural provisions (DtS) | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/2019/ncc-2019-volume-one/section-b-structure/part-b1-structural-provisions-dts"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "NCC 2022 Volume Three - Plumbing Code of Australia",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-three.pdf"
+            }
+          ],
+          "generated_at": "2026-08-04T12:48:17.725295+00:00",
+          "run_id": "6d5b5983-18a9-44a9-a8c6-537ddeb637e3",
+          "summary": "No changes needed to the CURRENT TEMPLATE based on the STANDARDS EXCERPTS.",
+          "proposed_changes": [],
+          "dropped_for_missing_citation": 0
+        },
+        "created_at": "2026-08-04T12:48:17.725295+00:00",
+        "updated_at": "2026-08-04T12:48:17.725295+00:00",
+        "created_by_user_id": "68fa4af8-b083-4175-8fc1-782d3c795656",
+        "deleted_at": null
+      },
+      {
+        "id": "db872168-b8a2-4630-baaf-10d163590f0b",
+        "code": "TAS-PRECAST-001",
+        "name": "Precast Concrete Compliance Form",
+        "description": "A comprehensive compliance form for precast concrete works in Tasmania, ensuring adherence to relevant standards and regulations.",
+        "category": "Custom",
+        "sections": [
+          {
+            "key": "general_info",
+            "title": "General Information",
+            "criteria": [
+              {
+                "key": "project_name",
+                "label": "Project Name",
+                "input_type": "text",
+                "required": true,
+                "allow_photo": false,
+                "citation": {
+                  "standard": "Tasmanian Building Act 2016",
+                  "clause": "N/A",
+                  "source_url": "https://cbos.tas.gov.au/__data/assets/pdf_file/0005/697820/Certificate-of-Accreditation-Taylex-ABSNR-PABSNR-2000-ConcreteandPoly.pdf"
+                }
+              },
+              {
+                "key": "project_location",
+                "label": "Project Location",
+                "input_type": "text",
+                "required": true,
+                "allow_photo": false,
+                "citation": {
+                  "standard": "Tasmanian Building Act 2016",
+                  "clause": "N/A",
+                  "source_url": "https://cbos.tas.gov.au/__data/assets/pdf_file/0005/697820/Certificate-of-Accreditation-Taylex-ABSNR-PABSNR-2000-ConcreteandPoly.pdf"
+                }
+              },
+              {
+                "key": "auditor_name",
+                "label": "Auditor Name",
+                "input_type": "text",
+                "required": true,
+                "allow_photo": false,
+                "citation": {
+                  "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+                  "clause": "N/A",
+                  "source_url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_05.pdf"
+                }
+              }
+            ]
+          },
+          {
+            "key": "material_compliance",
+            "title": "Material Compliance",
+            "criteria": [
+              {
+                "key": "concrete_grade",
+                "label": "Concrete Grade",
+                "input_type": "text",
+                "required": true,
+                "allow_photo": false,
+                "citation": {
+                  "standard": "AS 3600 (Concrete Structures)",
+                  "clause": "N/A",
+                  "source_url": "https://www.abcb.gov.au/sites/default/files/resources/2024/Prefabricated%2C%20modular%20and%20offsite%20construction%20handbook%20NCC%202022%20Final.pdf"
+                }
+              },
+              {
+                "key": "reinforcement_compliance",
+                "label": "Reinforcement Compliance (AS/NZS 4671)",
+                "input_type": "yes_no",
+                "required": true,
+                "allow_photo": false,
+                "citation": {
+                  "standard": "AS/NZS 4671",
+                  "clause": "N/A",
+                  "source_url": "https://qualitysteelsupplies.co.nz/as-nzs-4671-requirements"
+                }
+              }
+            ]
+          },
+          {
+            "key": "construction_practices",
+            "title": "Construction Practices",
+            "criteria": [
+              {
+                "key": "fire_resistance",
+                "label": "Fire Resistance Compliance",
+                "input_type": "yes_no",
+                "required": true,
+                "allow_photo": false,
+                "citation": {
+                  "standard": "AS 3850.1",
+                  "clause": "Specification 1",
+                  "source_url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/a-governing-requirements/1-fire-resistance-building-elements"
+                }
+              },
+              {
+                "key": "weatherproofing",
+                "label": "Weatherproofing Compliance",
+                "input_type": "yes_no",
+                "required": true,
+                "allow_photo": false,
+                "citation": {
+                  "standard": "NCC 2022 Volume 1",
+                  "clause": "Part F1",
+                  "source_url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-one.pdf"
+                }
+              }
+            ]
+          },
+          {
+            "key": "safety_measures",
+            "title": "Safety Measures",
+            "criteria": [
+              {
+                "key": "site_safety_plan",
+                "label": "Site Safety Plan in Place",
+                "input_type": "yes_no",
+                "required": true,
+                "allow_photo": false,
+                "citation": {
+                  "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+                  "clause": "N/A",
+                  "source_url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_05.pdf"
+                }
+              },
+              {
+                "key": "worker_training",
+                "label": "Worker Training Completed",
+                "input_type": "yes_no",
+                "required": true,
+                "allow_photo": false,
+                "citation": {
+                  "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+                  "clause": "N/A",
+                  "source_url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_05.pdf"
+                }
+              }
+            ]
+          }
+        ],
+        "header_fields": [],
+        "signoff_stages": [],
+        "is_system": false,
+        "active": false,
+        "version": 1,
+        "status": "ai_draft",
+        "parent_template_id": null,
+        "ai_metadata": {
+          "mode": "generate",
+          "provider": "openai",
+          "model": "gpt-4o-mini",
+          "prompt_tokens": 11130,
+          "completion_tokens": 1249,
+          "sources": [
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Prefabricated, modular and offsite construction handbook",
+              "url": "https://www.abcb.gov.au/sites/default/files/resources/2024/Prefabricated%2C%20modular%20and%20offsite%20construction%20handbook%20NCC%202022%20Final.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Building Code of Australia",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_05.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Building Code of Australia 1988",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA%201988_0.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Class 1 and Class 10 Buildings Housing Provisions (Amdt 1)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_Two_Amdt_01_0.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "BCA96 - Volume Two - Housing Provisions (Amdt 8)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_Two_Amdt_08.pdf"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "AS NZS 4671 Requirements Explained",
+              "url": "https://qualitysteelsupplies.co.nz/as-nzs-4671-requirements"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "as/nzs 4671:2019 - steel for the reinforcement of concrete",
+              "url": "https://cdn.ymaws.com/concretenz.org.nz/resource/resmgr/docs/cnz/c_asnzs_4671_note.pdf"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "AS/NZS 4671:2019 Steel for the reinforcement of concrete",
+              "url": "https://codehub.building.govt.nz/resources/asnzs-46712019"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "NCC 2022 Volume Two - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-two.pdf"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "SECTION H CLASS 1 AND 10 BUILDINGS - ICC Digital Codes",
+              "url": "https://codes.iccsafe.org/content/ABCBNCCBCAV22022P1/section-h-class-1-and-10-buildings"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "NCC 2022 Volume Two - Building Code of Australia Class 1 and 10 buildings | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-two"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "NCC 2022 Volume One - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-one.pdf"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "Changes to Australian Standards to Better Utilise Higher ...",
+              "url": "http://www.ciaconference.com.au/concrete2021/pdf/full-paper_113.pdf"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "As NZS 4671-2001 Steel Reinforcing Materials | PDF | Prestressed Concrete | Strength Of Materials",
+              "url": "https://www.scribd.com/document/102225083/As-NZS-4671-2001-Steel-Reinforcing-Materials"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "What's new about NCC 2022",
+              "url": "https://www.abcb.gov.au/whats-new-about-ncc-2022"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "NCC 2022 Volume One - Building Code of Australia Class 2 to ...",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "NCC 2022 Volume One - Building Code of Australia Class 2 to ...",
+              "url": "https://au.i2.saiglobal.com/management/ncc/2023/html/vol1/ncc-vol1.html"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "What Does NCC 2022 Mean for Building Industry?",
+              "url": "https://www.archieng.au/blog/what-does-ncc-2022-mean-for-building-industry"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "NCC 2022 - National Construction Code",
+              "url": "https://hia.com.au/ncc-2022"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "NCC 2022 - National Construction Code",
+              "url": "https://hia.com.au/ncc-2022"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Specification 1 Fire-resistance of building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-two/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Specification 1 Fire-resistance of building elements | WaterMark",
+              "url": "https://watermark.abcb.gov.au/editions/ncc-2022/adopted/volume-one/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "Prefabricated, modular and offsite construction handbook",
+              "url": "https://www.abcb.gov.au/sites/default/files/resources/2024/Prefabricated%2C%20modular%20and%20offsite%20construction%20handbook%20NCC%202022%20Final.pdf"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "Specification 1 Fire-resistance of building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-two/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Specification 1 Fire-resistance of building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Specification 1 Fire-resistance of building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "NCC 2016 Volume One - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/NCC_2016_Volume_One_0.pdf"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "Specification 1 Fire-resistance of building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "Prefabricated, modular and offsite construction handbook",
+              "url": "https://www.abcb.gov.au/sites/default/files/resources/2024/Prefabricated%2C%20modular%20and%20offsite%20construction%20handbook%20NCC%202022%20Final.pdf"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "Specification 1 Fire-resistance of building elements | WaterMark",
+              "url": "https://watermark.abcb.gov.au/editions/ncc-2022/adopted/volume-one/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "Specification 28 Sound insulation for building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/f-health-and-amenity/28-sound-insulation-building-elements"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "NCC 2022 Consolidated Requirements",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-consolidated-performance-requirements.pdf"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "NCC 2022 Consolidated Requirements",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-consolidated-performance-requirements.pdf"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "Building Code of Australia 1996 \u2013 Volume One",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_11.pdf"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "Prefabricated, modular and offsite construction handbook",
+              "url": "https://www.abcb.gov.au/sites/default/files/resources/2024/Prefabricated%2C%20modular%20and%20offsite%20construction%20handbook%20NCC%202022%20Final.pdf"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Part 3.2.3 Concrete and reinforcing | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/2019/ncc-2019-volume-two/part-32-footings-and-slabs/part-323-concrete-and-reinforcing"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "Part 3.5.3 Wall Cladding | NCC - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/editions/2016/ncc-2016-volume-two/part-35-roof-and-wall-cladding/part-353-wall-cladding"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "Prefabricated, modular and offsite construction handbook",
+              "url": "https://www.abcb.gov.au/sites/default/files/resources/2024/Prefabricated%2C%20modular%20and%20offsite%20construction%20handbook%20NCC%202022%20Final.pdf"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "Building Code of Australia",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_05.pdf"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "Building Code of Australia",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_05.pdf"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "BCA96 - Volume Two - Housing Provisions (Amdt 8)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_Two_Amdt_08.pdf"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "Building Code of Australia 1990 (BCA) - Amendment 10",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_1990_Amdt_10.pdf"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "NCC 2022 Volume Three - Plumbing Code of Australia",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-three.pdf"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "Certificate of Accreditation",
+              "url": "https://cbos.tas.gov.au/__data/assets/pdf_file/0005/697820/Certificate-of-Accreditation-Taylex-ABSNR-PABSNR-2000-ConcreteandPoly.pdf"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "Fire Resistance and Non-Combustibility",
+              "url": "https://www.abcb.gov.au/sites/default/files/resources/2020//FCRC-PR-96-03-objectives-performance-levels-fire-resistance.pdf"
+            }
+          ],
+          "generated_at": "2026-08-04T13:12:15.955224+00:00",
+          "run_id": "db872168-b8a2-4630-baaf-10d163590f0b",
+          "summary": "Custom compliance form template for precast concrete works in Tasmania, Australia, covering relevant standards and regulations.",
+          "proposed_changes": [],
+          "dropped_for_missing_citation": 0
+        },
+        "created_at": "2026-08-04T13:12:15.955224+00:00",
+        "updated_at": "2026-08-04T13:12:15.955224+00:00",
+        "created_by_user_id": "68fa4af8-b083-4175-8fc1-782d3c795656",
+        "deleted_at": null
+      },
+      {
+        "id": "de27fa2e-2fac-4ac3-97cb-ae1fb249cb91",
+        "code": "AI_DRAFT_de27fa2e",
+        "name": "PRE \u2014 Custom site variant (AI draft 2026-08-07)",
+        "description": "AI Standards Check draft \u2014 2026-08-07T09:17:22.044388+00:00",
+        "category": "Quality",
+        "sections": [
+          {
+            "key": "formwork",
+            "title": "FORMWORK",
+            "defects_list": false,
+            "criteria": [
+              {
+                "key": "dimensions_overall",
+                "label": "Dimensions (Overall Length x Width)",
+                "input_type": "dimension_lw_mm",
+                "unit": "mm \u00d7 mm",
+                "required": true,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              },
+              {
+                "key": "dimensions_diagonal",
+                "label": "Dimensions (Diagonal)",
+                "input_type": "number",
+                "unit": "mm",
+                "required": true,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              },
+              {
+                "key": "profile_thickness",
+                "label": "Profile (Thickness)",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              },
+              {
+                "key": "formwork_oil",
+                "label": "Formwork Oil",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              },
+              {
+                "key": "cleanliness",
+                "label": "Cleanliness",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              }
+            ]
+          },
+          {
+            "key": "reinforcement",
+            "title": "REINFORCEMENT",
+            "defects_list": false,
+            "criteria": [
+              {
+                "key": "bar_size",
+                "label": "Bar Size \u2014 Number, Spacing",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              },
+              {
+                "key": "concrete_cover",
+                "label": "Concrete Cover",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              },
+              {
+                "key": "starter_bar",
+                "label": "Starter Bar \u2014 Size, Position",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              },
+              {
+                "key": "photograph_taken",
+                "label": "Photograph taken & recorded on file",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": true,
+                "allow_notes": true,
+                "help_text": ""
+              }
+            ]
+          },
+          {
+            "key": "cast_in_items",
+            "title": "CAST-IN ITEMS",
+            "defects_list": false,
+            "criteria": [
+              {
+                "key": "ferrules",
+                "label": "Ferrules \u2014 Number, Position",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              },
+              {
+                "key": "lifters",
+                "label": "Lifters \u2014 Number, Position",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              },
+              {
+                "key": "grout_tubes",
+                "label": "Grout Tubes \u2014 Number, Position",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              }
+            ]
+          },
+          {
+            "key": "other",
+            "title": "OTHER",
+            "defects_list": false,
+            "criteria": [
+              {
+                "key": "recesses_openings",
+                "label": "Recesses, Openings",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              },
+              {
+                "key": "rebates_grooves",
+                "label": "Rebates, Grooves, Lines",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              },
+              {
+                "key": "panel_id_plate",
+                "label": "Panel ID Plate",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              },
+              {
+                "key": "form_liners",
+                "label": "Form Liners",
+                "input_type": "yes_no",
+                "unit": null,
+                "required": false,
+                "allow_photo": false,
+                "allow_notes": true,
+                "help_text": ""
+              }
+            ]
+          }
+        ],
+        "header_fields": [
+          {
+            "key": "client_name",
+            "label": "Client",
+            "required": false
+          },
+          {
+            "key": "project_name",
+            "label": "Project",
+            "required": false
+          },
+          {
+            "key": "panel_id",
+            "label": "Panel ID",
+            "required": true
+          },
+          {
+            "key": "date_of_inspection",
+            "label": "Date of Inspection",
+            "input_type": "date"
+          },
+          {
+            "key": "date_of_casting",
+            "label": "Date of Casting",
+            "input_type": "date"
+          },
+          {
+            "key": "grade_of_concrete",
+            "label": "Grade of Concrete"
+          }
+        ],
+        "signoff_stages": [
+          "checked_by",
+          "checked_by_qa",
+          "signed"
+        ],
+        "is_system": false,
+        "active": false,
+        "version": 1,
+        "status": "ai_draft",
+        "parent_template_id": "d0bcce75-7917-4385-9626-cc9c2139f04e",
+        "ai_metadata": {
+          "mode": "update",
+          "provider": "openai",
+          "model": "gpt-4o-mini",
+          "prompt_tokens": 13129,
+          "completion_tokens": 16,
+          "sources": [
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "AS NZS 4671 Requirements Explained - Quality Steel Supplies",
+              "url": "https://qualitysteelsupplies.co.nz/as-nzs-4671-requirements"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "as/nzs 4671 \u2013 steel for the reinforcement of concrete ms palmer1",
+              "url": "https://cdn.ymaws.com/concretenz.org.nz/resource/resmgr/docs/conf/2019/s2a_p2.pdf"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "as/nzs 4671:2019 - steel for the reinforcement of concrete",
+              "url": "https://cdn.ymaws.com/concretenz.org.nz/resource/resmgr/docs/cnz/c_asnzs_4671_note.pdf"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "AS/NZS 4671:2019  Steel for the reinforcement of concrete | Building CodeHub",
+              "url": "https://codehub.building.govt.nz/resources/asnzs-46712019"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "NCC 2022 Volume Two - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-two.pdf"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "NCC 2022 Volume Two and ABCB Housing Provisions ...",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-combined-vol2-housing-provisions.pdf"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "NCC 2022 Volume One - Building Code of Australia Class 2 to 9 buildings | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "Ncc2022 Volume Two 20230501b Compressed | PDF",
+              "url": "https://www.scribd.com/document/705807229/Ncc2022-Volume-Two-20230501b-Compressed"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "Guidance Note: - Precast external walls & the NCC",
+              "url": "https://nationalprecast.com.au/wp-content/uploads/2023/05/Guidance-note-Precast-external-walls-the-NCC.pdf"
+            },
+            {
+              "standard": "AS/NZS 4671 (Steel reinforcing materials)",
+              "title": "New Australian Concrete Reinforcement Standard | PDF | Civil Engineering | Structural Engineering",
+              "url": "https://www.scribd.com/document/951211127/Practise-Paper-14-New-Concrete-Reinforcement-Standard-Sept01-1"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "NCC 2022 Volume One - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-one.pdf"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "NCC 2022 Volume Two - Building Code of Australia Class 1 ...",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-two"
+            },
+            {
+              "standard": "NCC 2022 Volume 2 (Class 1 & 10 buildings)",
+              "title": "NCC 2022 Consolidated Requirements",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-consolidated-performance-requirements.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "NCC 2022 Volume One - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-one.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Building Code of Australia 1996 \u2013 Volume One",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_09.pdf"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Part B1 Structural provisions (DtS) | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/2019/ncc-2019-volume-one/section-b-structure/part-b1-structural-provisions-dts"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Contents and Introduction - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/NCC_2019_Volume_One_1.pdf"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "National Construction Code 2022",
+              "url": "https://www.cbos.tas.gov.au/newsroom/tech-reg-news-technical-regulations/national-construction-code-2022"
+            },
+            {
+              "standard": "AS 3600 (Concrete Structures)",
+              "title": "Building Code of Australia 1990 (BCA) - Housing Extracts",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_1990_Housing_Extracts_Amdt_07.pdf"
+            },
+            {
+              "standard": "NCC 2022 Volume 1 (Class 2\u20139 buildings)",
+              "title": "What\u2019s new about NCC 2022 | ABCB",
+              "url": "https://www.abcb.gov.au/whats-new-about-ncc-2022"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Specification 1 Fire-resistance of building elements | WaterMark",
+              "url": "https://watermark.abcb.gov.au/editions/ncc-2022/adopted/volume-one/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "TAS Footnote: Other legislation affecting buildings | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/9-tasmania/tas-footnote-other-legislation-affecting-buildings"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Specification 1 Fire-resistance of building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "NCC 2022 Volume One - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-one.pdf"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Specification 1 Fire-resistance of building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-two/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Specification 1 Fire-resistance of building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "Specification 1 Fire-resistance of building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-two/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "TAS Footnote: Other legislation affecting buildings | ABCB",
+              "url": "https://www.abcb.gov.au/editions/ncc-2022/adopted/volume-one/9-tasmania/tas-footnote-other-legislation-affecting-buildings"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "Specification 1 Fire-resistance of building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/a-governing-requirements/1-fire-resistance-building-elements"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "NCC 2016 Volume One - National Construction Code",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/NCC_2016_Volume_One_0.pdf"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "Volume One - Class 2 to Class 9 Buildings (Amdt 12)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_12.pdf"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "Working in Tasmania with overseas qualifications",
+              "url": "https://cbos.tas.gov.au/topics/licensing-and-registration/licensed-occupations/overseas-trained-applicants"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "Specification 28 Sound insulation for building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/f-health-and-amenity/28-sound-insulation-building-elements"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "NCC 2022 Consolidated Requirements",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-consolidated-performance-requirements.pdf"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "Prefabricated, modular and offsite construction handbook",
+              "url": "https://www.abcb.gov.au/sites/default/files/resources/2024/Prefabricated%2C%20modular%20and%20offsite%20construction%20handbook%20NCC%202022%20Final.pdf"
+            },
+            {
+              "standard": "Director's Determinations (Tasmania)",
+              "title": "Construction of Buildings in Flood Hazard Areas",
+              "url": "https://www.abcb.gov.au/sites/default/files/resources/2022/Handbook-flood-2012.pdf"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "Class 1 and Class 10 Buildings Housing Provisions (Amdt 1)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_Two_Amdt_01_0.pdf"
+            },
+            {
+              "standard": "Tasmanian Building Act 2016",
+              "title": "NCC 2022 Volume Three - Plumbing Code of Australia",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/ncc2022-volume-three.pdf"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "Part 3.2.3 Concrete and reinforcing | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/2019/ncc-2019-volume-two/part-32-footings-and-slabs/part-323-concrete-and-reinforcing"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "View - Tasmanian Legislation Online",
+              "url": "https://www.legislation.tas.gov.au/view/whole/html/inforce/current/sr-2022-109"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "Prefabricated, modular and offsite construction handbook",
+              "url": "https://www.abcb.gov.au/sites/default/files/resources/2024/Prefabricated%2C%20modular%20and%20offsite%20construction%20handbook%20NCC%202022%20Final.pdf"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "Building Code of Australia 1996 \u2013 Volume One",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_11.pdf"
+            },
+            {
+              "standard": "AS 3850.2 (Prefabricated concrete elements \u2014 Building construction)",
+              "title": "Schedule 5 Fire-resistance of building elements | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/2019-a1/ncc-2019-volume-one-amendment-1/schedule-5-fire-resistance-building-elements"
+            },
+            {
+              "standard": "AS 3850.1 (Prefabricated concrete elements \u2014 General requirements)",
+              "title": "Part 3.2.3 Concrete and reinforcing | NCC",
+              "url": "https://ncc.abcb.gov.au/editions/2019/ncc-2019-volume-two/part-32-footings-and-slabs/part-323-concrete-and-reinforcing"
+            },
+            {
+              "standard": "WorkSafe Tasmania \u2014 Precast concrete handling",
+              "title": "Volume One - Class 2 to Class 9 Buildings (Amdt 12)",
+              "url": "https://ncc.abcb.gov.au/system/files/ncc/BCA_96_Volume_One_Amdt_12.pdf"
+            }
+          ],
+          "generated_at": "2026-08-07T09:17:22.044388+00:00",
+          "run_id": "de27fa2e-2fac-4ac3-97cb-ae1fb249cb91",
+          "summary": "No changes needed.",
+          "proposed_changes": [],
+          "dropped_for_missing_citation": 0
+        },
+        "created_at": "2026-08-07T09:17:22.044388+00:00",
+        "updated_at": "2026-08-07T09:17:22.044388+00:00",
+        "created_by_user_id": "68fa4af8-b083-4175-8fc1-782d3c795656",
+        "deleted_at": null
+      }
+    ]
+  }
+}

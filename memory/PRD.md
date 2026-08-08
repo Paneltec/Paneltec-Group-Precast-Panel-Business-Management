@@ -431,3 +431,14 @@ Next: Phase 7 — Pricing model upgrade (Cost vs Sell + labour per panel type & 
 - `/app/frontend/src/content/user-manual.md` — §11, §14, §17, §18.4, §18.5 updates.
 
 ### Phase 11 + hardening — COMPLETE
+
+### Phase 11.7.4 — Mock/demo data hard-purge (2026-08-08)
+- Sweep script `/app/backend/scripts/purge_mock_data.py` — matches `source ^MOCKED_*` / `[SEED|MOCK|DEMO]` note tags / `example.com|demo.paneltec|test.local` emails / `is_seed=True` / mock-prefixed IDs across every business collection.
+- Executed once with `--confirm`; backup at `/app/backend/backups/pre-purge-2026-08-08T06-03-11.342221+00-00.json` (71 KB).
+- Consolidated audit event `system_purge_mock_data` (id `f8246f29-…`) with per-collection counts + backup file path.
+- Deleted: 6 employees, 5 vehicles, 5 compliance_form_templates (AI drafts). All customer / project / quote / job / invoice tables were already clean. Re-run reports "Nothing to purge — already clean."
+
+### Phase 11.7.5 — Simpro Position Filter, per-company (2026-08-08)
+- Backend: `IntegrationSimpro.position_filter` typed as `Dict[str, List[str]]` (keyed by str(company_id)). `_coerce_position_filter` helper normalises any legacy list-form value to `{}` on read. `SimproSyncEmployeesPayload` gains `apply_position_filter: bool = True`. `_matches_position_filter(section, company_id, role, apply)` is applied in both `POST /api/integrations/simpro/preview-employees` and `.../sync-employees`. Preview returns `applied_position_filter` + `filtered_by_position_count`; sync returns `applied_position_filter` + `skipped_by_position` and includes both in the audit metadata.
+- Frontend `IntegrationSettings.jsx`: new `SimproPositionFilterPerCompany` accordion — one collapsible section per configured `company_id`, each with its own ChipInput. Section headers show either `CO <id>` or `<name> (CO <id>)` when a company name has been learned via LIST modal or Test Connection. Empty-state chips-row hint: "No filter — all positions from this company will be imported." Orphan filter entries are pruned on save.
+- Frontend `SimproEmployeeImportModal.jsx`: new "Apply position filter for the selected companies" checkbox (default ON), wired to both preview + sync calls. Per-company breakdown shown when at least one company has a filter configured. Preview count now reports "N filtered by position" when the filter is active.

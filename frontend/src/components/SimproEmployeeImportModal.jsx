@@ -20,14 +20,15 @@ import { toast } from "sonner";
 export default function SimproEmployeeImportModal({ open, onOpenChange, simpro, onImported }) {
   const availableCids = (simpro?.company_ids || []).map(Number);
   const [selectedCids, setSelectedCids] = useState(new Set(availableCids));
-  const [preview, setPreview] = useState(null);           // {items, count, new_count, existing_count, position_filter}
+  const [applyPositionFilter, setApplyPositionFilter] = useState(true);
+  const [preview, setPreview] = useState(null);           // {items, count, new_count, existing_count, position_filter, applied_position_filter, filtered_by_position_count}
   const [previewErr, setPreviewErr] = useState("");
   const [previewing, setPreviewing] = useState(false);
   const [picked, setPicked] = useState(new Set());        // simpro_employee_ids ticked to import
   const [importing, setImporting] = useState(false);
 
   useEffect(() => {
-    if (!open) { setPreview(null); setPreviewErr(""); setPicked(new Set()); setSelectedCids(new Set(availableCids)); return; }
+    if (!open) { setPreview(null); setPreviewErr(""); setPicked(new Set()); setSelectedCids(new Set(availableCids)); setApplyPositionFilter(true); return; }
     // eslint-disable-next-line
   }, [open]);
 
@@ -44,7 +45,7 @@ export default function SimproEmployeeImportModal({ open, onOpenChange, simpro, 
     setPreviewing(true); setPreviewErr(""); setPreview(null);
     try {
       const { data } = await api.post("/integrations/simpro/preview-employees",
-        { company_ids: Array.from(selectedCids) });
+        { company_ids: Array.from(selectedCids), apply_position_filter: applyPositionFilter });
       setPreview(data);
       // Pre-tick new employees only
       setPicked(new Set((data.items || []).filter(i => !i.exists_in_paneltec).map(i => i.simpro_employee_id)));
@@ -64,7 +65,8 @@ export default function SimproEmployeeImportModal({ open, onOpenChange, simpro, 
     setImporting(true);
     try {
       const { data } = await api.post("/integrations/simpro/sync-employees",
-        { company_ids: Array.from(selectedCids), simpro_employee_ids: Array.from(picked) });
+        { company_ids: Array.from(selectedCids), simpro_employee_ids: Array.from(picked),
+          apply_position_filter: applyPositionFilter });
       toast.success(`Imported ${data.created} new · updated ${data.updated}${(data.errors?.length||0) ? ` · ${data.errors.length} error(s)` : ""}.`);
       onImported && onImported(data);
       onOpenChange(false);
@@ -112,20 +114,52 @@ export default function SimproEmployeeImportModal({ open, onOpenChange, simpro, 
               </div>
             </div>
 
-            {/* Position filter reminder */}
-            {(simpro?.position_filter?.length || 0) > 0 && (
-              <div className="bg-blue-50 border border-blue-200 text-blue-900 text-xs rounded p-3">
-                <span className="font-bold uppercase tracking-wider text-[10px] block mb-1">Filtering by positions</span>
-                <span className="flex flex-wrap gap-1">
-                  {simpro.position_filter.map((p, i) => (
-                    <span key={i} className="bg-blue-100 border border-blue-300 rounded-full px-2 py-0.5">{p}</span>
-                  ))}
-                </span>
-                <span className="text-[10px] text-blue-800 mt-1 block">
-                  Change in <a href="/admin/settings" className="underline">Admin Settings → Integrations</a>.
-                </span>
-              </div>
-            )}
+            {/* Position filter — per-company (dict) + Apply toggle */}
+            {(() => {
+              const pf = simpro?.position_filter || {};
+              const isDict = pf && typeof pf === "object" && !Array.isArray(pf);
+              const entries = isDict
+                ? Object.entries(pf).filter(([, arr]) => Array.isArray(arr) && arr.length > 0)
+                : [];
+              const hasAnyFilter = entries.length > 0;
+              return (
+                <div className="border border-blue-200 bg-blue-50/60 rounded p-3 space-y-2"
+                     data-testid="simpro-import-position-filter-panel">
+                  <label className="flex items-start gap-2 cursor-pointer"
+                          data-testid="simpro-import-apply-pf-row">
+                    <Checkbox checked={applyPositionFilter}
+                               onCheckedChange={(v) => setApplyPositionFilter(!!v)}
+                               data-testid="simpro-import-apply-pf-checkbox"
+                               className="mt-0.5"/>
+                    <span className="text-xs text-blue-900">
+                      <span className="font-bold uppercase tracking-wider text-[10px] block">
+                        Apply position filter for the selected companies
+                      </span>
+                      <span className="text-[11px] text-blue-800">
+                        {hasAnyFilter
+                          ? "Only positions matching each company's allowlist will be imported."
+                          : "No per-company allowlists configured — nothing will be filtered."}
+                        {" "}Configure in <a href="/admin/settings" className="underline">Admin Settings → Integrations</a>.
+                      </span>
+                    </span>
+                  </label>
+                  {hasAnyFilter && applyPositionFilter && (
+                    <div className="space-y-1.5 pt-1 border-t border-blue-200"
+                         data-testid="simpro-import-position-filter-breakdown">
+                      {entries.map(([cid, arr]) => (
+                        <div key={cid} className="flex items-center gap-2 flex-wrap"
+                             data-testid={`simpro-import-pf-co-${cid}`}>
+                          <span className="text-[10px] font-mono bg-[#1F2A33] text-white rounded px-1.5 py-0.5">CO {cid}</span>
+                          {arr.map((p, i) => (
+                            <span key={i} className="bg-blue-100 border border-blue-300 rounded-full px-2 py-0.5 text-[11px]">{p}</span>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="flex gap-2">
               <Button type="button" onClick={runPreview} disabled={previewing || selectedCids.size === 0}
@@ -137,6 +171,9 @@ export default function SimproEmployeeImportModal({ open, onOpenChange, simpro, 
               {preview && (
                 <span className="text-xs text-gray-500 self-center" data-testid="simpro-import-count">
                   {preview.new_count} new · {preview.existing_count} already imported · {picked.size} ticked
+                  {preview.applied_position_filter && (preview.filtered_by_position_count || 0) > 0 && (
+                    <span className="text-blue-800"> · {preview.filtered_by_position_count} filtered by position</span>
+                  )}
                 </span>
               )}
             </div>
