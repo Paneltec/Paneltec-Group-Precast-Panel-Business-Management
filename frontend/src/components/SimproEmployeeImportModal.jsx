@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Trash2, CloudDownload, ChevronDown, ChevronUp } from "lucide-react";
-import AppIcon from "./AppIcon";
+import { Loader2, CloudDownload, Search } from "lucide-react";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
@@ -165,7 +164,7 @@ export default function SimproEmployeeImportModal({ open, onOpenChange, simpro, 
               <Button type="button" onClick={runPreview} disabled={previewing || selectedCids.size === 0}
                        className="bg-[#1F2A33] text-white hover:bg-[#374a58]"
                        data-testid="simpro-import-preview-btn">
-                {previewing ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin"/> : <AppIcon name="search" size={14} decorative className="mr-1.5"/>}
+                {previewing ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin"/> : <Search className="w-4 h-4 mr-1.5"/>}
                 Preview
               </Button>
               {preview && (

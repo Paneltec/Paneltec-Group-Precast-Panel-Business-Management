@@ -1,21 +1,22 @@
 """
-Simpro API client — OAuth 2.0 client-credentials flow.
+Simpro API client — Personal Access Token (PAT) flow.
 
-Used by Phase 4 Part 2 sync workers. When credentials are missing or the
-`enabled` flag is False on the integration_settings.simpro document, callers
-must NOT invoke this client — the higher-level endpoints fall back to MOCKED
-behaviour.
+Phase 11.7.5 rewrite: the earlier OAuth2 client-credentials flow (build_name /
+client_id / client_secret) has been replaced by the PAT-style credentials that
+the Admin Settings → Integrations → Simpro page now collects (URL + API Token).
 
-We deliberately keep the surface small (customers, employees, connectivity
-probe). Secrets are never logged. Access tokens are cached in-process only.
+The client sends `Authorization: Bearer {api_token}` on every request. Simpro
+scopes every REST call to a single company via the path prefix
+`/api/v1.0/companies/{company_id}/...`, so we iterate each configured
+`company_id` in turn and tag every returned row with `_source_company_id` so
+callers can attribute rows back to a specific company.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-import time
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -40,178 +41,147 @@ class SimproAuthError(SimproError):
 
 @dataclass
 class SimproSettings:
-    build_name: str
-    client_id: str
-    client_secret: str
-    api_base_url: str = ""  # optional override; otherwise derived from build_name
+    url: str
+    api_token: str
+    company_ids: List[int] = field(default_factory=list)
 
     @property
-    def resolved_base_url(self) -> str:
-        if self.api_base_url:
-            return self.api_base_url.rstrip("/")
-        if not self.build_name:
-            raise SimproError("Simpro build_name is not configured")
-        return f"https://{self.build_name}.simprosuite.com/api/v1.0"
-
-    @property
-    def token_url(self) -> str:
-        if not self.build_name:
-            raise SimproError("Simpro build_name is not configured")
-        return f"https://{self.build_name}.simprosuite.com/oauth2/token"
+    def api_root(self) -> str:
+        """Return the API root URL, e.g. https://build.simprosuite.com/api/v1.0."""
+        base = (self.url or "").strip().rstrip("/")
+        if not base:
+            raise SimproError("Simpro URL is not configured")
+        if not base.startswith(("http://", "https://")):
+            base = f"https://{base}"
+        if not base.endswith("/api/v1.0"):
+            base = f"{base}/api/v1.0"
+        return base
 
 
 class SimproClient:
-    """Thin async wrapper over Simpro's REST API.
+    """Thin async wrapper over Simpro's REST API using a Personal Access Token.
 
-    Uses an in-memory cached access token; refreshes automatically on 401 or
-    when the cached token is within 30 s of expiry.
+    No token exchange dance: the PAT is sent directly as a Bearer header.
     """
-    _token_cache: Dict[str, Tuple[str, float]] = {}  # keyed by client_id → (token, expires_epoch)
 
     def __init__(self, settings: SimproSettings):
-        if not settings.client_id or not settings.client_secret:
-            raise SimproError("Simpro client_id / client_secret are required")
+        if not settings.url:
+            raise SimproError("Simpro URL is required")
+        if not settings.api_token:
+            raise SimproError("Simpro API token is required")
         self.settings = settings
 
-    # ---------------- token management ----------------
-    async def _get_token(self, force_refresh: bool = False) -> str:
-        cid = self.settings.client_id
-        cached = self._token_cache.get(cid)
-        if not force_refresh and cached and cached[1] - time.time() > 30:
-            return cached[0]
+    def _headers(self) -> Dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.settings.api_token}",
+            "Accept": "application/json",
+        }
 
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_S) as client:
-            try:
-                r = await client.post(
-                    self.settings.token_url,
-                    data={"grant_type": "client_credentials",
-                          "client_id": self.settings.client_id,
-                          "client_secret": self.settings.client_secret},
-                    headers={"Accept": "application/json"},
-                )
-            except httpx.HTTPError as e:
-                # Never log the secret; message includes only host + reason.
-                logger.warning("Simpro token endpoint unreachable: %s", type(e).__name__)
-                raise SimproError(f"Cannot reach Simpro ({type(e).__name__})")
-
-        if r.status_code == 401 or r.status_code == 400:
-            raise SimproAuthError("Simpro authentication failed", status_code=r.status_code)
-        if r.status_code >= 500:
-            raise SimproError(f"Simpro token endpoint returned {r.status_code}", status_code=r.status_code)
-        if r.status_code >= 300:
-            raise SimproError(f"Unexpected Simpro token response: {r.status_code}", status_code=r.status_code)
-
-        body = r.json()
-        token = body.get("access_token")
-        if not token:
-            raise SimproError("Simpro token response missing access_token")
-        expires_in = int(body.get("expires_in", 3600))
-        self._token_cache[cid] = (token, time.time() + expires_in)
-        return token
-
-    # ---------------- HTTP helpers ----------------
     async def _request(self, method: str, path: str,
                         params: Optional[Dict[str, Any]] = None) -> httpx.Response:
-        base = self.settings.resolved_base_url
-        url = f"{base}{path}"
+        url = f"{self.settings.api_root}{path}"
+        last_exc: Optional[Exception] = None
         for attempt in range(DEFAULT_RETRIES + 1):
-            token = await self._get_token(force_refresh=(attempt > 0))
-            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
             try:
                 async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_S) as client:
-                    r = await client.request(method, url, params=params, headers=headers)
+                    r = await client.request(method, url, params=params, headers=self._headers())
             except httpx.HTTPError as e:
+                last_exc = e
                 if attempt < DEFAULT_RETRIES:
                     await asyncio.sleep(BACKOFF_S); continue
                 raise SimproError(f"Simpro API unreachable ({type(e).__name__})")
-            if r.status_code == 401 and attempt < DEFAULT_RETRIES:
-                # Token might have expired mid-flight — force a fresh one.
-                continue
             if r.status_code in (429, 502, 503, 504) and attempt < DEFAULT_RETRIES:
                 await asyncio.sleep(BACKOFF_S); continue
             return r
-        # unreachable, but satisfy the type checker
-        raise SimproError("Simpro API exhausted retries")
+        # unreachable
+        raise SimproError(f"Simpro API exhausted retries ({type(last_exc).__name__ if last_exc else 'unknown'})")
 
-    # ---------------- Public API ----------------
     async def test_connection(self) -> Dict[str, Any]:
-        """Probe: get an access token AND make one lightweight GET. Returns
-        `{ok, message, tenant_name?}` — never raises."""
+        """Probe: ping the first configured company (or /companies/ if none).
+        Returns `{ok, message, tenant_name?}` — never raises."""
+        cid = self.settings.company_ids[0] if self.settings.company_ids else None
+        path = f"/companies/{cid}/" if cid is not None else "/companies/"
         try:
-            await self._get_token(force_refresh=True)
-        except SimproAuthError as e:
-            return {"ok": False, "message": "Simpro authentication failed"}
-        except SimproError as e:
-            return {"ok": False, "message": str(e)}
-
-        # Ping /companies/0/ (returns tenant metadata). Simpro uses company id 0
-        # as a synonym for "the primary tenant".
-        try:
-            r = await self._request("GET", "/companies/0/")
+            r = await self._request("GET", path)
         except SimproError as e:
             return {"ok": False, "message": str(e)}
         if r.status_code == 401:
-            return {"ok": False, "message": "Simpro authentication failed"}
+            return {"ok": False, "message": "Simpro authentication failed — check the API token."}
         if r.status_code >= 400:
             return {"ok": False, "message": f"Simpro API returned {r.status_code}"}
         try:
             body = r.json() or {}
         except Exception:
             body = {}
-        return {
-            "ok": True,
-            "message": "Simpro connection OK",
-            "tenant_name": body.get("Name") or body.get("CompanyName") or self.settings.build_name,
-        }
+        if isinstance(body, dict):
+            name = body.get("Name") or body.get("CompanyName") or (f"Company {cid}" if cid is not None else None)
+            return {"ok": True, "message": "Simpro connection OK", "tenant_name": name}
+        return {"ok": True, "message": f"{len(body)} companies visible", "tenant_name": None}
 
-    async def list_customers(self, page: int = 1, per_page: int = DEFAULT_PAGE_SIZE) -> List[Dict[str, Any]]:
-        r = await self._request("GET", "/companies/0/customers/",
+    async def _list_page(self, company_id: int, resource: str,
+                          page: int, per_page: int) -> List[Dict[str, Any]]:
+        r = await self._request("GET", f"/companies/{company_id}/{resource}/",
                                  params={"pageSize": per_page, "page": page})
+        if r.status_code == 401:
+            raise SimproAuthError("Simpro authentication failed", status_code=401)
         if r.status_code >= 400:
-            raise SimproError(f"Simpro list_customers HTTP {r.status_code}", status_code=r.status_code)
-        return r.json() or []
+            raise SimproError(f"Simpro list_{resource} HTTP {r.status_code} for company {company_id}",
+                              status_code=r.status_code)
+        body = r.json() or []
+        return body if isinstance(body, list) else []
 
-    async def list_employees(self, page: int = 1, per_page: int = DEFAULT_PAGE_SIZE) -> List[Dict[str, Any]]:
-        r = await self._request("GET", "/companies/0/employees/",
-                                 params={"pageSize": per_page, "page": page})
-        if r.status_code >= 400:
-            raise SimproError(f"Simpro list_employees HTTP {r.status_code}", status_code=r.status_code)
-        return r.json() or []
-
-    async def iter_all(self, list_fn, hard_cap: int = 5000) -> List[Dict[str, Any]]:
-        """Walk pages until an empty page or the hard cap is reached.
-        Simpro's response header `Result-Total` also gives the total, but we
-        keep it simple: paginate until the API returns fewer than pageSize."""
+    async def _iter_company(self, company_id: int, resource: str,
+                             hard_cap: int = 5000) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
         page = 1
         while len(out) < hard_cap:
-            batch = await list_fn(page=page, per_page=DEFAULT_PAGE_SIZE)
+            batch = await self._list_page(company_id, resource, page=page, per_page=DEFAULT_PAGE_SIZE)
             if not batch:
                 break
-            out.extend(batch)
+            for row in batch:
+                if isinstance(row, dict):
+                    row["_source_company_id"] = company_id
+                    out.append(row)
             if len(batch) < DEFAULT_PAGE_SIZE:
                 break
             page += 1
         return out
 
+    async def list_customers(self) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        for cid in self.settings.company_ids or []:
+            rows.extend(await self._iter_company(cid, "customers"))
+        return rows
+
+    async def list_employees(self) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        for cid in self.settings.company_ids or []:
+            rows.extend(await self._iter_company(cid, "employees"))
+        return rows
+
+    async def iter_all(self, list_fn, hard_cap: int = 5000) -> List[Dict[str, Any]]:
+        """Kept for source-level backwards compatibility with server.py.
+        The new list_customers / list_employees already iterate every configured
+        company and every page, so this simply invokes the passed callable
+        (which is now a no-arg async method)."""
+        rows = await list_fn()
+        return rows[:hard_cap]
+
 
 # ---------------- helpers used by server.py ----------------
 def build_settings_from_doc(section: Dict[str, Any]) -> Optional[SimproSettings]:
     """Return SimproSettings if the section has enough to attempt a real API
-    call; otherwise None. Callers should treat None as "fall back to MOCKED"."""
-    if not section: return None
-    if not section.get("enabled"): return None
-    build_name = (section.get("build_name") or "").strip()
-    client_id = (section.get("client_id") or "").strip()
-    client_secret = section.get("client_secret") or ""
-    if not (build_name and client_id and client_secret):
+    call; otherwise None. Callers should treat None as "not configured"."""
+    if not section:
         return None
-    return SimproSettings(
-        build_name=build_name,
-        client_id=client_id,
-        client_secret=client_secret,
-        api_base_url=(section.get("api_base_url") or "").strip(),
-    )
+    if not section.get("enabled"):
+        return None
+    url = (section.get("url") or "").strip()
+    api_token = (section.get("api_token") or "").strip()
+    company_ids = [int(x) for x in (section.get("company_ids") or []) if str(x).strip()]
+    if not (url and api_token and company_ids):
+        return None
+    return SimproSettings(url=url, api_token=api_token, company_ids=company_ids)
 
 
 # --------- Field-mapping helpers (Simpro payload → local schema) ---------

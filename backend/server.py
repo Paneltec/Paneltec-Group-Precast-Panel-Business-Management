@@ -3110,7 +3110,7 @@ async def test_integration(integration: str, _u: dict = Depends(require_permissi
             await db.settings.update_one({"key":"integrations"},
                 {"$set": {"simpro.last_test_at": stamp, "simpro.last_test_status": "error"}})
             return {"status": "ERROR", "integration": "simpro",
-                    "message": "Missing credentials — enter build_name, client_id and client_secret and save."}
+                    "message": "Missing credentials — set URL, Company IDs and API Token and save."}
         try:
             client = SimproClient(settings)
             probe = await client.test_connection()
@@ -3235,7 +3235,7 @@ async def _load_simpro_settings_or_error():
         raise HTTPException(status_code=400, detail="Simpro is disabled — enable it in Settings → Integrations first.")
     settings = _build_simpro_settings(section)
     if not settings:
-        raise HTTPException(status_code=400, detail="Missing Simpro credentials — enter build_name, client_id and client_secret.")
+        raise HTTPException(status_code=400, detail="Simpro not configured — set URL, Company IDs and API Token in Admin Settings → Integrations → Simpro.")
     return settings, section
 
 def _simpro_target_company_ids(section: Dict[str, Any]) -> List[int]:
@@ -3266,7 +3266,7 @@ async def simpro_sync_customers(actor: dict = Depends(require_permission("integr
         await db.settings.update_one({"key":"integrations"},
             {"$set":{"simpro.last_sync_at": now_iso(), "simpro.last_sync_status": "error",
                      "simpro.last_sync_error": "Simpro authentication failed"}})
-        raise HTTPException(status_code=502, detail="Simpro authentication failed — check client_id / client_secret.")
+        raise HTTPException(status_code=502, detail="Simpro authentication failed — check the API token.")
     except SimproError as e:
         await db.settings.update_one({"key":"integrations"},
             {"$set":{"simpro.last_sync_at": now_iso(), "simpro.last_sync_status": "error",
@@ -3372,7 +3372,7 @@ async def simpro_preview_employees(payload: SimproSyncEmployeesPayload,
     try:
         remote = await client.iter_all(client.list_employees)
     except SimproAuthError:
-        raise HTTPException(status_code=502, detail="Simpro authentication failed — check client_id / client_secret.")
+        raise HTTPException(status_code=502, detail="Simpro authentication failed — check the API token.")
     except SimproError as e:
         raise HTTPException(status_code=502, detail=f"Simpro API error: {e}")
     known = {d["simpro_employee_id"]: True async for d in db.employees.find(
@@ -3426,7 +3426,7 @@ async def simpro_sync_employees(payload: Optional[SimproSyncEmployeesPayload] = 
         await db.settings.update_one({"key":"integrations"},
             {"$set":{"simpro.last_sync_at": now_iso(), "simpro.last_sync_status": "error",
                      "simpro.last_sync_error": "Simpro authentication failed"}})
-        raise HTTPException(status_code=502, detail="Simpro authentication failed — check client_id / client_secret.")
+        raise HTTPException(status_code=502, detail="Simpro authentication failed — check the API token.")
     except SimproError as e:
         await db.settings.update_one({"key":"integrations"},
             {"$set":{"simpro.last_sync_at": now_iso(), "simpro.last_sync_status": "error",
