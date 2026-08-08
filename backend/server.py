@@ -461,11 +461,11 @@ class EmailSentLog(BaseModel):
     recipient: str = ""
 
 class IntegrationM365(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
     tenant_id: str = ""; client_id: str = ""; client_secret: str = ""
     sender_mailbox: str = ""; enabled: bool = False
 class IntegrationSimpro(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
     # Legacy OAuth 2.0 client-credentials fields (kept for backwards compat)
     build_name: str = ""; client_id: str = ""; client_secret: str = ""
     api_base_url: str = ""; enabled: bool = False
@@ -489,15 +489,15 @@ class IntegrationSimpro(BaseModel):
     auto_sync_enabled: bool = True
     completed_jobs_history_days: int = 30
 class IntegrationNavixy(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
     api_key: str = ""; api_base_url: str = "https://api.navixy.com/v2"
     account_id: str = ""; enabled: bool = False
 class IntegrationXero(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
     client_id: str = ""; client_secret: str = ""; tenant_id: str = ""
     redirect_uri: str = ""; enabled: bool = False
 class IntegrationSettings(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")   # tolerate root-level echo-back (e.g. `updated_at`)
     m365: IntegrationM365 = Field(default_factory=IntegrationM365)
     simpro: IntegrationSimpro = Field(default_factory=IntegrationSimpro)
     navixy: IntegrationNavixy = Field(default_factory=IntegrationNavixy)
