@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { Loader2, Plus, ArrowLeft, Save, Trash2, CloudDownload } from "lucide-react";
+import { Loader2, ArrowLeft, Save, Trash2, CloudDownload } from "lucide-react";
 import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -30,7 +30,7 @@ export function EmployeesList() {
   const [simpro, setSimpro] = useState(null);       // integration_settings.simpro (or null while loading)
   const [importOpen, setImportOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [showManual, setShowManual] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const navigate = useNavigate();
 
   const load = async () => {
@@ -58,6 +58,24 @@ export function EmployeesList() {
     }
   };
 
+  const runRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const cids = (simpro?.company_ids || []).map(Number);
+      const { data } = await api.post("/integrations/simpro/sync-employees",
+        { company_ids: cids });
+      const created = data.created ?? 0;
+      const updated = data.updated ?? 0;
+      const total = data.synced ?? 0;
+      const unchanged = Math.max(0, total - created - updated);
+      toast.success(`Refreshed from Simpro — ${created} added, ${updated} updated, ${unchanged} unchanged.`);
+      await Promise.all([load(), loadSimpro()]);
+    } catch (e) {
+      const msg = formatApiErrorDetail(e.response?.data?.detail) || e.message;
+      toast.error(`${msg}${/simpro|token|credential/i.test(msg) ? "" : " · Try Test Connection in Admin Settings → Integrations."}`);
+    } finally { setRefreshing(false); }
+  };
+
   const simproEnabled = !!(simpro && simpro.enabled);
   const simproConfigured = simproEnabled && !!(simpro.url && (simpro.company_ids || []).length > 0);
   const lastSyncOk = simpro?.last_sync_status === "ok" && simpro?.last_sync_at;
@@ -75,8 +93,8 @@ export function EmployeesList() {
             {simproEnabled ? "Live Simpro sync configured. Import employees on demand." : "Manual roster. Enable Simpro in Admin Settings → Integrations to pull from Simpro."}
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap items-start">
-          <div className="flex flex-col items-end">
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex gap-2 flex-wrap">
             {canImport && (
               <Button onClick={() => setImportOpen(true)}
                       className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-11"
@@ -84,21 +102,22 @@ export function EmployeesList() {
                 <CloudDownload className="w-4 h-4 mr-1.5"/> Import from Simpro
               </Button>
             )}
-            {hasPerm("employees.create") && (
-              <button type="button" onClick={() => setShowManual(v => !v)}
-                       className="text-[11px] text-[#3A6B8C] hover:text-[#1F2A33] mt-1 uppercase tracking-wider font-semibold"
-                       data-testid="employees-add-manual-toggle">
-                {showManual ? "Hide" : "Add manually"} →
-              </button>
+            {canImport && (
+              <Button onClick={runRefresh}
+                       disabled={refreshing || !simproConfigured}
+                       variant="outline"
+                       className="h-11 border-[#1F2A33] text-[#1F2A33] hover:bg-[#1F2A33] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                       title={!simproConfigured ? "Configure Simpro first" : undefined}
+                       data-testid="simpro-refresh-btn">
+                {refreshing ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin"/> : <AppIcon name="refresh" size={14} decorative className="mr-1.5"/>}
+                Refresh from Simpro
+              </Button>
             )}
           </div>
-          {showManual && hasPerm("employees.create") && (
-            <Button onClick={() => navigate("/employees/new")}
-                    variant="outline"
-                    className="h-11 border-[#3A6B8C] text-[#3A6B8C]"
-                    data-testid="new-employee-btn">
-              <Plus className="w-4 h-4 mr-1"/> New Employee
-            </Button>
+          {canImport && (
+            <div className="text-[11px] text-gray-500" data-testid="simpro-last-refresh">
+              Last Simpro refresh: {simpro?.last_sync_at ? formatDateTime(simpro.last_sync_at) : "never"}
+            </div>
           )}
         </div>
       </div>

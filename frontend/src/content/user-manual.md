@@ -238,9 +238,11 @@ Fields: code, name, rego, capacity (tonnes), status (active / maintenance / reti
 ### Employees (`/employees`)
 Fields: code, name, role, phone, status. Used by the Crew multi-select on Job detail.
 
-**Simpro import flow (Phase 11.7.2)**
+**Employees are Simpro-only.** There is no manual "Add employee" button any more — every crew member must exist in Simpro first (or be added directly in Simpro), then pulled into Paneltec via one of the two buttons at the top of the page.
 
-The primary CTA is now **Import from Simpro** (yellow, cloud-arrow-down). Clicking it opens a modal:
+**Import from Simpro** (yellow, cloud-download)
+
+Opens the preview modal:
 
 1. **Companies to import from** — one segmented pill per company ID configured in `admin_settings.integrations.simpro.company_ids`. All selected by default. Tap a pill to deselect.
 2. **Filtering by positions** banner — shows the position chips from the same settings so you know what will (and won't) come across. Change them in Admin Settings → Integrations.
@@ -248,7 +250,9 @@ The primary CTA is now **Import from Simpro** (yellow, cloud-arrow-down). Clicki
 4. **Ticked rows only** are imported when you press **Import selected (N)**. New employees are pre-ticked; existing rows can be re-ticked to force an update (name / phone / position refresh).
 5. Cancel is safe — nothing is written until Import selected is pressed.
 
-**Add manually** — the classic `+ New Employee` form is still available via the small `Add manually →` toggle underneath the Import button, for contractors or people who don't exist in Simpro.
+**Refresh from Simpro** (dark navy outline, next to Import)
+
+One-click "keep the roster current". No modal, no preview — hits the same sync endpoint with all configured company_ids and the full position filter. Runs live and toasts a summary (`X added, Y updated, Z unchanged`). Underneath the two buttons you'll see **"Last Simpro refresh: ..."** — either a timestamp or `never`.
 
 **Per-row Delete + `excluded_from_sync` flag**
 

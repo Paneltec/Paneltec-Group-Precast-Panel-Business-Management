@@ -1186,7 +1186,8 @@ AUDIT_ACTIONS = {"created","updated","soft_deleted","hard_deleted","restored","s
     "login_success","login_failed","login_rate_limited","password_changed","password_reset","permission_changed",
     "quote_sent","quote_viewed","quote_accepted","quote_rejected","quote_revised",
     "invoice_issued","invoice_paid","invoice_pushed_xero","email_sent","settings_changed",
-    "audit_row_hidden","audit_row_unhidden"}
+    "audit_row_hidden","audit_row_unhidden","system_cleanup_mock_employees",
+    "simpro_customer_sync","simpro_employee_sync"}
 AUDIT_ENTITY_TYPES = {"customer","project","quote","job","invoice","vehicle","employee",
     "user","pricing_settings","company_settings","integration_settings","system","bi_api_token","compliance_form","audit_event","admin_settings"}
 AUDIT_SECRET_KEYS = {"client_secret","api_key","password","password_hash"}

@@ -85,7 +85,6 @@ function App() {
                   <Route path="/vehicles/new" element={<ProtectedRoute permission="vehicles.create"><VehicleForm /></ProtectedRoute>} />
                   <Route path="/vehicles/:id" element={<ProtectedRoute permission="vehicles.view"><VehicleForm /></ProtectedRoute>} />
                   <Route path="/employees" element={<ProtectedRoute permission="employees.view"><Employees /></ProtectedRoute>} />
-                  <Route path="/employees/new" element={<ProtectedRoute permission="employees.create"><EmployeeForm /></ProtectedRoute>} />
                   <Route path="/employees/:id" element={<ProtectedRoute permission="employees.view"><EmployeeForm /></ProtectedRoute>} />
                   <Route path="/settings/pricing" element={<ProtectedRoute permission="pricing.view"><PricingSettings /></ProtectedRoute>} />
                   <Route path="/settings/company" element={<ProtectedRoute permission="company.view"><CompanySettings /></ProtectedRoute>} />
