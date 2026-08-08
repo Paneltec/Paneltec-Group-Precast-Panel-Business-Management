@@ -8,6 +8,7 @@ import os
 import re
 import uuid
 import logging
+import httpx
 from datetime import datetime, timezone, timedelta, date
 from typing import List, Optional, Literal, Any, Dict, Tuple
 
@@ -465,6 +466,7 @@ class IntegrationM365(BaseModel):
     sender_mailbox: str = ""; enabled: bool = False
 class IntegrationSimpro(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    # Legacy OAuth 2.0 client-credentials fields (kept for backwards compat)
     build_name: str = ""; client_id: str = ""; client_secret: str = ""
     api_base_url: str = ""; enabled: bool = False
     # Phase 4 Part 2 — sync tracking (set by sync workers)
@@ -475,6 +477,17 @@ class IntegrationSimpro(BaseModel):
     last_sync_employees_count: int = 0
     last_test_at: Optional[str] = None
     last_test_status: Optional[Literal["ok","error","mocked"]] = None
+    # Phase 11.7 — full Simpro settings mockup (personal-access-token flow)
+    url: str = ""                                             # e.g. https://paneltec.simprosuite.com/
+    company_id: int = 0
+    api_token: str = ""
+    whitelist_source_companies: List[int] = Field(default_factory=list)
+    staff_custom_field: str = ""
+    staff_field_value: str = ""
+    position_filter: List[str] = Field(default_factory=list)
+    sync_interval_minutes: int = 60
+    auto_sync_enabled: bool = True
+    completed_jobs_history_days: int = 30
 class IntegrationNavixy(BaseModel):
     model_config = ConfigDict(extra="forbid")
     api_key: str = ""; api_base_url: str = "https://api.navixy.com/v2"
@@ -744,14 +757,24 @@ DEFAULT_INTEGRATIONS = {
     "simpro": {"build_name":"","client_id":"","client_secret":"","api_base_url":"","enabled":False,
                 "last_sync_at":None,"last_sync_status":None,"last_sync_error":None,
                 "last_sync_customers_count":0,"last_sync_employees_count":0,
-                "last_test_at":None,"last_test_status":None},
+                "last_test_at":None,"last_test_status":None,
+                # Phase 11.7 defaults matching the mockup
+                "url":"https://paneltec.simprosuite.com/",
+                "company_id":2, "api_token":"",
+                "whitelist_source_companies":[2, 3],
+                "staff_custom_field":"Interactive Scheduler Status",
+                "staff_field_value":"Assign This User To The White Board",
+                "position_filter":["Construction Worker L1","Construction Worker","Construction Worker L2","Construction Worker L3","Construction Worker CW2"],
+                "sync_interval_minutes":60,
+                "auto_sync_enabled":True,
+                "completed_jobs_history_days":30},
     "navixy": {"api_key":"","api_base_url":"https://api.navixy.com/v2","account_id":"","enabled":False},
     "xero": {"client_id":"","client_secret":"","tenant_id":"","redirect_uri":"","enabled":False},
 }
 
 SECRET_FIELDS = {
     "m365": {"client_secret"},
-    "simpro": {"client_secret"},
+    "simpro": {"client_secret", "api_token"},
     "navixy": {"api_key"},
     "xero": {"client_secret"},
 }
@@ -3097,6 +3120,79 @@ async def test_integration(integration: str, _u: dict = Depends(require_permissi
     return {"status":"MOCKED",
         "integration": integration,
         "message": f"Real {integration} API connection coming in a later phase. Credentials saved successfully."}
+
+
+# ---------------------------------------------------------------------------
+# Phase 11.7 — Simpro Personal-Access-Token endpoints (mockup form)
+# ---------------------------------------------------------------------------
+class SimproProbePayload(BaseModel):
+    url: str = Field(min_length=1)
+    api_token: str = Field(min_length=1)
+    company_id: Optional[int] = None
+
+def _simpro_normalise_url(u: str) -> str:
+    """Return the API root URL, e.g. https://paneltec.simprosuite.com/api/v1.0"""
+    base = u.strip().rstrip("/")
+    if not base.startswith(("http://", "https://")):
+        base = f"https://{base}"
+    if not base.endswith("/api/v1.0"):
+        base = f"{base}/api/v1.0"
+    return base
+
+@api_router.post("/integrations/simpro/test-connection")
+async def simpro_test_live(payload: SimproProbePayload,
+                            actor: dict = Depends(require_permission("integrations.edit"))):
+    """Live probe using the form's current URL + api_token + company_id.
+    User can test BEFORE saving. Returns {ok, message, company_name?}."""
+    api_root = _simpro_normalise_url(payload.url)
+    headers = {"Authorization": f"Bearer {payload.api_token}", "Accept": "application/json"}
+    endpoint = f"{api_root}/companies/{payload.company_id}/" if payload.company_id else f"{api_root}/companies/"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as c:
+            r = await c.get(endpoint, headers=headers)
+        if r.status_code == 401:
+            return {"ok": False, "message": "Unauthorised — check the API token."}
+        if r.status_code == 404 and payload.company_id:
+            return {"ok": False, "message": f"Company {payload.company_id} not found on this Simpro build."}
+        if r.status_code >= 400:
+            return {"ok": False, "message": f"Simpro HTTP {r.status_code}: {(r.text or '')[:180]}"}
+        data = r.json()
+        # /companies/{id}/ returns dict; /companies/ returns list
+        if isinstance(data, dict):
+            name = data.get("Name") or data.get("CompanyName") or f"Company {payload.company_id}"
+            return {"ok": True, "message": "Connection OK.", "company_name": name}
+        return {"ok": True, "message": f"Connection OK — {len(data)} companies visible.",
+                "company_name": None}
+    except httpx.HTTPError as e:
+        return {"ok": False, "message": f"Cannot reach Simpro ({type(e).__name__})."}
+
+
+@api_router.post("/integrations/simpro/companies")
+async def simpro_list_companies(payload: SimproProbePayload,
+                                 _actor: dict = Depends(require_permission("integrations.edit"))):
+    """Fetch the full list of companies visible to this API token.
+    Used by the LIST button in the Simpro settings form."""
+    api_root = _simpro_normalise_url(payload.url)
+    headers = {"Authorization": f"Bearer {payload.api_token}", "Accept": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as c:
+            r = await c.get(f"{api_root}/companies/", headers=headers)
+        if r.status_code == 401:
+            raise HTTPException(status_code=401, detail="Unauthorised — check the API token.")
+        if r.status_code >= 400:
+            raise HTTPException(status_code=502,
+                detail=f"Simpro HTTP {r.status_code}: {(r.text or '')[:180]}")
+        raw = r.json() if r.content else []
+        items = []
+        for c_ in raw:
+            items.append({
+                "id": c_.get("ID") or c_.get("Id") or c_.get("id"),
+                "name": c_.get("Name") or c_.get("CompanyName") or "(unnamed)",
+                "enabled": c_.get("Enabled", True),
+            })
+        return {"items": items, "count": len(items)}
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Cannot reach Simpro ({type(e).__name__}).")
 
 
 # =========================================================================
