@@ -3077,7 +3077,19 @@ async def update_integrations(payload: IntegrationSettings, actor: dict = Depend
         for f in fields:
             if _is_masked(new_section.get(f, "")):
                 new_section[f] = cur_section.get(f, "")
+            else:
+                # Defensive: strip whitespace on every secret we accept.
+                # Trailing spaces from paste-buffer artifacts break Bearer
+                # headers (httpx raises LocalProtocolError) and silently kill
+                # all downstream API calls.
+                v = new_section.get(f, "")
+                if isinstance(v, str):
+                    new_section[f] = v.strip()
         incoming[ikey] = new_section
+    # Also strip the Simpro URL so a trailing space in a copy-pasted host
+    # doesn't corrupt every request.
+    if "simpro" in incoming and isinstance(incoming["simpro"].get("url"), str):
+        incoming["simpro"]["url"] = incoming["simpro"]["url"].strip()
     incoming["updated_at"] = now_iso()
     await db.settings.update_one({"key":"integrations"}, {"$set": incoming}, upsert=True)
     saved = await db.settings.find_one({"key":"integrations"}, {"_id":0,"key":0})
@@ -3152,23 +3164,52 @@ def _simpro_normalise_url(u: str) -> str:
 
 async def _simpro_probe_one(client: httpx.AsyncClient, api_root: str,
                              headers: Dict[str, str], cid: Optional[int]) -> Dict[str, Any]:
-    endpoint = f"{api_root}/companies/{cid}/" if cid else f"{api_root}/companies/"
+    """Probe a single company. Simpro exposes no bare `/companies/{cid}/`
+    endpoint (it returns HTTP 404 "Invalid route"), so we probe the
+    lightweight `/companies/{cid}/employees/?pageSize=1` sub-endpoint —
+    which authenticates the token *and* validates that the token has
+    scope for the requested company. When `cid` is None we hit the
+    top-level `/companies/` list (tenant-scope only)."""
+    if cid is not None:
+        endpoint = f"{api_root}/companies/{cid}/employees/"
+        params = {"pageSize": 1, "page": 1}
+    else:
+        endpoint = f"{api_root}/companies/"
+        params = None
     try:
-        r = await client.get(endpoint, headers=headers)
+        logger.info("[simpro.probe] GET %s params=%s", endpoint, params)
+        r = await client.get(endpoint, headers=headers, params=params)
+        logger.info("[simpro.probe]   → HTTP %s ct=%s body[:120]=%r",
+                    r.status_code, r.headers.get("content-type",""), (r.text or "")[:120])
         if r.status_code == 401:
             return {"ok": False, "company_id": cid, "message": "Unauthorised — check the API token."}
+        if r.status_code == 403:
+            return {"ok": False, "company_id": cid,
+                    "message": f"API token has no access to company {cid}." if cid else "Forbidden — check API token permissions."}
         if r.status_code == 404 and cid:
             return {"ok": False, "company_id": cid, "message": f"Company {cid} not found."}
         if r.status_code >= 400:
             return {"ok": False, "company_id": cid,
                     "message": f"Simpro HTTP {r.status_code}: {(r.text or '')[:120]}"}
-        data = r.json()
-        if isinstance(data, dict):
-            name = data.get("Name") or data.get("CompanyName") or f"Company {cid}"
-            return {"ok": True, "company_id": cid, "company_name": name, "message": "OK"}
-        return {"ok": True, "company_id": cid,
-                "company_name": None, "message": f"{len(data)} companies visible"}
+        # Try to enrich with the company Name from the top-level list, best-effort.
+        name: Optional[str] = None
+        if cid is not None:
+            try:
+                lr = await client.get(f"{api_root}/companies/", headers=headers)
+                if lr.status_code < 400:
+                    for row in (lr.json() or []):
+                        if isinstance(row, dict) and int(row.get("ID") or 0) == int(cid):
+                            name = row.get("Name") or row.get("CompanyName")
+                            break
+            except httpx.HTTPError:
+                pass
+        if cid is None:
+            data = r.json() if r.content else []
+            return {"ok": True, "company_id": None, "company_name": None,
+                    "message": f"{len(data) if isinstance(data, list) else 0} companies visible"}
+        return {"ok": True, "company_id": cid, "company_name": name or f"Company {cid}", "message": "OK"}
     except httpx.HTTPError as e:
+        logger.warning("[simpro.probe] transport error on %s: %s: %s", endpoint, type(e).__name__, e)
         return {"ok": False, "company_id": cid, "message": f"Cannot reach Simpro ({type(e).__name__})."}
 
 @api_router.post("/integrations/simpro/test-connection")
@@ -3178,7 +3219,9 @@ async def simpro_test_live(payload: SimproProbePayload,
     return a per-company result list; otherwise probe the legacy single
     `company_id` (or the untyped root)."""
     api_root = _simpro_normalise_url(payload.url)
-    headers = {"Authorization": f"Bearer {payload.api_token}", "Accept": "application/json"}
+    # Strip whitespace — paste artifacts break Bearer headers client-side.
+    clean_token = (payload.api_token or "").strip()
+    headers = {"Authorization": f"Bearer {clean_token}", "Accept": "application/json"}
     async with httpx.AsyncClient(timeout=15.0) as c:
         if payload.company_ids:
             results = []
@@ -3201,7 +3244,8 @@ async def simpro_list_companies(payload: SimproProbePayload,
     """Fetch the full list of companies visible to this API token.
     Used by the LIST button in the Simpro settings form."""
     api_root = _simpro_normalise_url(payload.url)
-    headers = {"Authorization": f"Bearer {payload.api_token}", "Accept": "application/json"}
+    clean_token = (payload.api_token or "").strip()
+    headers = {"Authorization": f"Bearer {clean_token}", "Accept": "application/json"}
     try:
         async with httpx.AsyncClient(timeout=15.0) as c:
             r = await c.get(f"{api_root}/companies/", headers=headers)

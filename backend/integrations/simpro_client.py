@@ -45,6 +45,14 @@ class SimproSettings:
     api_token: str
     company_ids: List[int] = field(default_factory=list)
 
+    def __post_init__(self):
+        # Defensive: paste artifacts (leading/trailing whitespace, stray newlines)
+        # in a Bearer header are rejected client-side by httpx as
+        # `LocalProtocolError: Illegal header value` — before the request even
+        # leaves the process. Strip once, here, so every callsite is safe.
+        self.url = (self.url or "").strip()
+        self.api_token = (self.api_token or "").strip()
+
     @property
     def api_root(self) -> str:
         """Return the API root URL, e.g. https://build.simprosuite.com/api/v1.0."""
