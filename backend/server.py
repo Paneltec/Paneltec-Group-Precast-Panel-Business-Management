@@ -3212,6 +3212,17 @@ async def _simpro_probe_one(client: httpx.AsyncClient, api_root: str,
         logger.warning("[simpro.probe] transport error on %s: %s: %s", endpoint, type(e).__name__, e)
         return {"ok": False, "company_id": cid, "message": f"Cannot reach Simpro ({type(e).__name__})."}
 
+def _resolve_simpro_token_or_stored(token_from_form: Optional[str], stored_token: str) -> str:
+    """Return the API token to send to Simpro. If the caller sends the mask
+    sentinel (or empty), fall back to the stored token from admin_settings.
+    Also strips whitespace defensively so paste artifacts don't break the
+    Bearer header (RFC 7230)."""
+    t = (token_from_form or "").strip()
+    if not t or _is_masked(t):
+        return (stored_token or "").strip()
+    return t
+
+
 @api_router.post("/integrations/simpro/test-connection")
 async def simpro_test_live(payload: SimproProbePayload,
                             actor: dict = Depends(require_permission("integrations.edit"))):
@@ -3219,8 +3230,15 @@ async def simpro_test_live(payload: SimproProbePayload,
     return a per-company result list; otherwise probe the legacy single
     `company_id` (or the untyped root)."""
     api_root = _simpro_normalise_url(payload.url)
-    # Strip whitespace — paste artifacts break Bearer headers client-side.
-    clean_token = (payload.api_token or "").strip()
+    stored_doc = await db.settings.find_one({"key":"integrations"}, {"_id":0,"simpro.api_token":1}) or {}
+    stored_token = (stored_doc.get("simpro") or {}).get("api_token", "")
+    clean_token = _resolve_simpro_token_or_stored(payload.api_token, stored_token)
+    if not clean_token:
+        raise HTTPException(status_code=400, detail="No API token supplied and none stored. Paste your Simpro PAT and try again.")
+    logger.info("[simpro.test] api_root=%s token_source=%s companies=%s",
+                api_root,
+                "form" if not _is_masked(payload.api_token or "") and (payload.api_token or "").strip() else "stored",
+                payload.company_ids or [payload.company_id])
     headers = {"Authorization": f"Bearer {clean_token}", "Accept": "application/json"}
     async with httpx.AsyncClient(timeout=15.0) as c:
         if payload.company_ids:
@@ -3244,11 +3262,19 @@ async def simpro_list_companies(payload: SimproProbePayload,
     """Fetch the full list of companies visible to this API token.
     Used by the LIST button in the Simpro settings form."""
     api_root = _simpro_normalise_url(payload.url)
-    clean_token = (payload.api_token or "").strip()
+    stored_doc = await db.settings.find_one({"key":"integrations"}, {"_id":0,"simpro.api_token":1}) or {}
+    stored_token = (stored_doc.get("simpro") or {}).get("api_token", "")
+    clean_token = _resolve_simpro_token_or_stored(payload.api_token, stored_token)
+    if not clean_token:
+        raise HTTPException(status_code=400, detail="No API token supplied and none stored. Paste your Simpro PAT and try again.")
+    used_source = "form" if not _is_masked(payload.api_token or "") and (payload.api_token or "").strip() else "stored"
+    logger.info("[simpro.list_companies] api_root=%s token_source=%s", api_root, used_source)
     headers = {"Authorization": f"Bearer {clean_token}", "Accept": "application/json"}
     try:
         async with httpx.AsyncClient(timeout=15.0) as c:
             r = await c.get(f"{api_root}/companies/", headers=headers)
+        logger.info("[simpro.list_companies]   → HTTP %s ct=%s body[:120]=%r",
+                    r.status_code, r.headers.get("content-type",""), (r.text or "")[:120])
         if r.status_code == 401:
             raise HTTPException(status_code=401, detail="Unauthorised — check the API token.")
         if r.status_code >= 400:
@@ -3257,8 +3283,13 @@ async def simpro_list_companies(payload: SimproProbePayload,
         raw = r.json() if r.content else []
         items = []
         for c_ in raw:
+            # NB: Simpro's `Template - Do not use` company has ID 0. Use `is not None`
+            # so a legitimate zero isn't treated as missing.
+            cid = c_.get("ID")
+            if cid is None:
+                cid = c_.get("Id") if c_.get("Id") is not None else c_.get("id")
             items.append({
-                "id": c_.get("ID") or c_.get("Id") or c_.get("id"),
+                "id": cid,
                 "name": c_.get("Name") or c_.get("CompanyName") or "(unnamed)",
                 "enabled": c_.get("Enabled", True),
             })

@@ -410,7 +410,10 @@ function SimproCard({ section, onSave }) {
   // Cache of company names discovered via LIST modal or test-connection.
   const [companyNames, setCompanyNames] = useState({});
 
-  const canProbe = !!(s.url && s.api_token && !isMasked(s.api_token));
+  // Buttons enabled when we have a URL AND either a fresh unmasked token OR a
+  // masked-placeholder token (server falls back to the stored PAT for LIST /
+  // Test / Preview when the client sends the mask sentinel).
+  const canProbe = !!(s.url && s.api_token);
   const companyIds = (s.company_ids || []).map(x => parseInt(x, 10)).filter(Number.isFinite);
 
   const doTest = async () => {
