@@ -64,7 +64,11 @@ export default function SimproEmployeeImportModal({ open, onOpenChange, simpro, 
     try {
       const { data } = await api.post("/integrations/simpro/sync-employees",
         { company_ids: Array.from(selectedCids), simpro_employee_ids: Array.from(picked) });
-      toast.success(`Imported ${data.created} new · updated ${data.updated}${(data.errors?.length||0) ? ` · ${data.errors.length} error(s)` : ""}.`);
+      const created = data.created ?? 0;
+      const upd = data.updated ?? 0;
+      const unchanged = data.unchanged ?? 0;
+      const errCount = data.errors?.length || 0;
+      toast.success(`Imported: ${created} new · ${upd} updated · ${unchanged} already up to date${errCount ? ` · ${errCount} error(s)` : ""}.`);
       onImported && onImported(data);
       onOpenChange(false);
     } catch (e) {
@@ -134,13 +138,33 @@ export default function SimproEmployeeImportModal({ open, onOpenChange, simpro, 
               </div>
             )}
 
-            {preview && preview.items && preview.items.length > 0 && (
+            {preview && preview.items && preview.items.length > 0 && (() => {
+              const total = preview.items.length;
+              const allTicked = total > 0 && preview.items.every(r => picked.has(r.simpro_employee_id));
+              const someTicked = picked.size > 0 && !allTicked;
+              const toggleAllVisible = () => {
+                if (allTicked) setPicked(new Set());
+                else setPicked(new Set(preview.items.map(r => r.simpro_employee_id)));
+              };
+              return (
               <div className="border border-gray-200 rounded overflow-hidden max-h-96 overflow-y-auto">
                 <table className="w-full text-sm" data-testid="simpro-import-table">
                   <thead className="bg-gray-100 uppercase text-[10px] tracking-wider text-gray-600 sticky top-0">
                     <tr>
-                      <th className="px-3 py-2 text-left w-10"/>
-                      <th className="px-3 py-2 text-left">Name</th>
+                      <th className="px-3 py-2 text-left w-10">
+                        <Checkbox checked={allTicked}
+                                   indeterminate={someTicked ? "true" : undefined}
+                                   onCheckedChange={toggleAllVisible}
+                                   data-testid="simpro-import-select-all"
+                                   className="border-gray-400"/>
+                      </th>
+                      <th className="px-3 py-2 text-left">
+                        Name
+                        <span className="ml-2 normal-case tracking-normal text-[10px] font-normal text-gray-500"
+                               data-testid="simpro-import-select-tally">
+                          {picked.size} selected of {total}
+                        </span>
+                      </th>
                       <th className="px-3 py-2 text-left">Position</th>
                       <th className="px-3 py-2 text-left">Email</th>
                       <th className="px-3 py-2 text-left w-24">Status</th>
@@ -169,7 +193,8 @@ export default function SimproEmployeeImportModal({ open, onOpenChange, simpro, 
                   </tbody>
                 </table>
               </div>
-            )}
+              );
+            })()}
 
             {preview && (preview.items || []).length === 0 && (
               <div className="text-sm text-gray-500 italic">No employees returned for the selected companies. Check that the companies you ticked have employees in Simpro.</div>

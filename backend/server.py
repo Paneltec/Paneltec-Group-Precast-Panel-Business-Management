@@ -1483,19 +1483,36 @@ async def update_employee(eid: str, payload: EmployeeIn, actor: dict = Depends(r
     return await db.employees.find_one({"id": eid}, {"_id":0})
 
 @api_router.delete("/employees/{eid}")
-async def del_employee(eid: str, permanent: bool = Query(False),
+async def del_employee(eid: str, permanent: bool = Query(True),
                         exclude_from_sync: bool = Query(True),
                         actor: dict = Depends(require_permission("employees.delete"))):
-    if permanent:
-        if not actor.get("is_super_admin"): raise HTTPException(status_code=403, detail="Super admin required for permanent delete")
-        return await hard_delete_with_refs(db.employees, eid, actor, "employee", "name")
-    result = await soft_delete_doc(db.employees, eid, actor, "name", "employee")
-    # Phase 11.7.2 — flag Simpro-sourced employees as excluded so a future
-    # sync doesn't resurrect them. Overridable via ?exclude_from_sync=false so
-    # bulk-delete-then-reimport flows leave the row eligible for re-sync.
-    if exclude_from_sync:
-        await db.employees.update_one({"id": eid}, {"$set": {"excluded_from_sync": True}})
-    return result
+    """Hard-delete an employee. The row is removed from the `employees`
+    collection; the audit event captures the row's data so history is
+    preserved. The `permanent` query param is retained for backwards
+    compatibility and now defaults to True (there is no soft-delete state
+    for employees any more)."""
+    existing = await db.employees.find_one({"id": eid},
+        {"_id":0, "id":1, "name":1, "simpro_employee_id":1, "source":1, "email":1, "role":1})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    # Record audit BEFORE deletion so we retain the deleted row's data.
+    await record_audit(actor, "deleted_employee", "employee",
+                        entity_id=eid, entity_label=existing.get("name") or f"Employee {eid[:8]}",
+                        metadata={"snapshot": existing,
+                                    "exclude_from_sync": bool(exclude_from_sync)})
+    # Persist the exclusion in a separate collection keyed by simpro_employee_id
+    # so it survives the hard delete (the flag can no longer live on the row).
+    sid = existing.get("simpro_employee_id")
+    if exclude_from_sync and sid:
+        await db.simpro_excluded_employee_ids.update_one(
+            {"simpro_employee_id": sid},
+            {"$set": {"simpro_employee_id": sid,
+                       "excluded_at": now_iso(),
+                       "excluded_by_user_id": actor["id"],
+                       "last_known_name": existing.get("name") or ""}},
+            upsert=True)
+    await db.employees.delete_one({"id": eid})
+    return {"ok": True, "deleted": 1, "excluded": 1 if (exclude_from_sync and sid) else 0}
 
 
 class EmployeeBulkDeletePayload(BaseModel):
@@ -1506,35 +1523,41 @@ class EmployeeBulkDeletePayload(BaseModel):
 @api_router.post("/employees/bulk-delete")
 async def bulk_delete_employees(payload: EmployeeBulkDeletePayload,
                                  actor: dict = Depends(require_permission("employees.delete"))):
-    """Soft-delete multiple employees in one call. Writes ONE consolidated
-    audit event `bulk_deleted_employees`. When exclude_from_sync is True,
-    every row is also flagged so the Simpro sync worker will skip them."""
+    """Hard-delete multiple employees. Writes ONE consolidated audit event
+    `bulk_deleted_employees` with a snapshot of every removed row. When
+    `exclude_from_sync=True`, the corresponding `simpro_employee_id` values
+    are recorded in the `simpro_excluded_employee_ids` collection so the sync
+    worker will skip them going forward."""
     ids = list({str(x) for x in payload.employee_ids if str(x).strip()})
     if not ids:
         raise HTTPException(status_code=400, detail="No employee IDs supplied.")
-    now = now_iso()
-    update = {"deleted_at": now, "deleted_by_user_id": actor["id"],
-              "updated_at": now, "updated_by_user_id": actor["id"]}
+    # Snapshot rows BEFORE deletion for the audit trail.
+    snapshots: List[Dict[str, Any]] = []
+    async for r in db.employees.find({"id": {"$in": ids}},
+        {"_id":0, "id":1, "name":1, "simpro_employee_id":1, "source":1, "email":1, "role":1}):
+        snapshots.append(r)
+    excluded = 0
     if payload.exclude_from_sync:
-        update["excluded_from_sync"] = True
-    r = await db.employees.update_many(
-        {"id": {"$in": ids}, "deleted_at": None},
-        {"$set": update})
-    excluded = r.modified_count if payload.exclude_from_sync else 0
+        now = now_iso()
+        for row in snapshots:
+            sid = row.get("simpro_employee_id")
+            if sid:
+                await db.simpro_excluded_employee_ids.update_one(
+                    {"simpro_employee_id": sid},
+                    {"$set": {"simpro_employee_id": sid, "excluded_at": now,
+                               "excluded_by_user_id": actor["id"],
+                               "last_known_name": row.get("name") or ""}},
+                    upsert=True)
+                excluded += 1
+    r = await db.employees.delete_many({"id": {"$in": ids}})
     await record_audit(actor, "bulk_deleted_employees", "employee",
-                        entity_id=None, entity_label=f"{r.modified_count} employees",
-                        metadata={"count": r.modified_count,
+                        entity_id=None, entity_label=f"{r.deleted_count} employees",
+                        metadata={"count": r.deleted_count,
                                     "exclude_from_sync": bool(payload.exclude_from_sync),
-                                    "employee_ids": ids})
-    return {"deleted": r.modified_count, "excluded": excluded}
+                                    "excluded": excluded,
+                                    "snapshots": snapshots})
+    return {"deleted": r.deleted_count, "excluded": excluded}
 
-
-@api_router.post("/employees/{eid}/restore")
-async def rest_employee(eid: str, actor: dict = Depends(require_permission("employees.delete"))):
-    result = await restore_doc(db.employees, eid, actor, "name", "employee")
-    # Restoring re-enables sync eligibility.
-    await db.employees.update_one({"id": eid}, {"$set": {"excluded_from_sync": False}})
-    return result
 
 @api_router.get("/employees/{eid}/references")
 async def employee_refs_ep(eid: str, admin: dict = Depends(require_super_admin)):
@@ -3500,7 +3523,11 @@ async def simpro_sync_employees(payload: Optional[SimproSyncEmployeesPayload] = 
     settings, sec = await _load_simpro_settings_or_error()
     target_company_ids = _simpro_target_company_ids(sec)
     client = SimproClient(settings)
-    created = updated = 0
+    # Load excluded IDs — Simpro rows whose Paneltec record was hard-deleted
+    # with the "exclude from future syncs" flag ticked.
+    excluded_ids: set = {d["simpro_employee_id"] async for d in
+        db.simpro_excluded_employee_ids.find({}, {"_id":0, "simpro_employee_id":1})}
+    created = updated = unchanged = 0
     errors: List[Dict[str, str]] = []
     try:
         remote = await client.iter_all(client.list_employees)
@@ -3548,16 +3575,26 @@ async def simpro_sync_employees(payload: Optional[SimproSyncEmployeesPayload] = 
             cid = (raw or {}).get("_source_company_id")
             if selected_cids is not None and cid is not None and cid not in selected_cids:
                 continue
-            existing = await db.employees.find_one({"simpro_employee_id": simpro_id},
-                                                    {"_id":0,"id":1,"excluded_from_sync":1})
-            if existing and existing.get("excluded_from_sync"):
-                # Deleted / excluded — skip. Sync worker will NOT resurrect the record.
+            # Phase 11.7.8 — separate exclusions collection replaces the
+            # per-row `excluded_from_sync` flag now that deletes are hard.
+            if simpro_id in excluded_ids:
                 continue
+            existing = await db.employees.find_one({"simpro_employee_id": simpro_id},
+                                                    {"_id":0, "id":1, "name":1, "email":1, "phone":1, "role":1})
             if existing:
-                mapped["updated_at"] = now_iso()
-                mapped["updated_by_user_id"] = actor["id"]
-                await db.employees.update_one({"id": existing["id"]}, {"$set": mapped})
-                updated += 1
+                # Upsert semantics: fill in blanks from Simpro but never
+                # silently overwrite a value the user has populated locally.
+                patch: Dict[str, Any] = {}
+                for field in ("name", "email", "phone", "role"):
+                    if not (existing.get(field) or "").strip() and (mapped.get(field) or "").strip():
+                        patch[field] = mapped[field]
+                if patch:
+                    patch["updated_at"] = now_iso()
+                    patch["updated_by_user_id"] = actor["id"]
+                    await db.employees.update_one({"id": existing["id"]}, {"$set": patch})
+                    updated += 1
+                else:
+                    unchanged += 1
             else:
                 doc = {**mapped,
                        "id": str(uuid.uuid4()),
@@ -3574,15 +3611,17 @@ async def simpro_sync_employees(payload: Optional[SimproSyncEmployeesPayload] = 
         except Exception as e:
             errors.append({"simpro_id": str(raw.get("ID")), "reason": f"{type(e).__name__}: {e}"})
 
-    total = created + updated
+    total = created + updated + unchanged
     await db.settings.update_one({"key":"integrations"},
         {"$set":{"simpro.last_sync_at": now_iso(), "simpro.last_sync_status": "ok",
                  "simpro.last_sync_error": None,
                  "simpro.last_sync_employees_count": total}})
     await record_audit(actor, "simpro_employee_sync", "integration_settings", "simpro", "Simpro",
                        metadata={"synced": total, "created": created, "updated": updated,
+                                  "unchanged": unchanged,
                                   "errors": len(errors), "company_ids": target_company_ids})
     return {"synced": total, "created": created, "updated": updated,
+            "unchanged": unchanged,
             "errors": errors, "fetched_from_simpro": len(remote),
             "company_ids": target_company_ids}
 

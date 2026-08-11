@@ -257,11 +257,11 @@ One-click "keep the roster current". No modal, no preview — hits the same sync
 
 Every employee row has a small trash icon on the right. Visible to Production role and Super Admin only. Delete confirms with a modal that explains:
 
-- Soft-delete only — the record stays in the DB and the audit trail forever.
-- For Simpro-sourced employees, an extra amber note appears: "Deleting won't remove them from Simpro — but this record will be flagged and future syncs will skip them." That flag is `excluded_from_sync: true` on the employee document. Restoring the employee (from the Deleted filter) clears the flag automatically.
+- **Employee deletion is permanent.** The row is removed from the database. The audit trail retains the historical record of the deletion (who, when, and a snapshot of the row) but the employee itself cannot be recovered from the UI.
+- For Simpro-sourced employees the confirm dialog offers **"Also exclude from future Simpro syncs"**. Ticked → the Simpro ID is recorded in a separate `simpro_excluded_employee_ids` collection so the sync worker skips it forever. That exclusion flag lives independently of the (now-deleted) employee row so it persists past deletion.
 - **RBAC**: Estimator / Accounts / Read-only see NO delete button. Production and Super Admin see it. The backend `DELETE /api/employees/{id}` also enforces `employees.delete` — even if the UI leaked, the API would reject.
 
-Both lists support soft delete + restore + permanent delete (super admin), same as customers.
+**Bulk delete** — tick the checkbox column then either use the floating action bar (`Delete selected`) or the **Delete all in view** header button. Same confirm modal; the exclude-from-sync default is UNCHECKED for bulk operations (bulk is usually a "reset and re-import" workflow).
 
 ---
 

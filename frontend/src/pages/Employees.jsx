@@ -100,7 +100,7 @@ export function EmployeesList() {
     if (!deleteTarget) return;
     try {
       await api.delete(`/employees/${deleteTarget.id}?exclude_from_sync=${deleteExcludeSingle}`);
-      toast.success(`Deleted ${deleteTarget.name}.${deleteExcludeSingle ? " Future Simpro syncs will skip them." : ""}`);
+      toast.success(`Deleted ${deleteTarget.name}.${deleteExcludeSingle ? " Future Simpro syncs will skip this Simpro ID." : ""}`);
       setDeleteTarget(null);
       setDeleteExcludeSingle(true); setDeleteConsentSingle(false);
       await load();
@@ -117,8 +117,7 @@ export function EmployeesList() {
         { company_ids: cids });
       const created = data.created ?? 0;
       const updated = data.updated ?? 0;
-      const total = data.synced ?? 0;
-      const unchanged = Math.max(0, total - created - updated);
+      const unchanged = data.unchanged ?? Math.max(0, (data.synced ?? 0) - created - updated);
       toast.success(`Refreshed from Simpro — ${created} added, ${updated} updated, ${unchanged} unchanged.`);
       await Promise.all([load(), loadSimpro()]);
     } catch (e) {
@@ -203,7 +202,7 @@ export function EmployeesList() {
       )}
 
       <div className="inline-flex rounded border border-gray-200 bg-white p-0.5 text-xs">
-        {[["active","Active"],["inactive","Inactive"],["deleted","Deleted"],["all","All"]].map(([k,l])=>(
+        {[["active","Active"],["inactive","Inactive"],["all","All"]].map(([k,l])=>(
           <button key={k} onClick={() => setStatusFilter(k)} data-testid={`emp-filter-${k}`}
             className={`px-3 py-1.5 rounded font-semibold ${statusFilter===k ? "bg-[#1F2A33] text-white" : "text-gray-600 hover:bg-gray-50"}`}>{l}</button>
         ))}
@@ -316,7 +315,7 @@ export function EmployeesList() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              They&apos;ll be hidden from the crew list but retained in the audit trail. This can be undone by restoring from the Deleted tab.
+              This employee will be permanently removed from the crew list. The deletion is logged in the audit trail but the employee record itself cannot be recovered.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-3">
@@ -355,7 +354,7 @@ export function EmployeesList() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {bulkTargetIds.length} employee{bulkTargetIds.length === 1 ? "" : "s"}?</AlertDialogTitle>
             <AlertDialogDescription>
-              They&apos;ll be hidden from the crew list but retained in the audit trail. This can be undone by restoring individual rows.
+              These employees will be permanently removed from the crew list. The deletion is logged in the audit trail but the employee records themselves cannot be recovered.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-3">
