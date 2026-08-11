@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Save, FlaskConical, Link2, X, List as ListIcon, ChevronDown as ChevronDownIcon, ChevronUp as ChevronUpIcon } from "lucide-react";
+import { Loader2, Save, FlaskConical, Link2, X, List as ListIcon } from "lucide-react";
 import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
@@ -186,67 +186,6 @@ function ChipInput({ chips, onChange, placeholder, prefix = "", tone = "green", 
   );
 }
 
-function SimproPositionFilterPerCompany({ companyIds, value, onChange, companyNames }) {
-  // `value` is a { [str(cid)]: string[] } dict. `companyIds` is int[].
-  // `companyNames` is optional { [id]: string } cache used to label the accordion.
-  const [openSet, setOpenSet] = useState(() => new Set(companyIds.map(String)));
-  const toggle = (k) => {
-    const next = new Set(openSet);
-    if (next.has(k)) next.delete(k); else next.add(k);
-    setOpenSet(next);
-  };
-  if (!companyIds.length) {
-    return (
-      <div className="text-xs italic text-gray-500 border border-dashed border-gray-300 rounded p-3 bg-[#FCFBF7]"
-           data-testid="simpro-position-filter-empty-companies">
-        Add at least one Company ID above to configure per-company position filters.
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-2" data-testid="simpro-position-filter-accordion">
-      {companyIds.map((cid) => {
-        const key = String(cid);
-        const chips = Array.isArray(value?.[key]) ? value[key] : [];
-        const open = openSet.has(key);
-        const label = companyNames?.[cid] ? `${companyNames[cid]} (CO ${cid})` : `CO ${cid}`;
-        return (
-          <div key={key} className="border border-gray-200 rounded bg-white"
-               data-testid={`simpro-pf-section-${cid}`}>
-            <button type="button"
-                    onClick={() => toggle(key)}
-                    className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50"
-                    data-testid={`simpro-pf-toggle-${cid}`}>
-              <span className="text-xs font-bold uppercase tracking-wider text-[#3A6B8C] inline-flex items-center gap-2">
-                <span className="bg-[#1F2A33] text-white rounded px-1.5 py-0.5 text-[10px] font-mono">CO {cid}</span>
-                {companyNames?.[cid] && <span className="text-[#1F2A33]">{companyNames[cid]}</span>}
-                <span className="text-gray-500 text-[10px] normal-case tracking-normal font-normal">
-                  {chips.length === 0 ? "no filter — all positions imported" : `${chips.length} position${chips.length === 1 ? "" : "s"}`}
-                </span>
-              </span>
-              {open ? <ChevronUpIcon className="w-4 h-4 text-gray-500"/> : <ChevronDownIcon className="w-4 h-4 text-gray-500"/>}
-            </button>
-            {open && (
-              <div className="px-3 pb-3">
-                <ChipInput chips={chips}
-                            onChange={(next) => {
-                              const nextDict = { ...(value || {}) };
-                              if (next.length === 0) delete nextDict[key];
-                              else nextDict[key] = next;
-                              onChange(nextDict);
-                            }}
-                            tone="blue" testid={`simpro-pf-chips-${cid}`}
-                            emptyHint="No filter — all positions from this company will be imported."
-                            placeholder="Type a position and press Enter"/>
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function SimproTestPill({ state }) {
   if (!state) return null;
   const map = {
@@ -380,35 +319,16 @@ function SimproCard({ section, onSave }) {
     whitelist_source_companies: [2, 3],
     staff_custom_field: "Interactive Scheduler Status",
     staff_field_value: "Assign This User To The White Board",
-    position_filter: {},   // Phase 11.7.5 — { [str(company_id)]: string[] }
     sync_interval_minutes: 60,
     auto_sync_enabled: true,
     completed_jobs_history_days: 30,
     enabled: false,
   };
-  // Coerce legacy list-form position_filter to {} on load (belt-and-braces —
-  // backend already normalises on read).
-  const normaliseSection = (raw) => {
-    if (!raw) return {};
-    const out = { ...raw };
-    if (!out.position_filter || Array.isArray(out.position_filter)) {
-      out.position_filter = {};
-    } else if (typeof out.position_filter === "object") {
-      const clean = {};
-      Object.entries(out.position_filter).forEach(([k, v]) => {
-        if (Array.isArray(v)) clean[String(k)] = v.map(String);
-      });
-      out.position_filter = clean;
-    }
-    return out;
-  };
-  const [s, setS] = useState({ ...defaults, ...normaliseSection(section) });
-  useEffect(() => { setS({ ...defaults, ...normaliseSection(section) }); /* eslint-disable-next-line */ }, [section]);
+  const [s, setS] = useState({ ...defaults, ...(section || {}) });
+  useEffect(() => { setS({ ...defaults, ...(section || {}) }); /* eslint-disable-next-line */ }, [section]);
   const [testState, setTestState] = useState(null); // {kind, results}
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  // Cache of company names discovered via LIST modal or test-connection.
-  const [companyNames, setCompanyNames] = useState({});
 
   // Buttons enabled when we have a URL AND either a fresh unmasked token OR a
   // masked-placeholder token (server falls back to the stored PAT for LIST /
@@ -435,10 +355,6 @@ function SimproCard({ section, onSave }) {
       const kind = okCount === results.length ? "ok"
                   : okCount === 0 ? "error"
                   : "partial";
-      // Cache any company names returned by the probe for the PF accordion.
-      const learned = {};
-      results.forEach(r => { if (r.ok && r.company_id && r.company_name) learned[r.company_id] = r.company_name; });
-      if (Object.keys(learned).length) setCompanyNames(prev => ({ ...prev, ...learned }));
       setTestState({ kind, results });
     } catch (e) {
       setTestState({ kind: "error", results: [{ ok: false, company_id: null,
@@ -461,12 +377,6 @@ function SimproCard({ section, onSave }) {
         sync_interval_minutes: parseInt(s.sync_interval_minutes, 10) || 60,
         completed_jobs_history_days: Math.min(365, Math.max(7, parseInt(s.completed_jobs_history_days, 10) || 30)),
       };
-      // Prune orphaned position-filter entries for companies no longer configured.
-      const validKeys = new Set(companyIds.map(String));
-      const pf = payload.position_filter || {};
-      payload.position_filter = Object.fromEntries(
-        Object.entries(pf).filter(([k, v]) => validKeys.has(String(k)) && Array.isArray(v) && v.length > 0)
-      );
       // Server rejects extra keys — strip legacy `company_id` if the section still had it.
       delete payload.company_id;
       await onSave(payload);
@@ -552,18 +462,6 @@ function SimproCard({ section, onSave }) {
         </F>
       </div>
 
-      {/* Row 5 — Position Filter (per-company accordion) */}
-      <div className="mb-4">
-        <F label="Position Filter (per company)"
-            hint="Restrict which Simpro positions are imported for each configured company. Leave a company empty to import all positions from that company. Case-insensitive substring match on the employee Position in SimPRO.">
-          <SimproPositionFilterPerCompany
-            companyIds={companyIds}
-            value={s.position_filter || {}}
-            onChange={(next) => setS({ ...s, position_filter: next })}
-            companyNames={companyNames}/>
-        </F>
-      </div>
-
       {/* Row 6 — Sync Interval + Auto Sync */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <F label="Sync Interval (minutes)" hint="How often to pull new jobs from SimPRO.">
@@ -622,10 +520,6 @@ function SimproCard({ section, onSave }) {
           picked.forEach(r => {
             if (!nextIds.includes(r.id)) { nextIds.push(r.id); added++; }
           });
-          // Cache the picked names for the PF accordion labels.
-          const learned = {};
-          picked.forEach(r => { if (r.id && r.name) learned[r.id] = r.name; });
-          if (Object.keys(learned).length) setCompanyNames(prev => ({ ...prev, ...learned }));
           setS({ ...s, company_ids: nextIds });
           setPickerOpen(false);
           if (added === 0) toast.info("All ticked companies were already in the list.");

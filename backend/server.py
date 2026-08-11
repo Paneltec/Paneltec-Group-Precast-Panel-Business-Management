@@ -484,7 +484,7 @@ class IntegrationSimpro(BaseModel):
     whitelist_source_companies: List[int] = Field(default_factory=list)
     staff_custom_field: str = ""
     staff_field_value: str = ""
-    position_filter: Dict[str, List[str]] = Field(default_factory=dict)   # keyed by str(company_id)
+    position_filter: Dict[str, List[str]] = Field(default_factory=dict)   # DEPRECATED — position filter removed 2026-08-08 per user directive. Field retained for backwards compatibility; not used in sync path.
     sync_interval_minutes: int = 60
     auto_sync_enabled: bool = True
     completed_jobs_history_days: int = 30
@@ -3393,14 +3393,15 @@ class SimproSyncEmployeesPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
     company_ids: Optional[List[int]] = None
     simpro_employee_ids: Optional[List[str]] = None    # Phase 11.7.2 — filtered import from Import Modal
-    apply_position_filter: bool = True                  # Phase 11.7.5 — per-company Position Filter opt-in
+    # Phase 11.7.6 — `apply_position_filter` removed from the payload contract
+    # per user directive (2026-08-08). The Pydantic model ignores unknown keys
+    # via `extra="ignore"`, so legacy clients that still send the flag are safe.
 
 
 def _coerce_position_filter(raw: Any) -> Dict[str, List[str]]:
-    """Phase 11.7.5 — normalise a stored position_filter to
-    `{str(company_id): [positions]}`. Legacy value was a flat list applied
-    to every company; we drop it to an empty dict so admins re-set intentional
-    per-company allowlists. Whitespace-only positions are removed."""
+    """Normalise legacy `position_filter` values to `{str(cid): [positions]}`.
+    Kept for backwards compatibility with stored documents; not used in the
+    sync path any more."""
     if isinstance(raw, dict):
         out: Dict[str, List[str]] = {}
         for k, v in raw.items():
@@ -3410,28 +3411,6 @@ def _coerce_position_filter(raw: Any) -> Dict[str, List[str]]:
             out[str(k)] = cleaned
         return out
     return {}
-
-
-def _matches_position_filter(section: Dict[str, Any], company_id: Optional[int],
-                              role: Optional[str], apply: bool) -> bool:
-    """True if the (company_id, role) tuple passes the per-company allowlist.
-    - When `apply` is False → always True (feature disabled by caller).
-    - When the company has no entries → always True (no filter for that co).
-    - When role is missing → False (can't match an allowlist)."""
-    if not apply:
-        return True
-    pf = _coerce_position_filter(section.get("position_filter"))
-    if not pf:
-        return True
-    key = str(company_id) if company_id is not None else None
-    allowed = pf.get(key or "", []) if key else []
-    if not allowed:
-        return True
-    role_norm = (role or "").strip().lower()
-    if not role_norm:
-        return False
-    return any(role_norm == a.strip().lower() or a.strip().lower() in role_norm
-                for a in allowed)
 
 
 @api_router.post("/integrations/simpro/preview-employees")
@@ -3452,20 +3431,14 @@ async def simpro_preview_employees(payload: SimproSyncEmployeesPayload,
         raise HTTPException(status_code=502, detail=f"Simpro API error: {e}")
     known = {d["simpro_employee_id"]: True async for d in db.employees.find(
         {"simpro_employee_id": {"$ne": None}}, {"_id":0, "simpro_employee_id":1})}
-    apply_pf = bool(payload.apply_position_filter)
     items: List[Dict[str, Any]] = []
-    filtered_by_position = 0
     for raw in remote:
         m = _map_simpro_employee(raw)
         sid = m.get("simpro_employee_id")
         cid = (raw or {}).get("_source_company_id")
-        role = m.get("role") or ""
-        if not _matches_position_filter(sec, cid, role, apply_pf):
-            filtered_by_position += 1
-            continue
         items.append({"simpro_employee_id": sid,
                        "name": m.get("name"), "email": m.get("email"),
-                       "position": role,
+                       "position": m.get("role") or "",
                        "company_id": cid,
                        "exists_in_paneltec": bool(known.get(sid))})
     # Filter to selected company_ids if provided
@@ -3474,10 +3447,7 @@ async def simpro_preview_employees(payload: SimproSyncEmployeesPayload,
         items = [i for i in items if (i.get("company_id") in cids or i.get("company_id") is None)]
     new_count = sum(1 for i in items if not i["exists_in_paneltec"])
     return {"items": items, "count": len(items),
-            "new_count": new_count, "existing_count": len(items) - new_count,
-            "position_filter": _coerce_position_filter(sec.get("position_filter")),
-            "applied_position_filter": apply_pf,
-            "filtered_by_position_count": filtered_by_position}
+            "new_count": new_count, "existing_count": len(items) - new_count}
 
 
 @api_router.post("/integrations/simpro/sync-employees")
@@ -3488,12 +3458,13 @@ async def simpro_sync_employees(payload: Optional[SimproSyncEmployeesPayload] = 
     filter_ids: Optional[set] = None
     if payload and payload.simpro_employee_ids:
         filter_ids = {str(x) for x in payload.simpro_employee_ids}
-    apply_pf = bool(payload.apply_position_filter) if payload else True
+    selected_cids: Optional[set] = None
+    if payload and payload.company_ids:
+        selected_cids = set(payload.company_ids)
     settings, sec = await _load_simpro_settings_or_error()
     target_company_ids = _simpro_target_company_ids(sec)
     client = SimproClient(settings)
     created = updated = 0
-    skipped_by_position = 0
     errors: List[Dict[str, str]] = []
     try:
         remote = await client.iter_all(client.list_employees)
@@ -3517,10 +3488,10 @@ async def simpro_sync_employees(payload: Optional[SimproSyncEmployeesPayload] = 
             # Phase 11.7.2 — Import Modal filter: only import ticked IDs.
             if filter_ids is not None and simpro_id not in filter_ids:
                 continue
-            # Phase 11.7.5 — per-company Position Filter (opt-in from caller).
+            # Restrict to the caller-selected company_ids when the modal
+            # narrowed the scope; otherwise sync from all configured companies.
             cid = (raw or {}).get("_source_company_id")
-            if not _matches_position_filter(sec, cid, mapped.get("role"), apply_pf):
-                skipped_by_position += 1
+            if selected_cids is not None and cid is not None and cid not in selected_cids:
                 continue
             existing = await db.employees.find_one({"simpro_employee_id": simpro_id},
                                                     {"_id":0,"id":1,"excluded_from_sync":1})
@@ -3555,14 +3526,10 @@ async def simpro_sync_employees(payload: Optional[SimproSyncEmployeesPayload] = 
                  "simpro.last_sync_employees_count": total}})
     await record_audit(actor, "simpro_employee_sync", "integration_settings", "simpro", "Simpro",
                        metadata={"synced": total, "created": created, "updated": updated,
-                                  "errors": len(errors), "company_ids": target_company_ids,
-                                  "applied_position_filter": apply_pf,
-                                  "skipped_by_position": skipped_by_position})
+                                  "errors": len(errors), "company_ids": target_company_ids})
     return {"synced": total, "created": created, "updated": updated,
             "errors": errors, "fetched_from_simpro": len(remote),
-            "company_ids": target_company_ids,
-            "applied_position_filter": apply_pf,
-            "skipped_by_position": skipped_by_position}
+            "company_ids": target_company_ids}
 
 
 # Universal email-sent recording

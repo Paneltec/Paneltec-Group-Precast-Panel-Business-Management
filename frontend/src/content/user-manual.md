@@ -245,14 +245,13 @@ Fields: code, name, role, phone, status. Used by the Crew multi-select on Job de
 Opens the preview modal:
 
 1. **Companies to import from** — one segmented pill per company ID configured in `admin_settings.integrations.simpro.company_ids`. All selected by default. Tap a pill to deselect.
-2. **Filtering by positions** banner — shows the position chips from the same settings so you know what will (and won't) come across. Change them in Admin Settings → Integrations.
-3. **Preview** — hits the live Simpro API for every selected company. The result table shows Name / Position / Email / Status where Status is `NEW` (green pill) or `EXISTING` (grey — already in Paneltec).
-4. **Ticked rows only** are imported when you press **Import selected (N)**. New employees are pre-ticked; existing rows can be re-ticked to force an update (name / phone / position refresh).
-5. Cancel is safe — nothing is written until Import selected is pressed.
+2. **Preview** — hits the live Simpro API for every selected company. The result table shows Name / Position / Email / Status where Status is `NEW` (green pill) or `EXISTING` (grey — already in Paneltec).
+3. **Ticked rows only** are imported when you press **Import selected (N)**. New employees are pre-ticked; existing rows can be re-ticked to force an update (name / phone / position refresh).
+4. Cancel is safe — nothing is written until Import selected is pressed.
 
 **Refresh from Simpro** (dark navy outline, next to Import)
 
-One-click "keep the roster current". No modal, no preview — hits the same sync endpoint with all configured company_ids and the full position filter. Runs live and toasts a summary (`X added, Y updated, Z unchanged`). Underneath the two buttons you'll see **"Last Simpro refresh: ..."** — either a timestamp or `never`.
+One-click "keep the roster current". No modal, no preview — hits the same sync endpoint with all configured company_ids. Runs live and toasts a summary (`X added, Y updated, Z unchanged`). Underneath the two buttons you'll see **"Last Simpro refresh: ..."** — either a timestamp or `never`.
 
 **Per-row Delete + `excluded_from_sync` flag**
 
