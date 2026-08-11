@@ -1484,7 +1484,7 @@ async def update_employee(eid: str, payload: EmployeeIn, actor: dict = Depends(r
 
 @api_router.delete("/employees/{eid}")
 async def del_employee(eid: str, permanent: bool = Query(True),
-                        exclude_from_sync: bool = Query(True),
+                        exclude_from_sync: bool = Query(False),
                         actor: dict = Depends(require_permission("employees.delete"))):
     """Hard-delete an employee. The row is removed from the `employees`
     collection; the audit event captures the row's data so history is

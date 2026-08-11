@@ -31,13 +31,9 @@ export function EmployeesList() {
   const [simpro, setSimpro] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);          // single-row confirm
-  const [deleteExcludeSingle, setDeleteExcludeSingle] = useState(true);
-  const [deleteConsentSingle, setDeleteConsentSingle] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected] = useState(new Set());             // bulk selection (employee ids)
   const [bulkOpen, setBulkOpen] = useState(false);                 // bulk confirm modal
-  const [bulkExclude, setBulkExclude] = useState(false);           // default UNCHECKED per user directive
-  const [bulkConsent, setBulkConsent] = useState(false);
   const [bulkTargetIds, setBulkTargetIds] = useState([]);          // ids to delete (selected OR all-in-view)
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const navigate = useNavigate();
@@ -71,23 +67,20 @@ export function EmployeesList() {
 
   const openBulkForSelected = () => {
     setBulkTargetIds(Array.from(selected));
-    setBulkExclude(false); setbulkOpen_reset();
     setBulkOpen(true);
   };
   const openBulkForAllInView = () => {
     setBulkTargetIds(activeItems.map(e => e.id));
-    setBulkExclude(false); setbulkOpen_reset();
     setBulkOpen(true);
   };
-  const setbulkOpen_reset = () => { setBulkConsent(false); };
 
   const doBulkDelete = async () => {
     if (bulkTargetIds.length === 0) return;
     setBulkDeleting(true);
     try {
       const { data } = await api.post("/employees/bulk-delete",
-        { employee_ids: bulkTargetIds, exclude_from_sync: bulkExclude });
-      toast.success(`Deleted ${data.deleted} employee${data.deleted === 1 ? "" : "s"}${bulkExclude ? ` · ${data.excluded} excluded from future syncs` : ""}.`);
+        { employee_ids: bulkTargetIds });
+      toast.success(`Deleted ${data.deleted} employee${data.deleted === 1 ? "" : "s"}.`);
       setBulkOpen(false);
       setSelected(new Set());
       await load();
@@ -99,10 +92,9 @@ export function EmployeesList() {
   const doDelete = async () => {
     if (!deleteTarget) return;
     try {
-      await api.delete(`/employees/${deleteTarget.id}?exclude_from_sync=${deleteExcludeSingle}`);
-      toast.success(`Deleted ${deleteTarget.name}.${deleteExcludeSingle ? " Future Simpro syncs will skip this Simpro ID." : ""}`);
+      await api.delete(`/employees/${deleteTarget.id}`);
+      toast.success(`Deleted ${deleteTarget.name}.`);
       setDeleteTarget(null);
-      setDeleteExcludeSingle(true); setDeleteConsentSingle(false);
       await load();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
@@ -267,7 +259,7 @@ export function EmployeesList() {
                 <td className="px-4 py-3 text-right">
                   {!e.deleted_at && (
                     <button type="button"
-                            onClick={(ev) => { ev.stopPropagation(); setDeleteTarget(e); setDeleteExcludeSingle(true); setDeleteConsentSingle(false); }}
+                            onClick={(ev) => { ev.stopPropagation(); setDeleteTarget(e); }}
                             className="text-gray-400 hover:text-red-700 p-1 rounded"
                             title="Delete employee"
                             data-testid={`employee-delete-btn-${e.id}`}
@@ -318,31 +310,10 @@ export function EmployeesList() {
               This employee will be permanently removed from the crew list. The deletion is logged in the audit trail but the employee record itself cannot be recovered.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-3">
-            <label className="flex items-start gap-2 cursor-pointer bg-blue-50 border border-blue-200 rounded p-3"
-                    data-testid="employee-delete-exclude-row">
-              <Checkbox checked={deleteExcludeSingle}
-                         onCheckedChange={(v) => setDeleteExcludeSingle(!!v)}
-                         data-testid="employee-delete-exclude-checkbox"
-                         className="mt-0.5"/>
-              <span className="text-xs text-blue-900">
-                <span className="font-bold uppercase tracking-wider text-[10px] block">Also exclude from future Simpro syncs</span>
-                <span className="text-[11px] text-blue-800">Ticked = the Simpro sync worker will skip this record even if it still exists in Simpro. Untick if you plan to re-import them later.</span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 cursor-pointer" data-testid="employee-delete-consent-row">
-              <Checkbox checked={deleteConsentSingle}
-                         onCheckedChange={(v) => setDeleteConsentSingle(!!v)}
-                         data-testid="employee-delete-consent-checkbox"
-                         className="mt-0.5"/>
-              <span className="text-xs text-gray-700">I understand this is logged and reversible</span>
-            </label>
-          </div>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="employee-delete-cancel">Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={doDelete}
-              disabled={!deleteConsentSingle}
-              className="bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="bg-red-600 text-white hover:bg-red-700"
               data-testid="employee-delete-confirm-btn">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -357,30 +328,10 @@ export function EmployeesList() {
               These employees will be permanently removed from the crew list. The deletion is logged in the audit trail but the employee records themselves cannot be recovered.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-3">
-            <label className="flex items-start gap-2 cursor-pointer bg-blue-50 border border-blue-200 rounded p-3"
-                    data-testid="employees-bulk-exclude-row">
-              <Checkbox checked={bulkExclude}
-                         onCheckedChange={(v) => setBulkExclude(!!v)}
-                         data-testid="employees-bulk-exclude-checkbox"
-                         className="mt-0.5"/>
-              <span className="text-xs text-blue-900">
-                <span className="font-bold uppercase tracking-wider text-[10px] block">Also exclude these employees from future Simpro syncs</span>
-                <span className="text-[11px] text-blue-800">Leave unchecked if you plan to re-import these employees from Simpro. Tick if you want them permanently excluded — e.g. contractors, terminated staff, or people who should never sync back.</span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 cursor-pointer" data-testid="employees-bulk-consent-row">
-              <Checkbox checked={bulkConsent}
-                         onCheckedChange={(v) => setBulkConsent(!!v)}
-                         data-testid="employees-bulk-consent-checkbox"
-                         className="mt-0.5"/>
-              <span className="text-xs text-gray-700">I understand this is logged and reversible</span>
-            </label>
-          </div>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="employees-bulk-cancel">Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={doBulkDelete}
-              disabled={!bulkConsent || bulkDeleting}
+              disabled={bulkDeleting}
               className="bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
               data-testid="employees-bulk-confirm-btn">
               {bulkDeleting ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin"/> : null}
