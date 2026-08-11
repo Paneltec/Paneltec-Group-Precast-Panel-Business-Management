@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { Loader2, ArrowLeft, Save, Trash2, CloudDownload } from "lucide-react";
 import AppIcon from "../components/AppIcon";
@@ -8,6 +8,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
+import { Checkbox } from "../components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -27,14 +28,23 @@ export function EmployeesList() {
   const { hasPerm } = useAuth();
   const [items, setItems] = useState(null);
   const [statusFilter, setStatusFilter] = useState("active");
-  const [simpro, setSimpro] = useState(null);       // integration_settings.simpro (or null while loading)
+  const [simpro, setSimpro] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);          // single-row confirm
+  const [deleteExcludeSingle, setDeleteExcludeSingle] = useState(true);
+  const [deleteConsentSingle, setDeleteConsentSingle] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [selected, setSelected] = useState(new Set());             // bulk selection (employee ids)
+  const [bulkOpen, setBulkOpen] = useState(false);                 // bulk confirm modal
+  const [bulkExclude, setBulkExclude] = useState(false);           // default UNCHECKED per user directive
+  const [bulkConsent, setBulkConsent] = useState(false);
+  const [bulkTargetIds, setBulkTargetIds] = useState([]);          // ids to delete (selected OR all-in-view)
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const navigate = useNavigate();
 
   const load = async () => {
     setItems(null);
+    setSelected(new Set());
     try { const { data } = await api.get(`/employees?status=${statusFilter}`); setItems(data); }
     catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
   };
@@ -46,12 +56,53 @@ export function EmployeesList() {
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [statusFilter]);
   useEffect(() => { loadSimpro(); /* eslint-disable-next-line */ }, []);
 
+  const activeItems = useMemo(() => (items || []).filter(e => !e.deleted_at), [items]);
+
+  const toggleRow = (id) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelected(next);
+  };
+  const toggleAll = () => {
+    const ids = activeItems.map(e => e.id);
+    if (ids.every(id => selected.has(id))) setSelected(new Set());
+    else setSelected(new Set(ids));
+  };
+
+  const openBulkForSelected = () => {
+    setBulkTargetIds(Array.from(selected));
+    setBulkExclude(false); setbulkOpen_reset();
+    setBulkOpen(true);
+  };
+  const openBulkForAllInView = () => {
+    setBulkTargetIds(activeItems.map(e => e.id));
+    setBulkExclude(false); setbulkOpen_reset();
+    setBulkOpen(true);
+  };
+  const setbulkOpen_reset = () => { setBulkConsent(false); };
+
+  const doBulkDelete = async () => {
+    if (bulkTargetIds.length === 0) return;
+    setBulkDeleting(true);
+    try {
+      const { data } = await api.post("/employees/bulk-delete",
+        { employee_ids: bulkTargetIds, exclude_from_sync: bulkExclude });
+      toast.success(`Deleted ${data.deleted} employee${data.deleted === 1 ? "" : "s"}${bulkExclude ? ` · ${data.excluded} excluded from future syncs` : ""}.`);
+      setBulkOpen(false);
+      setSelected(new Set());
+      await load();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally { setBulkDeleting(false); }
+  };
+
   const doDelete = async () => {
     if (!deleteTarget) return;
     try {
-      await api.delete(`/employees/${deleteTarget.id}`);
-      toast.success(`Deleted ${deleteTarget.name}. They will be skipped on future Simpro syncs.`);
+      await api.delete(`/employees/${deleteTarget.id}?exclude_from_sync=${deleteExcludeSingle}`);
+      toast.success(`Deleted ${deleteTarget.name}.${deleteExcludeSingle ? " Future Simpro syncs will skip them." : ""}`);
       setDeleteTarget(null);
+      setDeleteExcludeSingle(true); setDeleteConsentSingle(false);
       await load();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
@@ -81,6 +132,8 @@ export function EmployeesList() {
   const lastSyncOk = simpro?.last_sync_status === "ok" && simpro?.last_sync_at;
   const canImport = hasPerm("integrations.edit") && hasPerm("employees.create");
   const canDelete = hasPerm("employees.delete");
+  const allSelected = activeItems.length > 0 && activeItems.every(e => selected.has(e.id));
+  const someSelected = selected.size > 0 && !allSelected;
 
   return (
     <div className="space-y-5" data-testid="employees-page">
@@ -100,6 +153,14 @@ export function EmployeesList() {
                       className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-11"
                       data-testid="simpro-import-btn">
                 <CloudDownload className="w-4 h-4 mr-1.5"/> Import from Simpro
+              </Button>
+            )}
+            {canDelete && activeItems.length > 0 && (
+              <Button onClick={openBulkForAllInView}
+                       variant="outline"
+                       className="h-11 border-red-300 text-red-700 hover:bg-red-50"
+                       data-testid="employees-delete-all-btn">
+                <Trash2 className="w-4 h-4 mr-1.5"/> Delete all in view
               </Button>
             )}
             {canImport && (
@@ -153,35 +214,61 @@ export function EmployeesList() {
          : (
         <table className="w-full text-sm">
           <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider">
-            <tr><th className="px-4 py-3 text-left">Name</th><th className="px-4 py-3 text-left">Role</th>
-            <th className="px-4 py-3 text-left">Email</th><th className="px-4 py-3 text-left">Phone</th>
-            <th className="px-4 py-3 text-left">Source</th>
-            {canDelete && <th className="px-4 py-3 text-right w-14">Actions</th>}
+            <tr>
+              {canDelete && (
+                <th className="px-3 py-3 text-left w-10">
+                  <Checkbox checked={allSelected} indeterminate={someSelected ? "true" : undefined}
+                             onCheckedChange={toggleAll}
+                             data-testid="employees-select-all"
+                             className="border-white/60 data-[state=checked]:bg-[#F5C518] data-[state=checked]:border-[#F5C518]"/>
+                </th>
+              )}
+              <th className="px-4 py-3 text-left">Name</th>
+              <th className="px-4 py-3 text-left">Contact</th>
+              <th className="px-4 py-3 text-left">Source</th>
+              {canDelete && <th className="px-4 py-3 text-right w-14">Actions</th>}
             </tr>
           </thead>
           <tbody>{items.map(e => (
             <tr key={e.id}
-              className={`border-t border-gray-200 hover:bg-gray-50 ${e.deleted_at ? "opacity-60" : ""}`}
+              className={`border-t border-gray-200 hover:bg-gray-50 ${e.deleted_at ? "opacity-60" : ""} ${selected.has(e.id) ? "bg-yellow-50" : ""}`}
               data-testid={`employee-row-${e.id}`}>
-              <td className="px-4 py-3 font-semibold text-[#1F2A33] cursor-pointer" onClick={() => navigate(`/employees/${e.id}`)}>
-                {e.name}
-                {e.source === "SIMPRO" && (
-                  <span className="ml-2 text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded" data-testid={`simpro-chip-${e.id}`}>Simpro</span>
-                )}
-                {e.excluded_from_sync && (
-                  <span className="ml-2 text-[10px] font-bold uppercase tracking-wider bg-orange-100 text-orange-800 px-1.5 py-0.5 rounded" title="Deleted here — Simpro sync will skip this employee." data-testid={`excluded-chip-${e.id}`}>excluded from sync</span>
-                )}
-                {e.deleted_at && <span className="ml-2 text-[10px] text-red-700 italic">(deleted)</span>}
+              {canDelete && (
+                <td className="px-3 py-3">
+                  {!e.deleted_at && (
+                    <Checkbox checked={selected.has(e.id)}
+                               onCheckedChange={() => toggleRow(e.id)}
+                               data-testid={`employee-select-${e.id}`}/>
+                  )}
+                </td>
+              )}
+              <td className="px-4 py-3 cursor-pointer" onClick={() => navigate(`/employees/${e.id}`)}>
+                <div className="font-bold text-[#1F2A33]">{e.name || `Employee #${e.simpro_employee_id || "?"}`}</div>
+                {e.role && <div className="text-xs text-gray-500 mt-0.5">{e.role}</div>}
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                  {e.simpro_employee_id && (
+                    <span className="text-[10px] font-mono uppercase tracking-wider bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded" data-testid={`simpro-id-chip-${e.id}`}>
+                      SIMPRO #{e.simpro_employee_id}
+                    </span>
+                  )}
+                  {e.excluded_from_sync && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider bg-orange-100 text-orange-800 px-1.5 py-0.5 rounded" title="Deleted here — Simpro sync will skip this employee." data-testid={`excluded-chip-${e.id}`}>excluded from sync</span>
+                  )}
+                  {e.deleted_at && <span className="text-[10px] text-red-700 italic">(deleted)</span>}
+                </div>
               </td>
-              <td className="px-4 py-3 text-gray-600 cursor-pointer" onClick={() => navigate(`/employees/${e.id}`)}>{e.role || "—"}</td>
-              <td className="px-4 py-3 text-gray-600 text-xs cursor-pointer" onClick={() => navigate(`/employees/${e.id}`)}>{e.email || "—"}</td>
-              <td className="px-4 py-3 text-gray-600 text-xs cursor-pointer" onClick={() => navigate(`/employees/${e.id}`)}>{e.phone || "—"}</td>
-              <td className="px-4 py-3 cursor-pointer" onClick={() => navigate(`/employees/${e.id}`)}><span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${SOURCE_BADGE[e.source]||"bg-gray-100"}`}>{e.source}</span></td>
+              <td className="px-4 py-3 cursor-pointer text-xs text-gray-600" onClick={() => navigate(`/employees/${e.id}`)}>
+                <div>{e.email || <span className="text-gray-400">— no email</span>}</div>
+                <div className="mt-0.5">{e.phone || <span className="text-gray-400">— no phone</span>}</div>
+              </td>
+              <td className="px-4 py-3 cursor-pointer" onClick={() => navigate(`/employees/${e.id}`)}>
+                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${SOURCE_BADGE[e.source]||"bg-gray-100"}`}>{e.source}</span>
+              </td>
               {canDelete && (
                 <td className="px-4 py-3 text-right">
                   {!e.deleted_at && (
                     <button type="button"
-                            onClick={(ev) => { ev.stopPropagation(); setDeleteTarget(e); }}
+                            onClick={(ev) => { ev.stopPropagation(); setDeleteTarget(e); setDeleteExcludeSingle(true); setDeleteConsentSingle(false); }}
                             className="text-gray-400 hover:text-red-700 p-1 rounded"
                             title="Delete employee"
                             data-testid={`employee-delete-btn-${e.id}`}
@@ -204,28 +291,102 @@ export function EmployeesList() {
         onImported={async () => { await Promise.all([load(), loadSimpro()]); }}
       />
 
-      {/* Delete confirm dialog */}
+      {/* Floating bulk-action bar */}
+      {canDelete && selected.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-[#1F2A33] text-white rounded-full shadow-2xl border border-white/10 px-5 py-3 flex items-center gap-3"
+              data-testid="employees-bulk-actionbar">
+          <span className="text-sm font-semibold" data-testid="employees-bulk-count">{selected.size} selected</span>
+          <div className="h-4 w-px bg-white/30"/>
+          <Button size="sm" onClick={openBulkForSelected}
+                   className="bg-red-600 hover:bg-red-700 text-white h-8"
+                   data-testid="employees-bulk-delete-btn">
+            <Trash2 className="w-3.5 h-3.5 mr-1"/> Delete selected
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}
+                   className="text-white/80 hover:text-white hover:bg-white/10 h-8"
+                   data-testid="employees-bulk-clear-btn">
+            Clear
+          </Button>
+        </div>
+      )}
+
+      {/* Single-row Delete confirm dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>
         <AlertDialogContent data-testid="employee-delete-confirm">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              They will be hidden from the crew list but retained in the audit trail.
-              {(deleteTarget?.source === "SIMPRO" || deleteTarget?.source === "MOCKED_SIMPRO") && (
-                <>
-                  <br/><br/>
-                  <span className="text-orange-800 bg-orange-50 border border-orange-200 rounded p-2 block text-xs">
-                    <strong>Note:</strong> this employee came from Simpro. Deleting won&apos;t remove them from Simpro — but this record will be flagged and future syncs will skip them. To make the exclusion permanent, also remove their position from the <a href="/admin/settings" className="underline">Position Filter</a>.
-                  </span>
-                </>
-              )}
+              They&apos;ll be hidden from the crew list but retained in the audit trail. This can be undone by restoring from the Deleted tab.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-3">
+            <label className="flex items-start gap-2 cursor-pointer bg-blue-50 border border-blue-200 rounded p-3"
+                    data-testid="employee-delete-exclude-row">
+              <Checkbox checked={deleteExcludeSingle}
+                         onCheckedChange={(v) => setDeleteExcludeSingle(!!v)}
+                         data-testid="employee-delete-exclude-checkbox"
+                         className="mt-0.5"/>
+              <span className="text-xs text-blue-900">
+                <span className="font-bold uppercase tracking-wider text-[10px] block">Also exclude from future Simpro syncs</span>
+                <span className="text-[11px] text-blue-800">Ticked = the Simpro sync worker will skip this record even if it still exists in Simpro. Untick if you plan to re-import them later.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 cursor-pointer" data-testid="employee-delete-consent-row">
+              <Checkbox checked={deleteConsentSingle}
+                         onCheckedChange={(v) => setDeleteConsentSingle(!!v)}
+                         data-testid="employee-delete-consent-checkbox"
+                         className="mt-0.5"/>
+              <span className="text-xs text-gray-700">I understand this is logged and reversible</span>
+            </label>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="employee-delete-cancel">Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={doDelete}
-              className="bg-red-600 text-white hover:bg-red-700"
+              disabled={!deleteConsentSingle}
+              className="bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
               data-testid="employee-delete-confirm-btn">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete confirm dialog */}
+      <AlertDialog open={bulkOpen} onOpenChange={(v) => !v && setBulkOpen(false)}>
+        <AlertDialogContent data-testid="employees-bulk-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {bulkTargetIds.length} employee{bulkTargetIds.length === 1 ? "" : "s"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              They&apos;ll be hidden from the crew list but retained in the audit trail. This can be undone by restoring individual rows.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3">
+            <label className="flex items-start gap-2 cursor-pointer bg-blue-50 border border-blue-200 rounded p-3"
+                    data-testid="employees-bulk-exclude-row">
+              <Checkbox checked={bulkExclude}
+                         onCheckedChange={(v) => setBulkExclude(!!v)}
+                         data-testid="employees-bulk-exclude-checkbox"
+                         className="mt-0.5"/>
+              <span className="text-xs text-blue-900">
+                <span className="font-bold uppercase tracking-wider text-[10px] block">Also exclude these employees from future Simpro syncs</span>
+                <span className="text-[11px] text-blue-800">Leave unchecked if you plan to re-import these employees from Simpro. Tick if you want them permanently excluded — e.g. contractors, terminated staff, or people who should never sync back.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 cursor-pointer" data-testid="employees-bulk-consent-row">
+              <Checkbox checked={bulkConsent}
+                         onCheckedChange={(v) => setBulkConsent(!!v)}
+                         data-testid="employees-bulk-consent-checkbox"
+                         className="mt-0.5"/>
+              <span className="text-xs text-gray-700">I understand this is logged and reversible</span>
+            </label>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="employees-bulk-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={doBulkDelete}
+              disabled={!bulkConsent || bulkDeleting}
+              className="bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              data-testid="employees-bulk-confirm-btn">
+              {bulkDeleting ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin"/> : null}
+              Delete {bulkTargetIds.length}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

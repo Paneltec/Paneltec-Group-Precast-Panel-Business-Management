@@ -124,6 +124,9 @@ export default function SimproEmployeeImportModal({ open, onOpenChange, simpro, 
                 </span>
               )}
             </div>
+            <div className="text-[11px] text-gray-500 italic" data-testid="simpro-import-detail-hint">
+              Preview shows Name + Simpro ID only. Email, phone and role are fetched on Import.
+            </div>
 
             {previewErr && (
               <div className="bg-red-50 border border-red-200 text-red-900 rounded p-3 text-sm" data-testid="simpro-import-error">

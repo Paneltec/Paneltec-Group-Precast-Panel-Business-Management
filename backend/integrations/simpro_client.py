@@ -167,6 +167,50 @@ class SimproClient:
             rows.extend(await self._iter_company(cid, "employees"))
         return rows
 
+    async def get_employee_detail(self, company_id: int, employee_id: str) -> Dict[str, Any]:
+        """Fetch the full employee record from Simpro.
+        The detail endpoint is `/companies/{cid}/employees/{eid}` (NO trailing
+        slash — Simpro returns 404 "Invalid route" with a trailing slash on
+        this specific resource). Returns {} on 404 / any error — never raises."""
+        try:
+            r = await self._request("GET", f"/companies/{company_id}/employees/{employee_id}")
+            if r.status_code == 401:
+                raise SimproAuthError("Simpro authentication failed", status_code=401)
+            if r.status_code >= 400:
+                logger.info("[simpro.detail] company=%s employee=%s HTTP %s body=%r",
+                             company_id, employee_id, r.status_code, (r.text or "")[:120])
+                return {}
+            body = r.json() or {}
+            return body if isinstance(body, dict) else {}
+        except SimproAuthError:
+            raise
+        except (SimproError, httpx.HTTPError) as e:
+            logger.warning("[simpro.detail] company=%s employee=%s error %s: %s",
+                            company_id, employee_id, type(e).__name__, str(e)[:120])
+            return {}
+
+    async def enrich_employees(self, rows: List[Dict[str, Any]],
+                                concurrency: int = 8) -> List[Dict[str, Any]]:
+        """Fan out a bounded batch of detail calls, merging each response back
+        onto its source row. Rows missing `_source_company_id` or `ID` are
+        left as-is."""
+        sem = asyncio.Semaphore(concurrency)
+        async def _one(row: Dict[str, Any]) -> None:
+            cid = row.get("_source_company_id")
+            eid = row.get("ID")
+            if cid is None or eid is None:
+                return
+            async with sem:
+                detail = await self.get_employee_detail(cid, str(eid))
+            if detail:
+                for k, v in detail.items():
+                    # Do not overwrite ID / Name / _source_company_id from the list row.
+                    if k in ("ID", "Name", "_source_company_id"):
+                        continue
+                    row[k] = v
+        await asyncio.gather(*(_one(r) for r in rows))
+        return rows
+
     async def iter_all(self, list_fn, hard_cap: int = 5000) -> List[Dict[str, Any]]:
         """Kept for source-level backwards compatibility with server.py.
         The new list_customers / list_employees already iterate every configured
@@ -233,13 +277,31 @@ def map_customer(sim: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def map_employee(sim: Dict[str, Any]) -> Dict[str, Any]:
-    given = (sim.get("GivenName") or "").strip()
-    family = (sim.get("FamilyName") or "").strip()
+    """Map a Simpro employee (either the thin list-endpoint row or the
+    fully-hydrated detail-endpoint response) to the Paneltec employee schema.
+
+    Simpro's list endpoint returns only `{ID, Name}`. The detail endpoint
+    (`/companies/{cid}/employees/{eid}` — no trailing slash) additionally
+    returns `Position`, `PrimaryContact.{Email, WorkPhone, CellPhone}`, plus
+    Address / Banking / etc. that we don't need. We prefer CellPhone over
+    WorkPhone."""
+    name = (sim.get("Name") or "").strip()
+    if not name:
+        given = (sim.get("GivenName") or "").strip()
+        family = (sim.get("FamilyName") or "").strip()
+        name = (f"{given} {family}").strip()
+    if not name:
+        name = f"Simpro #{sim.get('ID')}"
+    contact = sim.get("PrimaryContact") or {}
+    email = (contact.get("Email") or sim.get("Email") or "").strip().lower()
+    phone = (contact.get("CellPhone") or contact.get("WorkPhone")
+              or sim.get("Phone") or sim.get("Mobile") or "").strip()
+    role = (sim.get("Position") or sim.get("Type") or sim.get("Title") or "").strip()[:100]
     return {
         "simpro_employee_id": str(sim.get("ID")),
-        "name": (f"{given} {family}").strip() or f"Simpro #{sim.get('ID')}",
-        "role": (sim.get("Type") or sim.get("Position") or "").strip()[:100],
-        "email": (sim.get("Email") or "").strip().lower(),
-        "phone": (sim.get("Phone") or sim.get("WorkPhone") or "").strip()[:50],
+        "name": name,
+        "role": role,
+        "email": email,
+        "phone": phone[:50],
         "notes": "",
     }

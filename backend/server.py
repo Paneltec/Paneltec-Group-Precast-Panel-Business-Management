@@ -1483,15 +1483,51 @@ async def update_employee(eid: str, payload: EmployeeIn, actor: dict = Depends(r
     return await db.employees.find_one({"id": eid}, {"_id":0})
 
 @api_router.delete("/employees/{eid}")
-async def del_employee(eid: str, permanent: bool = Query(False), actor: dict = Depends(require_permission("employees.delete"))):
+async def del_employee(eid: str, permanent: bool = Query(False),
+                        exclude_from_sync: bool = Query(True),
+                        actor: dict = Depends(require_permission("employees.delete"))):
     if permanent:
         if not actor.get("is_super_admin"): raise HTTPException(status_code=403, detail="Super admin required for permanent delete")
         return await hard_delete_with_refs(db.employees, eid, actor, "employee", "name")
     result = await soft_delete_doc(db.employees, eid, actor, "name", "employee")
     # Phase 11.7.2 — flag Simpro-sourced employees as excluded so a future
-    # sync doesn't resurrect them.
-    await db.employees.update_one({"id": eid}, {"$set": {"excluded_from_sync": True}})
+    # sync doesn't resurrect them. Overridable via ?exclude_from_sync=false so
+    # bulk-delete-then-reimport flows leave the row eligible for re-sync.
+    if exclude_from_sync:
+        await db.employees.update_one({"id": eid}, {"$set": {"excluded_from_sync": True}})
     return result
+
+
+class EmployeeBulkDeletePayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    employee_ids: List[str] = Field(min_length=1)
+    exclude_from_sync: bool = False   # default UNCHECKED for bulk — user's usually resetting to re-import
+
+@api_router.post("/employees/bulk-delete")
+async def bulk_delete_employees(payload: EmployeeBulkDeletePayload,
+                                 actor: dict = Depends(require_permission("employees.delete"))):
+    """Soft-delete multiple employees in one call. Writes ONE consolidated
+    audit event `bulk_deleted_employees`. When exclude_from_sync is True,
+    every row is also flagged so the Simpro sync worker will skip them."""
+    ids = list({str(x) for x in payload.employee_ids if str(x).strip()})
+    if not ids:
+        raise HTTPException(status_code=400, detail="No employee IDs supplied.")
+    now = now_iso()
+    update = {"deleted_at": now, "deleted_by_user_id": actor["id"],
+              "updated_at": now, "updated_by_user_id": actor["id"]}
+    if payload.exclude_from_sync:
+        update["excluded_from_sync"] = True
+    r = await db.employees.update_many(
+        {"id": {"$in": ids}, "deleted_at": None},
+        {"$set": update})
+    excluded = r.modified_count if payload.exclude_from_sync else 0
+    await record_audit(actor, "bulk_deleted_employees", "employee",
+                        entity_id=None, entity_label=f"{r.modified_count} employees",
+                        metadata={"count": r.modified_count,
+                                    "exclude_from_sync": bool(payload.exclude_from_sync),
+                                    "employee_ids": ids})
+    return {"deleted": r.modified_count, "excluded": excluded}
+
 
 @api_router.post("/employees/{eid}/restore")
 async def rest_employee(eid: str, actor: dict = Depends(require_permission("employees.delete"))):
@@ -3478,6 +3514,25 @@ async def simpro_sync_employees(payload: Optional[SimproSyncEmployeesPayload] = 
             {"$set":{"simpro.last_sync_at": now_iso(), "simpro.last_sync_status": "error",
                      "simpro.last_sync_error": str(e)}})
         raise HTTPException(status_code=502, detail=f"Simpro API error: {e}")
+
+    # Phase 11.7.7 — Simpro's list endpoint only returns {ID, Name}. Hydrate
+    # each row we're actually going to write with the detail endpoint before
+    # mapping. Restrict to the caller-selected company_ids and picked IDs
+    # first so we don't fan out unnecessary calls.
+    to_enrich: List[Dict[str, Any]] = []
+    for raw in remote:
+        sid = str((raw or {}).get("ID"))
+        cid = (raw or {}).get("_source_company_id")
+        if filter_ids is not None and sid not in filter_ids:
+            continue
+        if selected_cids is not None and cid is not None and cid not in selected_cids:
+            continue
+        to_enrich.append(raw)
+    try:
+        await client.enrich_employees(to_enrich)
+    except SimproAuthError:
+        raise HTTPException(status_code=502, detail="Simpro authentication failed while fetching employee details.")
+    logger.info("[simpro.sync] enriched %s of %s employees", len(to_enrich), len(remote))
 
     for raw in remote:
         try:
