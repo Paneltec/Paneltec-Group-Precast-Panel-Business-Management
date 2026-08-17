@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2, ArrowLeft, Save, Trash2, CloudDownload, ChevronDown } from "lucide-react";
 import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
@@ -26,8 +26,9 @@ const SOURCE_BADGE = {
 
 export function EmployeesList() {
   const { hasPerm } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState(null);
-  const [statusFilter, setStatusFilter] = useState("active");
+  const [statusFilter, _setStatusFilter] = useState(searchParams.get("tab") || "active");
   const [simpro, setSimpro] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);          // single-row confirm
@@ -37,6 +38,22 @@ export function EmployeesList() {
   const [bulkTargetIds, setBulkTargetIds] = useState([]);          // ids to delete (selected OR all-in-view)
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const navigate = useNavigate();
+
+  // Phase 11.7.11 — bind filter state to URL query params so page reloads
+  // and shared links preserve the view (e.g. /employees?tab=active&position=Precast+Panel+Employee).
+  const patchParams = (patch) => {
+    const next = new URLSearchParams(searchParams);
+    Object.entries(patch).forEach(([k, v]) => {
+      if (v === undefined || v === null || v === "" || v === "__all__" ||
+          (k === "tab" && v === "active")) {
+        next.delete(k);
+      } else {
+        next.set(k, v);
+      }
+    });
+    setSearchParams(next, { replace: true });
+  };
+  const setStatusFilter = (v) => { _setStatusFilter(v); patchParams({ tab: v }); };
 
   const load = async () => {
     setItems(null);
@@ -126,11 +143,18 @@ export function EmployeesList() {
   const allSelected = activeItems.length > 0 && activeItems.every(e => selected.has(e.id));
   const someSelected = selected.size > 0 && !allSelected;
 
-  // Phase 11.7.9 — client-side filters (text + position)
-  const [textFilter, setTextFilter] = useState("");
-  const [positionFilter, setPositionFilter] = useState("__all__");
+  // Phase 11.7.9 — client-side filters (text + position), URL-bound
+  const [textFilter, _setTextFilter] = useState(searchParams.get("q") || "");
+  const [positionFilter, _setPositionFilter] = useState(searchParams.get("position") || "__all__");
+  const setTextFilter = (v) => { _setTextFilter(v); patchParams({ q: v }); };
+  const setPositionFilter = (v) => { _setPositionFilter(v); patchParams({ position: v }); };
+  const clearFilters = () => {
+    _setTextFilter(""); _setPositionFilter("__all__");
+    patchParams({ q: "", position: "__all__" });
+  };
+  const anyFilterActive = textFilter.trim() !== "" || positionFilter !== "__all__";
   const [refreshMenuOpen, setRefreshMenuOpen] = useState(false);
-  const knownCompanyNames = simpro?.known_company_names || {};   // best-effort — cached by Test Connection
+  const knownCompanyNames = simpro?.company_names || {};   // persisted from Test Connection / LIST pick
   const distinctPositions = useMemo(() => {
     const s = new Set();
     (items || []).forEach(e => { if ((e.role || "").trim()) s.add(e.role.trim()); });
@@ -271,6 +295,13 @@ export function EmployeesList() {
                    data-testid="employees-filter-count">
               {filteredItems.length} match{filteredItems.length === 1 ? "" : "es"}
             </span>
+            {anyFilterActive && (
+              <button type="button" onClick={clearFilters}
+                       className="text-[11px] uppercase tracking-wider font-semibold text-[#3A6B8C] underline hover:text-[#1F2A33]"
+                       data-testid="employees-clear-filters">
+                Clear filters
+              </button>
+            )}
           </div>
         )}
       </div>

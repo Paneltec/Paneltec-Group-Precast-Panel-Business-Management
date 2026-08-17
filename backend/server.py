@@ -485,6 +485,7 @@ class IntegrationSimpro(BaseModel):
     staff_custom_field: str = ""
     staff_field_value: str = ""
     position_filter: Dict[str, List[str]] = Field(default_factory=dict)   # DEPRECATED — position filter removed 2026-08-08 per user directive. Field retained for backwards compatibility; not used in sync path.
+    company_names: Dict[str, str] = Field(default_factory=dict)   # keyed by str(company_id) — populated on Test Connection / LIST pick so the UI can show real names after page reload
     sync_interval_minutes: int = 60
     auto_sync_enabled: bool = True
     completed_jobs_history_days: int = 30
@@ -3305,11 +3306,22 @@ async def simpro_test_live(payload: SimproProbePayload,
             for cid in payload.company_ids:
                 results.append(await _simpro_probe_one(c, api_root, headers, cid))
             all_ok = all(r["ok"] for r in results)
+            # Phase 11.7.10 — persist any learned company_name so page reloads
+            # can label the split-refresh dropdown without another probe.
+            learned = {str(r["company_id"]): r["company_name"]
+                        for r in results if r.get("ok") and r.get("company_id") is not None and r.get("company_name")}
+            if learned:
+                updates = {f"simpro.company_names.{k}": v for k, v in learned.items()}
+                await db.settings.update_one({"key":"integrations"}, {"$set": updates})
             return {"ok": all_ok,
                      "message": "All companies reachable." if all_ok else "One or more companies failed — see per-company results.",
-                     "results": results}
+                     "results": results,
+                     "learned_company_names": learned}
         # Legacy single-probe path (used implicitly by test-modal LIST view)
         one = await _simpro_probe_one(c, api_root, headers, payload.company_id)
+        if one.get("ok") and one.get("company_id") is not None and one.get("company_name"):
+            await db.settings.update_one({"key":"integrations"},
+                {"$set": {f"simpro.company_names.{one['company_id']}": one["company_name"]}})
         return {"ok": one["ok"], "message": one["message"],
                  "company_name": one.get("company_name"),
                  "results": [one]}
