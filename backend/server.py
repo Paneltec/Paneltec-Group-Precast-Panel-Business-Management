@@ -3488,6 +3488,19 @@ async def simpro_preview_employees(payload: SimproSyncEmployeesPayload,
         raise HTTPException(status_code=502, detail="Simpro authentication failed — check the API token.")
     except SimproError as e:
         raise HTTPException(status_code=502, detail=f"Simpro API error: {e}")
+    # Filter to caller-selected company_ids BEFORE enriching so we don't
+    # fan out unnecessary detail calls when the user has narrowed scope.
+    if payload.company_ids:
+        cids = set(payload.company_ids)
+        remote = [r for r in remote if (r or {}).get("_source_company_id") in cids
+                                          or (r or {}).get("_source_company_id") is None]
+    # Enrich Preview rows with Position / Email / Phone so the user sees the
+    # same fields they'll get after Import. Bounded concurrency (8) — a 60-row
+    # tenant completes in 5-10s.
+    try:
+        await client.enrich_employees(remote)
+    except SimproAuthError:
+        raise HTTPException(status_code=502, detail="Simpro authentication failed while fetching employee details.")
     known = {d["simpro_employee_id"]: True async for d in db.employees.find(
         {"simpro_employee_id": {"$ne": None}}, {"_id":0, "simpro_employee_id":1})}
     items: List[Dict[str, Any]] = []
@@ -3498,12 +3511,9 @@ async def simpro_preview_employees(payload: SimproSyncEmployeesPayload,
         items.append({"simpro_employee_id": sid,
                        "name": m.get("name"), "email": m.get("email"),
                        "position": m.get("role") or "",
+                       "phone": m.get("phone"),
                        "company_id": cid,
                        "exists_in_paneltec": bool(known.get(sid))})
-    # Filter to selected company_ids if provided
-    if payload.company_ids:
-        cids = set(payload.company_ids)
-        items = [i for i in items if (i.get("company_id") in cids or i.get("company_id") is None)]
     new_count = sum(1 for i in items if not i["exists_in_paneltec"])
     return {"items": items, "count": len(items),
             "new_count": new_count, "existing_count": len(items) - new_count}

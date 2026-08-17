@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { Loader2, ArrowLeft, Save, Trash2, CloudDownload } from "lucide-react";
+import { Loader2, ArrowLeft, Save, Trash2, CloudDownload, ChevronDown } from "lucide-react";
 import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -101,10 +101,10 @@ export function EmployeesList() {
     }
   };
 
-  const runRefresh = async () => {
+  const runRefresh = async (companyIdsOverride) => {
     setRefreshing(true);
     try {
-      const cids = (simpro?.company_ids || []).map(Number);
+      const cids = companyIdsOverride ?? (simpro?.company_ids || []).map(Number);
       const { data } = await api.post("/integrations/simpro/sync-employees",
         { company_ids: cids });
       const created = data.created ?? 0;
@@ -125,6 +125,26 @@ export function EmployeesList() {
   const canDelete = hasPerm("employees.delete");
   const allSelected = activeItems.length > 0 && activeItems.every(e => selected.has(e.id));
   const someSelected = selected.size > 0 && !allSelected;
+
+  // Phase 11.7.9 — client-side filters (text + position)
+  const [textFilter, setTextFilter] = useState("");
+  const [positionFilter, setPositionFilter] = useState("__all__");
+  const [refreshMenuOpen, setRefreshMenuOpen] = useState(false);
+  const knownCompanyNames = simpro?.known_company_names || {};   // best-effort — cached by Test Connection
+  const distinctPositions = useMemo(() => {
+    const s = new Set();
+    (items || []).forEach(e => { if ((e.role || "").trim()) s.add(e.role.trim()); });
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [items]);
+  const filteredItems = useMemo(() => {
+    const q = textFilter.trim().toLowerCase();
+    return (items || []).filter(e => {
+      if (positionFilter !== "__all__" && (e.role || "") !== positionFilter) return false;
+      if (!q) return true;
+      const hay = `${e.name || ""} ${e.email || ""} ${e.phone || ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [items, textFilter, positionFilter]);
 
   return (
     <div className="space-y-5" data-testid="employees-page">
@@ -155,15 +175,49 @@ export function EmployeesList() {
               </Button>
             )}
             {canImport && (
-              <Button onClick={runRefresh}
-                       disabled={refreshing || !simproConfigured}
-                       variant="outline"
-                       className="h-11 border-[#1F2A33] text-[#1F2A33] hover:bg-[#1F2A33] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                       title={!simproConfigured ? "Configure Simpro first" : undefined}
-                       data-testid="simpro-refresh-btn">
-                {refreshing ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin"/> : <AppIcon name="refresh" size={14} decorative className="mr-1.5"/>}
-                Refresh from Simpro
-              </Button>
+              <div className="relative inline-flex" data-testid="simpro-refresh-split">
+                <Button onClick={() => runRefresh()}
+                         disabled={refreshing || !simproConfigured}
+                         variant="outline"
+                         className="h-11 border-[#1F2A33] text-[#1F2A33] hover:bg-[#1F2A33] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed rounded-r-none border-r-0"
+                         title={!simproConfigured ? "Configure Simpro first" : "Refresh from all configured companies"}
+                         data-testid="simpro-refresh-btn">
+                  {refreshing ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin"/> : <AppIcon name="refresh" size={14} decorative className="mr-1.5"/>}
+                  Refresh from Simpro
+                </Button>
+                <Button onClick={() => setRefreshMenuOpen(v => !v)}
+                         disabled={refreshing || !simproConfigured}
+                         variant="outline"
+                         className="h-11 border-[#1F2A33] text-[#1F2A33] hover:bg-[#1F2A33] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed rounded-l-none px-2"
+                         title="Choose specific companies"
+                         data-testid="simpro-refresh-menu-toggle">
+                  <ChevronDown className="w-4 h-4"/>
+                </Button>
+                {refreshMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded shadow-lg min-w-[240px] py-1"
+                       data-testid="simpro-refresh-menu">
+                    {(simpro?.company_ids || []).map(cid => {
+                      const name = knownCompanyNames[cid];
+                      return (
+                        <button key={cid} type="button"
+                                onClick={() => { setRefreshMenuOpen(false); runRefresh([Number(cid)]); }}
+                                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                                data-testid={`simpro-refresh-only-${cid}`}>
+                          <span className="text-[10px] font-mono bg-[#1F2A33] text-white rounded px-1.5 py-0.5">CO {cid}</span>
+                          <span>Refresh {name ? name : `CO ${cid}`}</span>
+                        </button>
+                      );
+                    })}
+                    <div className="border-t border-gray-200 my-1"/>
+                    <button type="button"
+                            onClick={() => { setRefreshMenuOpen(false); runRefresh(); }}
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 font-semibold"
+                            data-testid="simpro-refresh-all">
+                      Refresh all
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
           {canImport && (
@@ -193,15 +247,37 @@ export function EmployeesList() {
         </div>
       )}
 
-      <div className="inline-flex rounded border border-gray-200 bg-white p-0.5 text-xs">
-        {[["active","Active"],["inactive","Inactive"],["all","All"]].map(([k,l])=>(
-          <button key={k} onClick={() => setStatusFilter(k)} data-testid={`emp-filter-${k}`}
-            className={`px-3 py-1.5 rounded font-semibold ${statusFilter===k ? "bg-[#1F2A33] text-white" : "text-gray-600 hover:bg-gray-50"}`}>{l}</button>
-        ))}
+      <div className="flex flex-wrap items-center gap-3 justify-between">
+        <div className="inline-flex rounded border border-gray-200 bg-white p-0.5 text-xs">
+          {[["active","Active"],["inactive","Inactive"],["all","All"]].map(([k,l])=>(
+            <button key={k} onClick={() => setStatusFilter(k)} data-testid={`emp-filter-${k}`}
+              className={`px-3 py-1.5 rounded font-semibold ${statusFilter===k ? "bg-[#1F2A33] text-white" : "text-gray-600 hover:bg-gray-50"}`}>{l}</button>
+          ))}
+        </div>
+        {(items || []).length > 0 && (
+          <div className="flex flex-wrap items-center gap-2" data-testid="employees-filters">
+            <Input value={textFilter} onChange={(e) => setTextFilter(e.target.value)}
+                    placeholder="Search name, email, phone…"
+                    className="h-9 w-64 text-sm"
+                    data-testid="employees-text-filter"/>
+            <select value={positionFilter}
+                     onChange={(e) => setPositionFilter(e.target.value)}
+                     className="h-9 border border-gray-300 rounded px-2 text-sm bg-white min-w-[200px]"
+                     data-testid="employees-position-filter">
+              <option value="__all__">All positions</option>
+              {distinctPositions.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <span className="text-[11px] uppercase tracking-wider font-bold bg-[#1F2A33] text-white rounded-full px-2.5 py-1"
+                   data-testid="employees-filter-count">
+              {filteredItems.length} match{filteredItems.length === 1 ? "" : "es"}
+            </span>
+          </div>
+        )}
       </div>
       <div className="bg-white border border-gray-200 rounded overflow-hidden">
         {items === null ? <div className="p-6 text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin"/> Loading…</div>
          : items.length === 0 ? <div className="p-6 text-sm text-gray-500">No employees in this view.</div>
+         : filteredItems.length === 0 ? <div className="p-6 text-sm text-gray-500">No employees match the current filters.</div>
          : (
         <table className="w-full text-sm">
           <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider">
@@ -220,7 +296,7 @@ export function EmployeesList() {
               {canDelete && <th className="px-4 py-3 text-right w-14">Actions</th>}
             </tr>
           </thead>
-          <tbody>{items.map(e => (
+          <tbody>{filteredItems.map(e => (
             <tr key={e.id}
               className={`border-t border-gray-200 hover:bg-gray-50 ${e.deleted_at ? "opacity-60" : ""} ${selected.has(e.id) ? "bg-yellow-50" : ""}`}
               data-testid={`employee-row-${e.id}`}>

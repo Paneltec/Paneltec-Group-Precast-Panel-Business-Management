@@ -129,7 +129,7 @@ export default function SimproEmployeeImportModal({ open, onOpenChange, simpro, 
               )}
             </div>
             <div className="text-[11px] text-gray-500 italic" data-testid="simpro-import-detail-hint">
-              Preview shows Name + Simpro ID only. Email, phone and role are fetched on Import.
+              Preview fetches every employee&apos;s full details from Simpro (may take a moment for large tenants).
             </div>
 
             {previewErr && (
