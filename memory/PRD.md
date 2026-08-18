@@ -605,3 +605,41 @@ Manual curl + screenshot. Simpro PAT untouched. No testing_agent.
 - `/app/frontend/src/components/StockPickerModal.jsx` — no per-row Supplier column. Supplier text appears only on the orange category banner (Phase 12.7).
 - Backend model unchanged: `supplier_id` and `supplier_name_override` continue to be persisted on every stock line for the customer PDF and internal traceability.
 - Live DOM check: header labels = `['Part no.', 'Description', 'Panel', 'L × H', 'Qty', 'Subtotal', 'Total']`; body cells containing exactly `"Ramset"` = **0**.
+
+### Phase 12.9 — Discoverable Delete + stock-line dedup by part_number (2026-08-18)
+Manual curl + screenshot. Simpro PAT untouched. No testing_agent.
+
+**Backend** — `/app/backend/server.py`
+- Added `_find_existing_stock_line_idx(lines, part_no)` — returns the index of an existing stock line with a matching part_number, else `None`.
+- Added `_increment_stock_line_qty(line, delta_qty, pricing)` — bumps qty and recomputes subtotal / GST / total for the line in place.
+- `POST /api/quotes/{qid}/lines` — for stock payloads with a `part_number`, merges into any existing matching stock line instead of appending. Response gains an `action: "created" | "updated"` marker. Panel lines are unaffected.
+- `POST /api/quotes/{qid}/lines/batch` — dedups per-item, returns `{added, updated, failed, results[], totals}` (`results[i].action` is `"created"` or `"updated"` when successful).
+
+**Frontend** — `/app/frontend/src/pages/QuoteEditor.jsx`
+- Replaced `window.confirm(...)` with a shadcn **AlertDialog** — title `"Remove <part_number OR panel-type L×H> from this quote?"`, muted description, Cancel + red **Delete line** action.
+- Trash button restyled from hover-only ghost → always-visible red pill (`bg-red-50 border-red-200 → hover:bg-red-600 text-white`). Rendered on every row (stock and panel) via `rootHasPerm("quotes.edit")`. Edit pencil remains panel-only.
+- New `lineLabelFor(line)` helper composes a friendly line identifier for the confirm modal.
+
+**Frontend** — `/app/frontend/src/components/StockPickerModal.jsx`
+- Toast on batch success now composes `Added N new items, updated M existing quantities.` based on the new response counts. Failure path still returns the failed rows to the picker for retry.
+
+**Curl verification (fresh quote 10cd3163-3c7a-4344-8c0d-f6dd29acfa69)**
+```
+1) Single add:  FL050125B qty=5   → action=created,  qty=5,   subtotal $54.10
+2) Single add:  FL050125B qty=3   → action=updated,  qty=8,   subtotal $86.56   (5+3, 8 × $10.82)
+3) Batch: [FL050125B qty=2, FL050150B qty=7]
+              → added=1  updated=1  failed=0
+              → FL050125B qty=10, FL050150B qty=7
+4) Two panel adds — same 6×3×150 Wall Standard, qty=1 each
+              → both kept as separate rows (panels not deduped)
+
+Final quote:
+  stock  | FL050125B     | qty=10 | subtotal 108.20
+  stock  | FL050150B     | qty= 7 | subtotal  75.74
+  panel  | wall_standard | qty= 1 | subtotal 5112.00
+  panel  | wall_standard | qty= 1 | subtotal 5112.00   ← intentionally NOT merged
+```
+
+**Screenshots delivered**
+- Quote line-items view showing a red trash button on every row (`Delete buttons rendered: 4 / expected 4`).
+- Confirm modal open on FL050125B: `Remove FL050125B from this quote?` + Cancel / red "Delete line".

@@ -15,6 +15,7 @@ import { formatAUD, formatNumber } from "../lib/format";
 import { useAuth } from "../contexts/AuthContext";
 import { Toaster, toast } from "sonner";
 import StockPickerModal from "../components/StockPickerModal";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
 
 const REINFORCEMENT_OPTIONS = [
   { value: "light", label: "Light (mesh)" },
@@ -46,6 +47,7 @@ export default function QuoteEditor() {
   const [error, setError] = useState("");
   const [lineDialog, setLineDialog] = useState({ open: false, mode: "add", line: null });
   const [stockPickerOpen, setStockPickerOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, line: null });
 
   // Form state for top fields
   const [customerId, setCustomerId] = useState("");
@@ -149,7 +151,6 @@ export default function QuoteEditor() {
 
   const onLineDelete = async (lineId) => {
     if (!createdQuoteId) return;
-    if (!window.confirm("Remove this line?")) return;
     try {
       await api.delete(`/quotes/${createdQuoteId}/lines/${lineId}`);
       await refreshQuote(createdQuoteId);
@@ -158,6 +159,10 @@ export default function QuoteEditor() {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     }
   };
+
+  const lineLabelFor = (l) => l?.part_number
+    ? l.part_number
+    : (l?.panel_type_label ? `${l.panel_type_label} ${l.length_m || ""}×${l.height_m || ""}m` : "this line");
 
   const onSend = async () => {
     if (!createdQuoteId) { toast.error("Save the draft first"); return; }
@@ -292,10 +297,23 @@ export default function QuoteEditor() {
                         <td className="px-3 py-2.5 text-right tabular-nums">{formatAUD(l.subtotal_aud)}</td>
                         <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{formatAUD(l.total_aud)}</td>
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                          {!isStock && (
-                            <button onClick={() => setLineDialog({ open: true, mode: "edit", line: l })} className="p-1.5 hover:bg-gray-100 rounded" data-testid={`edit-line-${l.id}`}><AppIcon name="edit" size={14} decorative/></button>
+                          {!isStock && rootHasPerm("quotes.edit") && (
+                            <button onClick={() => setLineDialog({ open: true, mode: "edit", line: l })}
+                                    className="p-1.5 hover:bg-gray-100 rounded"
+                                    data-testid={`edit-line-${l.id}`}
+                                    aria-label="Edit line">
+                              <Edit2 size={14}/>
+                            </button>
                           )}
-                          <button onClick={() => onLineDelete(l.id)} className="p-1.5 hover:bg-red-50 text-red-600 rounded ml-1" data-testid={`delete-line-${l.id}`}><AppIcon name="delete" size={14} decorative/></button>
+                          {rootHasPerm("quotes.edit") && (
+                            <button onClick={() => setDeleteConfirm({ open: true, line: l })}
+                                    className="p-2 ml-1 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded transition-colors border border-red-200 hover:border-red-600"
+                                    data-testid={`delete-line-${l.id}`}
+                                    aria-label={`Remove ${lineLabelFor(l)}`}
+                                    title={`Remove ${lineLabelFor(l)}`}>
+                              <Trash2 size={14}/>
+                            </button>
+                          )}
                         </td>
                       </tr>);
                     })}
@@ -364,6 +382,30 @@ export default function QuoteEditor() {
           onAdded={() => refreshQuote(createdQuoteId)}
         />
       )}
+
+      <AlertDialog open={deleteConfirm.open} onOpenChange={(v) => !v && setDeleteConfirm({ open: false, line: null })}>
+        <AlertDialogContent data-testid="line-delete-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {lineLabelFor(deleteConfirm.line)} from this quote?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The line will be removed and quote totals will recalculate. This can&apos;t be undone from here — you&apos;ll need to re-add the line if you change your mind.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="line-delete-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                const id = deleteConfirm.line?.id;
+                setDeleteConfirm({ open: false, line: null });
+                if (id) await onLineDelete(id);
+              }}
+              className="bg-red-600 text-white hover:bg-red-700"
+              data-testid="line-delete-confirm-btn">
+              Delete line
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

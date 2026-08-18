@@ -2495,22 +2495,63 @@ async def _require_draft(qid: str) -> dict:
     if q["status"] != "draft": raise HTTPException(status_code=400, detail="Only draft quotes can be modified")
     return q
 
+def _find_existing_stock_line_idx(lines: List[Dict[str, Any]], part_no: Optional[str]) -> Optional[int]:
+    """Return the index of an existing stock line matching part_no, else None.
+    Only stock lines are deduplicated — panel lines can legitimately repeat."""
+    if not part_no: return None
+    p = part_no.strip()
+    for i, l in enumerate(lines):
+        if l.get("line_type") == "stock" and (l.get("part_number") or "").strip() == p:
+            return i
+    return None
+
+
+def _increment_stock_line_qty(line: Dict[str, Any], delta_qty: int, pricing: Dict[str, Any]) -> Dict[str, Any]:
+    """Bump an existing stock line's quantity + recompute its per-line totals in place-safe copy."""
+    new_qty = int(line.get("quantity", 0)) + int(delta_qty)
+    unit_price = float(line.get("unit_price_aud") or 0.0)
+    subtotal = _round2(unit_price * new_qty)
+    gst_rate = float(pricing.get("gst_rate_pct", 10.0))
+    gst = _round2(subtotal * gst_rate / 100.0)
+    updated = dict(line)
+    updated["quantity"] = new_qty
+    updated["subtotal_aud"] = subtotal
+    updated["gst_aud"] = gst
+    updated["total_aud"] = _round2(subtotal + gst)
+    updated["margin_aud"] = subtotal
+    return updated
+
+
 @api_router.post("/quotes/{qid}/lines", status_code=201)
 async def add_quote_line(qid: str, payload: QuoteLineInput, _user: dict = Depends(require_permission("quotes.edit"))):
     await _require_draft(qid)
     pricing = await db.settings.find_one({"key":"pricing"}, {"_id":0,"key":0})
-    line = build_quote_line(payload, pricing)
     quote = await db.quotes.find_one({"id":qid}, {"_id":0,"line_items":1})
-    lines = quote.get("line_items", []) + [line]
+    lines = list(quote.get("line_items", []))
+    # Stock-line dedup by part_number — increment qty on existing line instead of creating a duplicate
+    if payload.line_type == "stock" and payload.part_number:
+        existing_idx = _find_existing_stock_line_idx(lines, payload.part_number)
+        if existing_idx is not None:
+            lines[existing_idx] = _increment_stock_line_qty(lines[existing_idx],
+                                                              int(payload.quantity or 1),
+                                                              pricing)
+            t = recompute_totals(lines)
+            await db.quotes.update_one({"id":qid},
+                {"$set":{"line_items":lines, **{k:t[k] for k in t}, "updated_at":now_iso()}})
+            return {"line": lines[existing_idx], "totals": t, "action": "updated"}
+    line = build_quote_line(payload, pricing)
+    lines.append(line)
     t = recompute_totals(lines)
     await db.quotes.update_one({"id":qid}, {"$set":{"line_items":lines, **{k:t[k] for k in t}, "updated_at":now_iso()}})
-    return {"line":line, "totals":t}
+    return {"line":line, "totals":t, "action": "created"}
 
 
 @api_router.post("/quotes/{qid}/lines/batch", status_code=201)
 async def add_quote_lines_batch(qid: str, payload: QuoteLineBatchInput,
                                  _user: dict = Depends(require_permission("quotes.edit"))):
     """Append multiple lines (typically stock-picker output) to a draft quote in one call.
+    Stock lines are deduplicated by part_number — matching existing lines have their
+    quantity incremented instead of being duplicated. Panel lines are always appended.
     Returns per-item results so the UI can surface partial failures."""
     await _require_draft(qid)
     pricing = await db.settings.find_one({"key":"pricing"}, {"_id":0,"key":0})
@@ -2519,9 +2560,22 @@ async def add_quote_lines_batch(qid: str, payload: QuoteLineBatchInput,
     results: List[Dict[str, Any]] = []
     for item in payload.items:
         try:
-            line = build_quote_line(item, pricing)
-            lines.append(line)
-            results.append({"ok": True, "line": line,
+            # Dedup stock lines by part_number
+            if item.line_type == "stock" and item.part_number:
+                existing_idx = _find_existing_stock_line_idx(lines, item.part_number)
+                if existing_idx is not None:
+                    lines[existing_idx] = _increment_stock_line_qty(lines[existing_idx],
+                                                                      int(item.quantity or 1),
+                                                                      pricing)
+                    results.append({"ok": True, "action": "updated",
+                                    "line": lines[existing_idx],
+                                    "part_number": item.part_number,
+                                    "stock_item_id": item.stock_item_id})
+                    continue
+            new_line = build_quote_line(item, pricing)
+            lines.append(new_line)
+            results.append({"ok": True, "action": "created",
+                            "line": new_line,
                             "part_number": item.part_number,
                             "stock_item_id": item.stock_item_id})
         except HTTPException as he:
@@ -2536,9 +2590,11 @@ async def add_quote_lines_batch(qid: str, payload: QuoteLineBatchInput,
     await db.quotes.update_one({"id":qid}, {"$set":{"line_items":lines,
                                                      **{k:t[k] for k in t},
                                                      "updated_at":now_iso()}})
-    added = sum(1 for r in results if r["ok"])
-    failed = len(results) - added
-    return {"added": added, "failed": failed, "results": results, "totals": t}
+    created = sum(1 for r in results if r.get("action") == "created")
+    updated = sum(1 for r in results if r.get("action") == "updated")
+    failed = sum(1 for r in results if not r["ok"])
+    return {"added": created, "updated": updated, "failed": failed,
+            "results": results, "totals": t}
 
 @api_router.patch("/quotes/{qid}/lines/{line_id}")
 async def update_quote_line(qid: str, line_id: str, payload: QuoteLineInput, _user: dict = Depends(require_permission("quotes.edit"))):

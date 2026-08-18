@@ -178,21 +178,24 @@ export default function StockPickerModal({ open, onOpenChange, quoteId, onAdded 
     };
     try {
       const { data } = await api.post(`/quotes/${quoteId}/lines/batch`, payload);
-      const { added, failed, results } = data;
+      const { added = 0, updated = 0, failed = 0, results = [] } = data;
       if (failed > 0) {
         const failedIds = new Set(
           results.filter(r => !r.ok).map(r => r.stock_item_id).filter(Boolean)
         );
-        // Keep only failed picks in state
         setPicks(prev => {
           const next = {};
           for (const [id, q] of Object.entries(prev)) if (failedIds.has(id)) next[id] = q;
           return next;
         });
-        toast.error(`Added ${added} item${added === 1 ? "" : "s"} · ${failed} failed. Review remaining rows.`);
+        toast.error(`Added ${added} · updated ${updated} · ${failed} failed. Review remaining rows.`);
         onAdded && onAdded();
       } else {
-        toast.success(`Added ${added} item${added === 1 ? "" : "s"} to quote.`);
+        // Compose a friendly toast covering both new + merged cases
+        const parts = [];
+        if (added   > 0) parts.push(`Added ${added} new item${added === 1 ? "" : "s"}`);
+        if (updated > 0) parts.push(`updated ${updated} existing ${updated === 1 ? "quantity" : "quantities"}`);
+        toast.success(parts.length ? parts.join(", ") + "." : "Quote updated.");
         onAdded && onAdded();
         onOpenChange(false);
       }
