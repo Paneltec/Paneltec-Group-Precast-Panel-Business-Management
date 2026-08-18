@@ -14,6 +14,7 @@ import {
 import { formatAUD, formatNumber } from "../lib/format";
 import { useAuth } from "../contexts/AuthContext";
 import { Toaster, toast } from "sonner";
+import StockPickerModal from "../components/StockPickerModal";
 
 const REINFORCEMENT_OPTIONS = [
   { value: "light", label: "Light (mesh)" },
@@ -35,6 +36,7 @@ export default function QuoteEditor() {
   const { id } = useParams();
   const isNew = !id || id === "new";
   const navigate = useNavigate();
+  const { hasPerm: rootHasPerm } = useAuth();
 
   const [quote, setQuote] = useState(null);
   const [customers, setCustomers] = useState([]);
@@ -43,6 +45,7 @@ export default function QuoteEditor() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lineDialog, setLineDialog] = useState({ open: false, mode: "add", line: null });
+  const [stockPickerOpen, setStockPickerOpen] = useState(false);
 
   // Form state for top fields
   const [customerId, setCustomerId] = useState("");
@@ -226,14 +229,26 @@ export default function QuoteEditor() {
           <section className="bg-white border border-gray-200 rounded p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-bold uppercase tracking-[0.15em] text-[#3A6B8C]">Line items</h2>
-              <Button onClick={() => setLineDialog({ open: true, mode: "add", line: null })}
-                className="bg-[#3A6B8C] text-white hover:bg-[#2C526B] h-9" data-testid="add-line-btn">
-                <AppIcon name="add" size={16} className="mr-1" decorative/> Add line
-              </Button>
+              <div className="flex items-center gap-2">
+                {rootHasPerm("stock.view") && (
+                  <Button onClick={async () => {
+                          const qid = await ensureQuoteExists();
+                          if (qid) setStockPickerOpen(true);
+                        }}
+                    className="bg-[#F5C518] text-[#1F2A33] font-bold hover:bg-[#E0B416] h-9"
+                    data-testid="open-stock-picker-btn">
+                    <AppIcon name="package" size={16} className="mr-1" decorative/> Add from Stock
+                  </Button>
+                )}
+                <Button onClick={() => setLineDialog({ open: true, mode: "add", line: null })}
+                  className="bg-[#3A6B8C] text-white hover:bg-[#2C526B] h-9" data-testid="add-line-btn">
+                  <AppIcon name="add" size={16} className="mr-1" decorative/> Add line
+                </Button>
+              </div>
             </div>
             {(quote?.line_items?.length || 0) === 0 ? (
               <div className="text-sm text-gray-500 text-center py-8 border border-dashed border-gray-300 rounded">
-                No line items yet. Click <b>Add line</b> to insert a calculator-derived item.
+                No line items yet. Click <b>Add line</b> to insert a calculator-derived item, or <b>Add from Stock</b> to pull parts from the catalogue.
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -252,22 +267,37 @@ export default function QuoteEditor() {
                     </tr>
                   </thead>
                   <tbody data-testid="lines-table-body">
-                    {quote.line_items.map(l => (
+                    {quote.line_items.map(l => {
+                      const isStock = l.line_type === "stock";
+                      return (
                       <tr key={l.id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="px-3 py-2.5 font-mono text-[11px] text-[#1F2A33] whitespace-nowrap">{l.part_number || <span className="text-gray-300">—</span>}</td>
-                        <td className="px-3 py-2.5 text-[#1F2A33]">{l.description || <span className="text-gray-400 italic">No description</span>}</td>
+                        <td className="px-3 py-2.5 text-[#1F2A33]">
+                          <div className="flex items-center gap-1.5">
+                            {isStock && <span className="text-[9px] font-bold uppercase tracking-wider bg-[#F5C518]/25 text-[#1F2A33] px-1.5 py-0.5 rounded" data-testid={`line-stock-chip-${l.id}`}>Stock</span>}
+                            <span>{l.description || <span className="text-gray-400 italic">No description</span>}</span>
+                          </div>
+                        </td>
                         <td className="px-3 py-2.5 text-xs text-gray-700">{l.supplier_name_override || <span className="text-gray-300">—</span>}</td>
-                        <td className="px-3 py-2.5 text-gray-700">{l.panel_type_label}<div className="text-[10px] text-gray-500">{l.thickness_mm}mm · {l.finish_label}</div></td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">{l.length_m} × {l.height_m} m</td>
+                        <td className="px-3 py-2.5 text-gray-700">
+                          {isStock
+                            ? <span className="text-gray-400 italic text-xs">Stock item</span>
+                            : <>{l.panel_type_label}<div className="text-[10px] text-gray-500">{l.thickness_mm}mm · {l.finish_label}</div></>}
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">
+                          {isStock ? <span className="text-gray-300">—</span> : <>{l.length_m} × {l.height_m} m</>}
+                        </td>
                         <td className="px-3 py-2.5 text-right tabular-nums">{l.quantity}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums">{formatAUD(l.subtotal_aud)}</td>
                         <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{formatAUD(l.total_aud)}</td>
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                          <button onClick={() => setLineDialog({ open: true, mode: "edit", line: l })} className="p-1.5 hover:bg-gray-100 rounded" data-testid={`edit-line-${l.id}`}><AppIcon name="edit" size={14} decorative/></button>
+                          {!isStock && (
+                            <button onClick={() => setLineDialog({ open: true, mode: "edit", line: l })} className="p-1.5 hover:bg-gray-100 rounded" data-testid={`edit-line-${l.id}`}><AppIcon name="edit" size={14} decorative/></button>
+                          )}
                           <button onClick={() => onLineDelete(l.id)} className="p-1.5 hover:bg-red-50 text-red-600 rounded ml-1" data-testid={`delete-line-${l.id}`}><AppIcon name="delete" size={14} decorative/></button>
                         </td>
-                      </tr>
-                    ))}
+                      </tr>);
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -324,6 +354,15 @@ export default function QuoteEditor() {
           onSubmit={onLineAdd}
         />
       </Dialog>
+
+      {createdQuoteId && (
+        <StockPickerModal
+          open={stockPickerOpen}
+          onOpenChange={setStockPickerOpen}
+          quoteId={createdQuoteId}
+          onAdded={() => refreshQuote(createdQuoteId)}
+        />
+      )}
     </div>
   );
 }

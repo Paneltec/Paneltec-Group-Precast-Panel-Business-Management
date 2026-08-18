@@ -566,3 +566,30 @@ Manual curl + screenshot. Simpro PAT untouched. No testing_agent.
 - Whole-DB distribution: Reid **346**, Ramset **4** (some part numbers are repeated across Reid/Ramset sections; upsert-by-part_number kept the last, hence 346 not 353).
 - UI verified via DOM: header labels are `['Part number', 'Description', 'Pack qty', 'Pack wt (kg)', 'Unit price', 'On hand']` — no Supplier column at any level.
 - Banners rendered as `'Ramset™ FaceLifters·Ramset4 items'` and `'Reid™ SwiftLift™ FaceLifters·Reid4 items'`.
+
+### Phase 12.7 — "Add from Stock" browser modal on Quote editor (2026-08-18)
+Manual curl + screenshot. Simpro PAT untouched. No testing_agent.
+
+**Backend** — `/app/backend/server.py`
+- `QuoteLineInput` extended with `line_type: "panel"|"stock"` (default `panel`) and optional `unit_price`. Panel dims (`panel_type_key`, `length_m`, `height_m`, `thickness_mm`, `concrete_grade`, `reinforcement_type`, `finish_key`) are now `Optional` in Pydantic but the panel builder still validates them (422 if any missing).
+- New `build_stock_quote_line(payload, pricing)` skips the calculator: `subtotal = unit_price × qty`, `gst = subtotal × gst_rate%`, `total = subtotal + gst`. All panel-specific fields set to `None`/`0.0` so `recompute_totals` handles the sum cleanly. `line_type: "stock"` on the persisted line.
+- `build_quote_line` routes stock payloads to the pass-through builder.
+- New `POST /api/quotes/{qid}/lines/batch` — accepts `{ items: [QuoteLineInput...] }` and appends each line to the draft in one write. Returns `{added, failed, results, totals}` with per-item OK/error so the UI can preserve failed picks for retry.
+
+**Frontend**
+- **NEW** `/app/frontend/src/components/StockPickerModal.jsx` — 6xl dialog. Header with search (200 ms debounce), category dropdown, brand chips (All / Reid / Ramset / Genuine / Peltzer Con) and a live count pill. Body table grouped by category with sticky orange banner (identical layout to `/stock`) + grey sub-header. Per-row checkbox + qty spinner (focusing the qty input auto-selects the row). Footer with live tally `N items selected · $X.XX ex GST` and primary "Add N items to quote". On partial failure the modal stays open with only the failed rows still ticked; on full success it closes and toasts.
+- `/app/frontend/src/pages/QuoteEditor.jsx` — new yellow "Add from Stock" button next to "Add line" (visible only with `stock.view`). Line-items table now handles stock rows: renders a `Stock` chip in the description cell, "Stock item" placeholder in the panel column, `—` for L×H, hides the Edit button (delete still available). Mounts `StockPickerModal` when a quote id exists (draft has been ensured).
+
+**Backend contract additions live-verified via curl**
+```
+POST /api/quotes/{qid}/lines/batch
+  payload: 3 Ramset FaceLifters × qty=5 @ $10.82–10.84 each
+  response: { added: 3, failed: 0, totals: { subtotal: 162.40, gst: 16.24, total: 178.64 } }
+```
+Panel add still works unchanged: `POST /api/quotes/{qid}/lines` with `panel_type_key=wall_standard 6×3×150 …` → `total_volume_m3 = 2.7, subtotal_aud = 5112.0, total_aud = 5623.20` (matches Phase 1 sanity check).
+
+**Screenshots**
+- **Modal open** — brand chip set to Ramset, 4 rows ticked with the top row's qty bumped to 10. Footer reads `4 items selected · $140.70 ex GST` (10×$10.82 + $10.82 + $10.84 + $10.84 = $140.70 ✓) and primary button reads `Add 4 items to quote`.
+- **Quote after add** — 4 new stock rows appear with Ramset supplier, "Stock" chip in description, "Stock item" in the panel column, correct subtotals (`$108.20`, `$10.82`, `$10.84`, `$10.84`) and totals inc GST. Running totals recomputed: `Subtotal $5,415.10 · GST $541.50 · Total inc GST $5,956.60`. Toast "Added 4 items to quote." confirmed top-right.
+
+Existing typeahead single-line flow inside "Add line" is unchanged.

@@ -400,17 +400,39 @@ class QuoteUpdate(BaseModel):
     valid_until: Optional[str] = None; notes_to_customer: Optional[str] = None; internal_notes: Optional[str] = None
 class QuoteLineInput(BaseModel):
     model_config = ConfigDict(extra="ignore")   # accept new stock fields without rejecting legacy payloads
-    description: str = ""; panel_type_key: str
-    length_m: float = Field(gt=0); height_m: float = Field(gt=0)
-    thickness_mm: int = Field(gt=0); concrete_grade: str; quantity: int = Field(ge=1)
-    reinforcement_type: Literal["light","standard","heavy","prestressed"]
-    openings_m2: float = Field(ge=0); finish_key: str
+    description: str = ""
+    # Phase 12.7 — line_type distinguishes panel (calculator-derived) lines
+    # from stock (catalogue pass-through) lines. Panel dims are required for
+    # "panel" lines; ignored/optional for "stock" lines.
+    line_type: Literal["panel", "stock"] = "panel"
+    panel_type_key: Optional[str] = None
+    length_m: Optional[float] = None
+    height_m: Optional[float] = None
+    thickness_mm: Optional[int] = None
+    concrete_grade: Optional[str] = None
+    reinforcement_type: Optional[Literal["light","standard","heavy","prestressed"]] = None
+    openings_m2: Optional[float] = None
+    finish_key: Optional[str] = None
+    quantity: int = Field(ge=1)
     # Phase 11.8 — stock catalogue traceability (all optional so existing
     # quotes without these fields still validate).
     part_number: Optional[str] = None
     stock_item_id: Optional[str] = None
     supplier_id: Optional[str] = None
     supplier_name_override: Optional[str] = None
+    # Phase 12.7 — for stock lines, unit_price is the per-unit sell price.
+    unit_price: Optional[float] = None
+
+    @field_validator("line_type", mode="before")
+    @classmethod
+    def _default_line_type(cls, v):
+        return v or "panel"
+
+
+class QuoteLineBatchInput(BaseModel):
+    """Batch endpoint payload — add multiple stock lines to a quote in one call."""
+    model_config = ConfigDict(extra="ignore")
+    items: List[QuoteLineInput] = Field(min_length=1)
 
 
 # ---------------------------------------------------------------------------
@@ -624,13 +646,75 @@ def compute_calculation(payload: CalculateRequest, pricing: Dict[str, Any]) -> D
         "internal_cost_breakdown": internal_cost_breakdown,
     }
 
+def build_stock_quote_line(payload: QuoteLineInput, pricing: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a stock-line dict (catalogue pass-through, no calculator)."""
+    unit_price = float(payload.unit_price or 0.0)
+    qty = int(payload.quantity or 1)
+    subtotal = _round2(unit_price * qty)
+    gst_rate = float(pricing.get("gst_rate_pct", 10.0))
+    gst = _round2(subtotal * gst_rate / 100.0)
+    total = _round2(subtotal + gst)
+    return {
+        "id": str(uuid.uuid4()),
+        "line_type": "stock",
+        "description": (payload.description or "").strip(),
+        "part_number": (payload.part_number or "").strip() or None,
+        "stock_item_id": payload.stock_item_id or None,
+        "supplier_id": payload.supplier_id or None,
+        "supplier_name_override": (payload.supplier_name_override or "").strip() or None,
+        # Panel dims null-safe for stock lines
+        "panel_type_key": None, "panel_type_label": None,
+        "length_m": None, "height_m": None, "thickness_mm": None,
+        "concrete_grade": None,
+        "reinforcement_key": None, "reinforcement_label": None,
+        "finish_key": None, "finish_label": None,
+        "face_area_m2": 0.0, "net_face_area_m2": 0.0,
+        "volume_per_panel_m3": 0.0,
+        "concrete_weight_per_panel_kg": 0.0,
+        "steel_weight_per_panel_kg": 0.0,
+        "total_weight_per_panel_kg": 0.0,
+        "total_volume_m3": 0.0, "total_weight_kg": 0.0,
+        "cost_per_m2": 0.0,
+        "quantity": qty, "openings_m2_per_panel": 0.0,
+        "unit_price_aud": unit_price,
+        "subtotal_aud": subtotal, "gst_aud": gst, "total_aud": total,
+        "gst_rate_pct": gst_rate,
+        # Internal cost snapshot — for stock items treat cost = 0 (procurement will supply later).
+        "cost_concrete_aud": 0.0, "cost_steel_aud": 0.0,
+        "cost_manufacturing_labour_aud": 0.0, "cost_finishing_labour_aud": 0.0,
+        "cost_transport_aud": 0.0, "cost_overhead_aud": 0.0,
+        "total_cost_aud": 0.0, "margin_aud": subtotal, "margin_pct": 100.0 if subtotal > 0 else 0.0,
+    }
+
+
 def build_quote_line(payload: QuoteLineInput, pricing: Dict[str, Any]) -> Dict[str, Any]:
-    calc_req = CalculateRequest(**payload.model_dump(exclude={"description",
-        "part_number", "stock_item_id", "supplier_id", "supplier_name_override"}))
+    # Route stock lines to the pass-through builder
+    if payload.line_type == "stock":
+        return build_stock_quote_line(payload, pricing)
+    # Panel line — full calculator path (require all panel dims)
+    missing = [k for k in ("panel_type_key", "length_m", "height_m", "thickness_mm",
+                            "concrete_grade", "reinforcement_type", "finish_key")
+               if getattr(payload, k) in (None, "")]
+    if missing:
+        raise HTTPException(status_code=422,
+                            detail=f"Panel line missing required fields: {', '.join(missing)}")
+    calc_req = CalculateRequest(
+        panel_type_key=payload.panel_type_key,
+        length_m=payload.length_m,
+        height_m=payload.height_m,
+        thickness_mm=payload.thickness_mm,
+        concrete_grade=payload.concrete_grade,
+        quantity=payload.quantity,
+        reinforcement_type=payload.reinforcement_type,
+        openings_m2=payload.openings_m2 or 0.0,
+        finish_key=payload.finish_key,
+    )
     result = compute_calculation(calc_req, pricing)
     icb = result.get("internal_cost_breakdown") or {}
     return {
-        "id": str(uuid.uuid4()), "description": payload.description.strip(),
+        "id": str(uuid.uuid4()),
+        "line_type": "panel",
+        "description": payload.description.strip(),
         # Phase 11.8 — stock catalogue traceability
         "part_number": (payload.part_number or "").strip() or None,
         "stock_item_id": payload.stock_item_id or None,
@@ -2421,6 +2505,40 @@ async def add_quote_line(qid: str, payload: QuoteLineInput, _user: dict = Depend
     t = recompute_totals(lines)
     await db.quotes.update_one({"id":qid}, {"$set":{"line_items":lines, **{k:t[k] for k in t}, "updated_at":now_iso()}})
     return {"line":line, "totals":t}
+
+
+@api_router.post("/quotes/{qid}/lines/batch", status_code=201)
+async def add_quote_lines_batch(qid: str, payload: QuoteLineBatchInput,
+                                 _user: dict = Depends(require_permission("quotes.edit"))):
+    """Append multiple lines (typically stock-picker output) to a draft quote in one call.
+    Returns per-item results so the UI can surface partial failures."""
+    await _require_draft(qid)
+    pricing = await db.settings.find_one({"key":"pricing"}, {"_id":0,"key":0})
+    quote = await db.quotes.find_one({"id":qid}, {"_id":0,"line_items":1})
+    lines = list(quote.get("line_items", []))
+    results: List[Dict[str, Any]] = []
+    for item in payload.items:
+        try:
+            line = build_quote_line(item, pricing)
+            lines.append(line)
+            results.append({"ok": True, "line": line,
+                            "part_number": item.part_number,
+                            "stock_item_id": item.stock_item_id})
+        except HTTPException as he:
+            results.append({"ok": False, "error": he.detail,
+                            "part_number": item.part_number,
+                            "stock_item_id": item.stock_item_id})
+        except Exception as e:
+            results.append({"ok": False, "error": str(e),
+                            "part_number": item.part_number,
+                            "stock_item_id": item.stock_item_id})
+    t = recompute_totals(lines)
+    await db.quotes.update_one({"id":qid}, {"$set":{"line_items":lines,
+                                                     **{k:t[k] for k in t},
+                                                     "updated_at":now_iso()}})
+    added = sum(1 for r in results if r["ok"])
+    failed = len(results) - added
+    return {"added": added, "failed": failed, "results": results, "totals": t}
 
 @api_router.patch("/quotes/{qid}/lines/{line_id}")
 async def update_quote_line(qid: str, line_id: str, payload: QuoteLineInput, _user: dict = Depends(require_permission("quotes.edit"))):
