@@ -511,3 +511,29 @@ Manual curl + screenshot verification only. Simpro PAT untouched. No testing_age
 **Verified via screenshots**
 - `/stock?q=SwiftLift`: three category groups stack with orange banner + repeated grey sub-header. Real product photos rendered (clutches, void formers, combination anchors). WLL / length chips visible on every anchor row.
 - `/stock?q=Combination&sort=unit_price&dir=desc`: unit-price header shows the active down chevron, sort badge reads "SORT: UNIT PRICE ▼", and the 5 rows in the "REID™ SWIFTLIFT™ COMBINATION ANCHORS" group render in descending price order: $7.70 → $6.77 → $5.25 → $2.15 → $1.69.
+
+### Phase 12.5 — Pack qty backfill fix (2026-08-18)
+Manual curl + screenshot. Simpro PAT untouched. No testing_agent.
+
+**Root cause**: Reid's Excel has 17 header re-declarations. Only row 1 uses `Pack qty` in col E; every subsequent header (rows 32, 64, 121, 146, 177, 208, 239, 269, 296, 327, 359, 380, 408, 439, 469, 500) labels the same column as `Price per`. Inspection of the DATA in those sections proves the label is a misnomer: values are integer pack quantities (1, 5, 10, 20, 40, 50, 75, 100, 200, 250) — the same semantic column as the row-1 "Pack qty". Verified with sample math on `1FA045H` (pw=9 kg / col-E=200 → 45 g each, matches a 45 mm foot anchor).
+
+**Fix**: Aliased `priceper` / `priceperkg` / `priceperunit` into the `pack_qty` label set (`_STOCK_LABELS['pack_qty']`) and dropped the standalone `price_per` key. Header re-declarations now bind col E to `pack_qty` regardless of whether Reid printed "Pack qty" or "Price per".
+
+**Result**:
+| Metric | Before | After |
+|---|---|---|
+| Parser rows with pack_qty | 20 | **344** |
+| DB rows with non-null pack_qty | 17 | **338** |
+| Total rows in DB | 350 | 350 |
+
+**Four user-cited rows** (SwiftLift 3Dx 10 Tonne section) after fix:
+| Part No | pack_weight | pack_qty | unit_price |
+|---|---|---|---|
+| 3DX10A   | 255.0 ✓ | 250 ✓ | $13.13 ✓ |
+| 3DX10ALC | 4.1 ✓   | 1 ✓   | $1,250.25 ✓ |
+| 3DX85VF  | 1.80 ✓  | 10 ✓  | $21.97 ✓ (parser); DB shows $36.61 because Reid lists the same part in the "Narrow Edgelift 8 Tonne" section with different pricing — upsert-by-part_number keeps the later occurrence |
+| 3DX85NP  | 0.60 ✓  | 6 ✓   | $37.25 ✓ (parser); DB shows $37.24 for the same duplication reason |
+
+**Files changed**: `/app/backend/server.py` (`_STOCK_LABELS` + `_detect_header_row`).
+
+**Not touched**: user's Simpro PAT.

@@ -5243,19 +5243,33 @@ def _mine_description(desc: str) -> Dict[str, Any]:
 
 # Column-label vocabulary — used both for the initial header scan AND
 # for detecting re-declared header rows mid-sheet.
+#
+# NOTE on "Price per":
+#   The Reid/Ramset/Peltzer price-list Excel starts (row 1) with the column
+#   labelled "Pack qty" — but every subsequent header re-declaration (rows
+#   32, 64, 121, 146, 177, 208, 239, 269, 296, 327, 359, 380, 408, 439, 469,
+#   500) re-labels the same column as "Price per". Inspection of the data
+#   proves this is a mislabel: the values are always integer pack quantities
+#   (1, 5, 10, 20, 40, 50, 75, 100, 200, 250) and multiplying them with the
+#   Sell Price ea yields sensible pack values, whereas treating them as a
+#   per-unit price produces impossible arithmetic (e.g. 1FA045H: pw=9kg,
+#   col E=200, Sell Price ea=$0.71 → 200 pcs @ $0.71 checks out; a "$200
+#   per something" would not).  We therefore alias 'priceper' into the
+#   pack_qty bucket for this format.
 _STOCK_LABELS = {
     "part_number": {"partno", "partnumber", "product", "productcode", "code"},
     "description": {"description", "productdescription", "desc"},
     "pack_weight": {"packweight", "weight", "packwgt"},
-    "pack_qty":    {"packqty", "packquantity", "qtyperpack", "packsize"},
-    "price_per":   {"priceper", "priceperkg", "priceperunit"},
+    "pack_qty":    {"packqty", "packquantity", "qtyperpack", "packsize",
+                    "priceper", "priceperkg", "priceperunit"},
     "sell_price":  {"sellpriceea", "sellprice", "priceea", "sellprc",
                     "sellpriceeach", "listpriceea", "sellpriceeachex"},
 }
 
 def _detect_header_row(row_tuple) -> Optional[Dict[str, int]]:
     """If this row looks like a header re-declaration, return the col_idx map.
-    A row qualifies when it contains normalised 'partno' AND either 'sellprice' or 'priceper'."""
+    A row qualifies when it contains normalised 'partno' AND 'sellprice'
+    (or the 'priceper' alias which we treat as pack_qty here)."""
     def _norm(s):
         return "".join(ch for ch in str(s or "").lower() if ch.isalnum())
     tokens = {_norm(c): j for j, c in enumerate(row_tuple) if c is not None and str(c).strip()}
@@ -5265,7 +5279,8 @@ def _detect_header_row(row_tuple) -> Optional[Dict[str, int]]:
         for lbl, j in tokens.items():
             if lbl in alts:
                 found[key] = j; break
-    if "part_number" in found and ("sell_price" in found or "price_per" in found):
+    # Header if we have Part No AND either Sell Price OR the pack_qty/price-per column
+    if "part_number" in found and ("sell_price" in found or "pack_qty" in found):
         return found
     return None
 
