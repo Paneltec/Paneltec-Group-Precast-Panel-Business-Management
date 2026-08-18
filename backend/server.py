@@ -5031,6 +5031,12 @@ class StockItemIn(BaseModel):
     on_hand_qty: int = 0
     min_stock_level: int = 0
     notes: Optional[str] = ""
+    # Attributes mined from description or entered manually
+    wll_tonnes:  Optional[float] = None
+    length_mm:   Optional[float] = None
+    diameter_mm: Optional[float] = None
+    bar_size:    Optional[str]   = None
+    alt_part_number: Optional[str] = None
     needs_review: bool = False
     is_active: bool = True
 
@@ -5126,9 +5132,11 @@ STOCK_IMAGE_DIR = _Path(__file__).parent / "uploads" / "stock"
 STOCK_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _extract_reid_images(data: bytes) -> Dict[int, List[Tuple[bytes, str]]]:
-    """Extract embedded pictures from an .xlsx zip and index by anchor row (0-based).
-    Returns {row_index: [(image_bytes, extension), ...]} for the first worksheet.
+def _extract_reid_images(data: bytes) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    """Extract embedded pictures from an .xlsx zip.
+    Returns (anchors, stats) where anchors is a list of
+      {from_row, to_row, from_col, kind, bytes, ext, media_path}
+    sorted by from_row ascending, and stats has anchor/media/size distribution counts.
     """
     import zipfile
     import re as _re
@@ -5138,10 +5146,13 @@ def _extract_reid_images(data: bytes) -> Dict[int, List[Tuple[bytes, str]]]:
         "a":   "http://schemas.openxmlformats.org/drawingml/2006/main",
         "r":   "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
     }
-    out: Dict[int, List[Tuple[bytes, str]]] = {}
+    anchors: List[Dict[str, Any]] = []
+    stats = {"anchor_count": 0, "twoCell": 0, "oneCell": 0, "absolute": 0,
+             "media_files": 0, "images_small_lt_10k": 0, "images_medium_10k_100k": 0,
+             "images_large_gt_100k": 0, "skipped_unsupported_ext": 0}
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         names = zf.namelist()
-        # Locate drawing xmls
+        stats["media_files"] = sum(1 for n in names if n.startswith("xl/media/"))
         drawing_xmls = [n for n in names if _re.match(r"xl/drawings/drawing\d+\.xml$", n)]
         for dpath in drawing_xmls:
             rels_path = dpath.replace("xl/drawings/", "xl/drawings/_rels/") + ".rels"
@@ -5149,19 +5160,22 @@ def _extract_reid_images(data: bytes) -> Dict[int, List[Tuple[bytes, str]]]:
             if rels_path in names:
                 rroot = ET.fromstring(zf.read(rels_path))
                 for rel in rroot.findall("{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"):
-                    rels_map[rel.get("Id")] = rel.get("Target")  # e.g. "../media/image1.png"
+                    rels_map[rel.get("Id")] = rel.get("Target")
             droot = ET.fromstring(zf.read(dpath))
-            # Iterate both twoCellAnchor and oneCellAnchor
-            anchor_tags = [f"{{{ns['xdr']}}}twoCellAnchor",
-                           f"{{{ns['xdr']}}}oneCellAnchor",
-                           f"{{{ns['xdr']}}}absoluteAnchor"]
+            anchor_tags = {f"{{{ns['xdr']}}}twoCellAnchor": "twoCell",
+                           f"{{{ns['xdr']}}}oneCellAnchor": "oneCell",
+                           f"{{{ns['xdr']}}}absoluteAnchor": "absolute"}
             for anch in list(droot):
-                if anch.tag not in anchor_tags: continue
+                kind = anchor_tags.get(anch.tag)
+                if kind is None: continue
+                stats["anchor_count"] += 1
+                stats[kind] = stats.get(kind, 0) + 1
                 frm = anch.find("xdr:from", ns)
-                if frm is None: continue
-                row_el = frm.find("xdr:row", ns)
-                if row_el is None or row_el.text is None: continue
-                row_idx = int(row_el.text)
+                to  = anch.find("xdr:to", ns)
+                from_row = int(frm.find("xdr:row", ns).text) if frm is not None and frm.find("xdr:row", ns) is not None else None
+                from_col = int(frm.find("xdr:col", ns).text) if frm is not None and frm.find("xdr:col", ns) is not None else None
+                to_row   = int(to.find("xdr:row", ns).text)   if to  is not None and to.find("xdr:row", ns)   is not None else from_row
+                if from_row is None: continue
                 pic = anch.find("xdr:pic", ns)
                 if pic is None: continue
                 blip = pic.find("xdr:blipFill/a:blip", ns)
@@ -5169,36 +5183,118 @@ def _extract_reid_images(data: bytes) -> Dict[int, List[Tuple[bytes, str]]]:
                 rid = blip.get(f"{{{ns['r']}}}embed")
                 target = rels_map.get(rid)
                 if not target: continue
-                # Resolve relative path (e.g. "../media/image1.png" -> "xl/media/image1.png",
-                # or absolute "/xl/media/image1.png" -> "xl/media/image1.png")
+                # Resolve relative/absolute path
                 if target.startswith("../"):
                     media_path = "xl/" + target[3:]
                 elif target.startswith("/"):
                     media_path = target[1:]
                 else:
-                    media_path = "xl/drawings/" + target if not target.startswith("xl/") else target
+                    media_path = target if target.startswith("xl/") else "xl/drawings/" + target
                 if media_path not in names: continue
-                img_bytes = zf.read(media_path)
                 ext = media_path.rsplit(".", 1)[-1].lower() if "." in media_path else "png"
                 if ext == "jpeg": ext = "jpg"
-                out.setdefault(row_idx, []).append((img_bytes, ext))
+                if ext in ("emf", "wmf"):
+                    # Vector-only formats openpyxl/pillow can't decode without windows GDI
+                    stats["skipped_unsupported_ext"] += 1
+                    continue
+                img_bytes = zf.read(media_path)
+                sz = len(img_bytes)
+                if   sz <  10_000: stats["images_small_lt_10k"]  += 1
+                elif sz < 100_000: stats["images_medium_10k_100k"] += 1
+                else:              stats["images_large_gt_100k"] += 1
+                anchors.append({"from_row": from_row, "to_row": to_row or from_row,
+                                "from_col": from_col, "kind": kind,
+                                "bytes": img_bytes, "ext": ext, "size": sz,
+                                "media_path": media_path})
+    anchors.sort(key=lambda a: (a["from_row"], -a["size"]))  # earlier row first; larger image wins on tie
+    return anchors, stats
+
+
+# --- Description miner: extract WLL, length, diameter, bar-size, alt part
+_WLL_RE     = re.compile(r"(\d+(?:\.\d+)?)\s*t\s+(?:WLL|wll)|(\d+(?:\.\d+)?)\s*t\s*(?=x|\s|$)", re.I)
+_LENGTH_RE  = re.compile(r"(?:x\s*)?(\d+(?:\.\d+)?)\s*mm(?!\s*\()", re.I)
+_DIAM_RE    = re.compile(r"[ØΦ⌀]\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*mm\s*(?:dia|diameter|Ø)", re.I)
+_BAR_RE     = re.compile(r"\b(RB[A]?\d{1,3}|RBA\d{1,3}|N\d{1,3})\b")
+
+def _mine_description(desc: str) -> Dict[str, Any]:
+    """Extract structured attributes baked into the description text.
+    Handles patterns like: '10t WLL', '1.3t x 45mm', '5t x 125mm', 'RB16', 'Ø25'."""
+    out: Dict[str, Any] = {"wll_tonnes": None, "length_mm": None,
+                            "diameter_mm": None, "bar_size": None}
+    if not desc: return out
+    m = _WLL_RE.search(desc)
+    if m:
+        val = m.group(1) or m.group(2)
+        try: out["wll_tonnes"] = float(val)
+        except Exception: pass
+    m = _LENGTH_RE.search(desc)
+    if m:
+        try: out["length_mm"] = float(m.group(1))
+        except Exception: pass
+    m = _DIAM_RE.search(desc)
+    if m:
+        val = m.group(1) or m.group(2)
+        try: out["diameter_mm"] = float(val)
+        except Exception: pass
+    m = _BAR_RE.search(desc)
+    if m: out["bar_size"] = m.group(1).upper()
     return out
 
 
+# Column-label vocabulary — used both for the initial header scan AND
+# for detecting re-declared header rows mid-sheet.
+_STOCK_LABELS = {
+    "part_number": {"partno", "partnumber", "product", "productcode", "code"},
+    "description": {"description", "productdescription", "desc"},
+    "pack_weight": {"packweight", "weight", "packwgt"},
+    "pack_qty":    {"packqty", "packquantity", "qtyperpack", "packsize"},
+    "price_per":   {"priceper", "priceperkg", "priceperunit"},
+    "sell_price":  {"sellpriceea", "sellprice", "priceea", "sellprc",
+                    "sellpriceeach", "listpriceea", "sellpriceeachex"},
+}
+
+def _detect_header_row(row_tuple) -> Optional[Dict[str, int]]:
+    """If this row looks like a header re-declaration, return the col_idx map.
+    A row qualifies when it contains normalised 'partno' AND either 'sellprice' or 'priceper'."""
+    def _norm(s):
+        return "".join(ch for ch in str(s or "").lower() if ch.isalnum())
+    tokens = {_norm(c): j for j, c in enumerate(row_tuple) if c is not None and str(c).strip()}
+    if not tokens: return None
+    found: Dict[str, int] = {}
+    for key, alts in _STOCK_LABELS.items():
+        for lbl, j in tokens.items():
+            if lbl in alts:
+                found[key] = j; break
+    if "part_number" in found and ("sell_price" in found or "price_per" in found):
+        return found
+    return None
+
+
 def _parse_reid_excel_bytes(data: bytes) -> Dict[str, Any]:
-    """Header-driven parser for Reid/Ramset price-list Excel:
-      - Locates columns by header name (Part No, Description, Pack weight, Pack qty,
-        Price per, Sell Price ea) — never confuses Price per with Sell Price ea.
-      - A row with only a value in the Part No column is treated as a category header.
-      - Extracts embedded product images from the workbook's drawing XML and pairs
-        them with rows by anchor row-index (within ±2 rows).
-    Returns {items, valid_count, needs_review_count, images_extracted, images_missing,
-             debug_pairings (first 5)}.
+    """Header-driven parser for Reid/Ramset price-list Excel.
+
+    Behaviours:
+      • Detects the initial header row anywhere in the first 15 rows.
+      • Re-detects header re-declarations mid-sheet — the Reid sheet repeats
+        the header before every major section, and one section uses
+        'Pack qty' in col5 while the rest use 'Price per'.
+      • `unit_price` is ALWAYS mapped to 'Sell Price ea' — never 'Price per'.
+      • Category-header row = only the Part No column populated (after strip).
+      • Empty rows are skipped without disrupting category state.
+      • Extracts embedded product images (twoCellAnchor + oneCellAnchor) and
+        pairs each row to the image whose [from_row..to_row] range contains
+        it — so all items in a category share the category's representative
+        image (matches how Reid lays the sheet out).
+      • Falls back to a widened ±5-row anchor tolerance if no range match.
+      • Mines wll_tonnes / length_mm / diameter_mm / bar_size from description.
+
+    Returns items + counts + column map + debug info.
     """
     from openpyxl import load_workbook
     from io import BytesIO
     wb = load_workbook(BytesIO(data), data_only=True)
     ws = wb[wb.sheetnames[0]]
+    all_rows = list(ws.iter_rows(values_only=True))
 
     def brand_of(cat: str) -> Optional[str]:
         c = (cat or "").lower()
@@ -5207,119 +5303,160 @@ def _parse_reid_excel_bytes(data: bytes) -> Dict[str, Any]:
         if "peltzer" in c: return "Peltzer Con"
         return None
 
-    def norm(s) -> str:
-        return "".join(ch for ch in str(s or "").lower() if ch.isalnum())
-
-    # --- Header detection: scan the first 8 rows for a row that contains
-    # normalised tokens matching our expected labels.
-    labels = {
-        "part_number": {"partno", "partnumber", "product", "productcode", "code"},
-        "description": {"description", "productdescription", "desc"},
-        "pack_weight": {"packweight", "weight", "packwgt"},
-        "pack_qty":    {"packqty", "packquantity", "qtyperpack", "packsize"},
-        "price_per":   {"priceper", "priceperkg", "priceperunit"},
-        "sell_price":  {"sellpriceea", "sellprice", "priceea", "sellprc", "sellpriceeach", "listpriceea"},
-    }
+    # --- Locate initial header row (scan first 15 rows)
     header_row_idx = None
     col_idx: Dict[str, int] = {}
-    all_rows = list(ws.iter_rows(values_only=True))
     for ri, row in enumerate(all_rows[:15]):
-        tokens = {norm(c): j for j, c in enumerate(row) if c is not None and str(c).strip()}
-        if not tokens: continue
-        found: Dict[str, int] = {}
-        for key, alts in labels.items():
-            for lbl, j in tokens.items():
-                if lbl in alts:
-                    found[key] = j; break
-        # Require at least Part No + (Sell Price OR Price per) to accept as header row
-        if "part_number" in found and ("sell_price" in found or "price_per" in found):
-            header_row_idx = ri
-            col_idx = found
-            break
+        found = _detect_header_row(row)
+        if found is not None:
+            header_row_idx = ri; col_idx = found; break
 
-    # Fallback: fixed B-G layout (Part No / Description / Pack weight / Pack qty / Price per / Sell Price ea)
+    # Fallback if we somehow missed it — assume Reid's canonical B..F layout
     if header_row_idx is None:
         header_row_idx = 0
         col_idx = {"part_number": 1, "description": 2, "pack_weight": 3,
-                   "pack_qty": 4, "price_per": 5, "sell_price": 6}
+                   "pack_qty": 4, "sell_price": 5}
 
-    def cell(row_tuple, key):
-        j = col_idx.get(key)
-        if j is None or j >= len(row_tuple): return None
-        return row_tuple[j]
-
-    # --- Extract embedded images (best-effort; parsing continues if it fails)
-    images_by_row: Dict[int, List[Tuple[bytes, str]]] = {}
+    # --- Extract embedded images (best effort)
+    anchors: List[Dict[str, Any]] = []
+    img_stats: Dict[str, int] = {}
     try:
-        images_by_row = _extract_reid_images(data)
+        anchors, img_stats = _extract_reid_images(data)
     except Exception as _e:
         logger.info(f"Stock import: image extraction skipped ({type(_e).__name__}: {_e})")
+
+    # Helper: locate the best anchor for a given row index (0-indexed Excel row).
+    def _anchor_for_row(ri: int) -> Optional[Dict[str, Any]]:
+        # 1) Range match — anchor's [from_row..to_row] contains ri
+        for a in anchors:
+            if a["from_row"] <= ri <= a["to_row"]:
+                return a
+        # 2) Wider tolerance — closest anchor within ±5 rows
+        best = None; best_d = 6
+        for a in anchors:
+            d = min(abs(a["from_row"] - ri), abs(a["to_row"] - ri))
+            if d < best_d:
+                best_d = d; best = a
+        return best
 
     items: List[Dict[str, Any]] = []
     current_cat: Optional[str] = None
     current_brand: Optional[str] = None
     debug_pairings: List[Dict[str, Any]] = []
     images_extracted = 0
-    used_row_indices: set = set()
+    written_files: set = set()
+    header_redeclarations = 0
 
     for ri, row in enumerate(all_rows):
         if ri <= header_row_idx: continue
-        part_no = cell(row, "part_number")
-        desc    = cell(row, "description")
-        pack_w  = cell(row, "pack_weight")
-        pack_q  = cell(row, "pack_qty")
-        sell    = cell(row, "sell_price")
-        # ignore price_per intentionally for unit_price mapping
-        if not any(c is not None and str(c).strip() for c in row): continue
-        # Category-header row = only the Part No column populated
-        if part_no is not None and str(part_no).strip() and not (desc or pack_w or pack_q or sell):
+
+        # Re-detect header row mid-sheet — remap col_idx if a new header line is seen.
+        # We MERGE rather than replace: if a re-declared header omits a key (e.g. row 500
+        # where 'Sell Price ea' is blank), the old mapping is retained UNLESS the new
+        # header rebinds that column index to a different meaning.
+        redecl = _detect_header_row(row)
+        if redecl is not None:
+            claimed_cols = set(redecl.values())
+            merged: Dict[str, int] = {}
+            for k, j in col_idx.items():
+                if k not in redecl and j not in claimed_cols:
+                    merged[k] = j
+            merged.update(redecl)
+            col_idx = merged
+            header_redeclarations += 1
+            continue
+
+        def _val(key):
+            j = col_idx.get(key)
+            if j is None or j >= len(row): return None
+            v = row[j]
+            if v is None: return None
+            if isinstance(v, str):
+                s = v.strip()
+                return s if s else None
+            return v
+
+        part_no = _val("part_number")
+        desc    = _val("description")
+        pack_w  = _val("pack_weight")
+        pack_q  = _val("pack_qty")
+        sell    = _val("sell_price")
+
+        # Skip fully-empty rows without disturbing state
+        if not any(c is not None and (not isinstance(c, str) or c.strip())
+                    for c in row):
+            continue
+
+        # Category-header row = only Part No column is populated (strip-aware)
+        if part_no and not desc and not pack_w and not pack_q and not sell:
             current_cat = str(part_no).strip()
             current_brand = brand_of(current_cat)
             continue
-        if not part_no or not str(part_no).strip(): continue
 
+        if not part_no: continue
         pn = str(part_no).strip()
-        # Locate image for this row (search ±2 rows around ri)
-        image_url: Optional[str] = None
-        for delta in (0, 1, -1, 2, -2):
-            rk = ri + delta
-            if rk in images_by_row and rk not in used_row_indices:
-                img_bytes, ext = images_by_row[rk][0]
-                # Safe filename
-                safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in pn)
-                out_path = STOCK_IMAGE_DIR / f"{safe}.{ext}"
-                try:
-                    out_path.write_bytes(img_bytes)
-                    image_url = f"/api/stock/image/{safe}.{ext}"
-                    used_row_indices.add(rk)
-                    images_extracted += 1
-                    if len(debug_pairings) < 5:
-                        debug_pairings.append({
-                            "part_number": pn, "excel_row": ri + 1,
-                            "anchor_row": rk, "delta": delta,
-                            "image_file": f"{safe}.{ext}", "bytes": len(img_bytes),
-                        })
-                except Exception as _e:
-                    logger.warning(f"Stock image write failed for {pn}: {_e}")
-                break
 
+        # Locate representative image via range-pairing
+        image_url: Optional[str] = None
+        anchor = _anchor_for_row(ri)
+        if anchor is not None:
+            safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in pn)
+            fname = f"{safe}.{anchor['ext']}"
+            out_path = STOCK_IMAGE_DIR / fname
+            try:
+                if fname not in written_files:
+                    out_path.write_bytes(anchor["bytes"])
+                    written_files.add(fname)
+                    images_extracted += 1
+                image_url = f"/api/stock/image/{fname}"
+                if len(debug_pairings) < 8:
+                    debug_pairings.append({
+                        "part_number": pn, "excel_row": ri + 1,
+                        "anchor_from_row": anchor["from_row"] + 1,
+                        "anchor_to_row":   anchor["to_row"]   + 1,
+                        "range_contains_row": anchor["from_row"] <= ri <= anchor["to_row"],
+                        "image_file": fname, "bytes": anchor["size"],
+                        "kind": anchor["kind"],
+                    })
+            except Exception as _e:
+                logger.warning(f"Stock image write failed for {pn}: {_e}")
+
+        mined = _mine_description(str(desc) if desc else "")
         needs_review = sell is None or not desc
+
         items.append({
             "part_number": pn,
             "description": (str(desc).strip() if desc else ""),
             "category": current_cat or "",
             "brand": current_brand or "",
             "pack_weight": float(pack_w) if isinstance(pack_w, (int, float)) else None,
-            "pack_qty": int(pack_q) if isinstance(pack_q, (int, float)) else None,
-            "unit_price": float(sell) if isinstance(sell, (int, float)) else None,
+            "pack_qty":    int(pack_q)   if isinstance(pack_q, (int, float))   else None,
+            "unit_price":  float(sell)   if isinstance(sell,  (int, float))    else None,
             "image_url": image_url or "",
+            "wll_tonnes":  mined["wll_tonnes"],
+            "length_mm":   mined["length_mm"],
+            "diameter_mm": mined["diameter_mm"],
+            "bar_size":    mined["bar_size"],
             "needs_review": needs_review,
         })
 
-    logger.info(f"Stock import parsed {len(items)} rows | header row={header_row_idx} | "
-                f"columns={col_idx} | images_extracted={images_extracted} "
-                f"| debug_pairings={debug_pairings}")
+    logger.info(
+        f"Stock import parsed {len(items)} rows | header row={header_row_idx + 1} "
+        f"| header redeclarations={header_redeclarations} | initial columns={col_idx} "
+        f"| anchors={img_stats.get('anchor_count', 0)} | images_written={images_extracted} "
+        f"| image_stats={img_stats} | debug_pairings={debug_pairings}"
+    )
 
+    populated_counts = {
+        "wll_tonnes":  sum(1 for i in items if i["wll_tonnes"]  is not None),
+        "length_mm":   sum(1 for i in items if i["length_mm"]   is not None),
+        "diameter_mm": sum(1 for i in items if i["diameter_mm"] is not None),
+        "bar_size":    sum(1 for i in items if i["bar_size"]),
+        "pack_weight": sum(1 for i in items if i["pack_weight"] is not None),
+        "pack_qty":    sum(1 for i in items if i["pack_qty"]    is not None),
+        "unit_price":  sum(1 for i in items if i["unit_price"]  is not None),
+        "image_url":   sum(1 for i in items if i["image_url"]),
+    }
     return {
         "items": items,
         "valid_count": sum(1 for i in items if not i["needs_review"]),
@@ -5327,7 +5464,10 @@ def _parse_reid_excel_bytes(data: bytes) -> Dict[str, Any]:
         "images_extracted": images_extracted,
         "images_missing": sum(1 for i in items if not i["image_url"]),
         "header_row": header_row_idx + 1,
+        "header_redeclarations": header_redeclarations,
         "columns": col_idx,
+        "image_stats": img_stats,
+        "populated_counts": populated_counts,
         "debug_pairings": debug_pairings,
     }
 
@@ -5394,6 +5534,11 @@ async def import_stock_excel_confirm(payload: StockImportConfirmPayload,
             "on_hand_qty": int(src.get("on_hand_qty") or 0),
             "min_stock_level": int(src.get("min_stock_level") or 0),
             "notes": src.get("notes") or "",
+            "wll_tonnes":  src.get("wll_tonnes"),
+            "length_mm":   src.get("length_mm"),
+            "diameter_mm": src.get("diameter_mm"),
+            "bar_size":    src.get("bar_size") or "",
+            "alt_part_number": src.get("alt_part_number") or "",
             "needs_review": bool(src.get("needs_review", False)),
             "is_active": True,
             "updated_at": now_iso(),

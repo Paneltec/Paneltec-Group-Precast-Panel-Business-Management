@@ -471,3 +471,43 @@ Delivered against the standing "no testing agent" rule. Manual curl + screenshot
 - Stock UI screenshot confirms orange banner + category icon + pack columns rendering.
 
 **PAT untouched.** No `testing_agent_v3` invoked.
+
+### Phase 12.4 — Deeper Excel fidelity + sortable per-group headers (2026-08-18)
+Manual curl + screenshot verification only. Simpro PAT untouched. No testing_agent invoked.
+
+**Source file inspected**: `Reid Price List Peltzer Con.xlsx` — 528 rows × max col F, single sheet, 79 embedded twoCellAnchor images across 76 media files.
+
+**Full column dump** (first 40 rows) confirmed the sheet uses **only 6 columns** (A empty, B–F = data), with **17 header re-declarations** mid-sheet. Row 1's header uses `Pack qty` at col E; every other header uses `Price per` at col E. Row 500's header has a blank Sell Price cell. Attribute values (WLL / length / bar-size / etc.) are baked into the description text — no hidden columns.
+
+**Backend rewrites** (`/app/backend/server.py`)
+- `_extract_reid_images` now returns `(anchors, stats)` — anchors carry `from_row`, `to_row`, kind, ext, size, media_path (sorted by row asc, size desc). Stats include `anchor_count`, per-kind counts, `media_files`, and the size histogram (<10 KB / 10–100 KB / >100 KB / skipped_unsupported_ext).
+- Handles `twoCellAnchor`, `oneCellAnchor`, `absoluteAnchor`. Skips `.emf` / `.wmf` (logs count).
+- `_parse_reid_excel_bytes` re-detects header rows anywhere mid-sheet and **merges** the new mapping — old keys are retained UNLESS their column index is re-bound to a different meaning. This is the fix for row 500 where the sell_price mapping would otherwise be dropped.
+- Category-header detection now strips whitespace before treating cells as populated — this is the fix for the `Ramset™ FaceLifters` row (col F held a single space that broke the earlier check).
+- Row-image pairing rebuilt: prefers anchors whose `[from_row..to_row]` range CONTAINS the item row (so all items under a shared category image get the same image); falls back to a ±5-row nearest-anchor search only if no range match.
+- New description miner `_mine_description` extracts `wll_tonnes` (from `10t WLL`, `1.3t x …`), `length_mm` (from `x 125mm`), `diameter_mm` (from `Ø25` or `25mm dia`), `bar_size` (from `RB16`, `RBA20`, `N12` etc.).
+- `StockItemIn` schema + confirm-import doc extended with `wll_tonnes`, `length_mm`, `diameter_mm`, `bar_size`, `alt_part_number`.
+
+**Live re-import against the real file**
+- Parsed: **357 rows** (from 528, discarding blanks + 17 headers + 70 category rows)
+- Valid: **329** · Needs review: **28** · Header re-declarations detected: **16**
+- Populated: unit_price **341** / pack_qty **20** / pack_weight **308** / wll_tonnes **69** / length_mm **191** / bar_size **75** / diameter_mm **1** / image_url **330**
+- Images written: **326** distinct part files from **79 anchors** and **76 media files**. Size distribution: small `<10KB` **11**, medium `10–100KB` **58**, large `>100KB` **1**. Skipped .emf/.wmf: **0**.
+- Sample debug pairing (real file):
+  `{'part_number':'FL050125B','excel_row':18,'anchor_from_row':18,'anchor_to_row':21,'range_contains_row':True,'image_file':'FL050125B.png','bytes':56999,'kind':'twoCell'}`
+- Import confirm: **350 created + 7 updated** = 357 rows persisted with real prices, images, and mined attributes.
+
+**Frontend rewrites** (`/app/frontend/src/pages/Stock.jsx`)
+- Each category now renders as: **[orange sticky banner + category icon + item count pill] → [grey sticky sub-header row echoing all column labels] → [item rows]**. Both the top thead and the per-group sub-header are visually anchored.
+- All six sortable columns (Part number · Description · Pack qty · Pack wt · Unit price · On hand) now carry a `<SortHeader>` control:
+  - Neutral state → faint `ChevronsUpDown`
+  - Active asc → `ChevronUp` at full opacity
+  - Active desc → `ChevronDown` at full opacity
+  - Click cycle: asc → desc → clear
+- Sort is bound to URL params `?sort=…&dir=…` and is **applied within each category group only** — categories themselves never reorder (kept in original supplier sheet order, then alphabetically for ties).
+- Active sort surface: a "SORT: <col> ▲/▼" pill in the filter bar next to the item-count pill.
+- Item rows now render **description chips** for mined attributes: blue `Xt WLL`, emerald `XXmm`, slate `RB16` — so the sheet's baked-in metadata is visible without extra columns.
+
+**Verified via screenshots**
+- `/stock?q=SwiftLift`: three category groups stack with orange banner + repeated grey sub-header. Real product photos rendered (clutches, void formers, combination anchors). WLL / length chips visible on every anchor row.
+- `/stock?q=Combination&sort=unit_price&dir=desc`: unit-price header shows the active down chevron, sort badge reads "SORT: UNIT PRICE ▼", and the 5 rows in the "REID™ SWIFTLIFT™ COMBINATION ANCHORS" group render in descending price order: $7.70 → $6.77 → $5.25 → $2.15 → $1.69.

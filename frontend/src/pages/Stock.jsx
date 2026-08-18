@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Loader2, Trash2, Upload, Plus, AlertTriangle } from "lucide-react";
+import { Loader2, Trash2, Upload, Plus, AlertTriangle, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -17,15 +17,12 @@ const fmtAud = (v) => v === null || v === undefined ? "—"
 const fmtNum = (v, digits = 2) => v === null || v === undefined || v === ""
   ? "—" : Number(v).toLocaleString("en-AU", { minimumFractionDigits: 0, maximumFractionDigits: digits });
 
-// Resolve absolute image URL for the browser <img> tag.
 const imgSrc = (u) => {
   if (!u) return "";
   if (u.startsWith("http://") || u.startsWith("https://")) return u;
   return `${BACKEND_URL}${u}`;
 };
 
-// Category → AppIcon key. Matches on lowercased category name; first match wins.
-// Keys map into /components/icon-map.json entries we added in this pass.
 const CATEGORY_ICON_RULES = [
   { test: /chain|clutch/i,                    icon: "chains" },
   { test: /lift|anchor/i,                     icon: "link" },
@@ -47,10 +44,37 @@ const iconForCategory = (cat) => {
   return "package";
 };
 
+// --- Sort helpers ---
+// Sortable columns and their accessor.
+const SORT_COLS = {
+  part_number: { label: "Part number",  align: "left",  get: (i) => (i.part_number || "").toLowerCase() },
+  description: { label: "Description",  align: "left",  get: (i) => (i.description || "").toLowerCase() },
+  pack_qty:    { label: "Pack qty",     align: "right", get: (i) => i.pack_qty ?? -Infinity },
+  pack_weight: { label: "Pack wt (kg)", align: "right", get: (i) => i.pack_weight ?? -Infinity },
+  unit_price:  { label: "Unit price",   align: "right", get: (i) => i.unit_price ?? -Infinity },
+  on_hand_qty: { label: "On hand",      align: "right", get: (i) => i.on_hand_qty ?? 0 },
+};
+
+function SortHeader({ colKey, sortKey, sortDir, onSort, className = "", children }) {
+  const active = sortKey === colKey;
+  const Icon = active ? (sortDir === "asc" ? ChevronUp : ChevronDown) : ChevronsUpDown;
+  return (
+    <button type="button"
+      onClick={() => onSort(colKey)}
+      className={`inline-flex items-center gap-1 uppercase tracking-wider text-[10px] font-bold whitespace-nowrap ${active ? "opacity-100" : "opacity-70 hover:opacity-100"} ${className}`}
+      data-testid={`stock-sort-${colKey}${active ? `-${sortDir}` : ""}`}
+      aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      {children}
+      <Icon className={`w-3 h-3 ${active ? "" : "opacity-60"}`}/>
+    </button>
+  );
+}
+
 export default function Stock() {
   const { hasPerm } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [data, setData] = useState(null);       // {items, count, total, categories}
+  const [data, setData] = useState(null);
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(new Set());
@@ -62,15 +86,25 @@ export default function Stock() {
   const category = searchParams.get("category") || "__all__";
   const supplier = searchParams.get("supplier") || "__all__";
   const review = searchParams.get("review") === "1";
+  const sortKey = searchParams.get("sort") || "";
+  const sortDir = searchParams.get("dir") || "asc"; // asc | desc
+
   const patch = (upd) => {
     const next = new URLSearchParams(searchParams);
     Object.entries(upd).forEach(([k, v]) => {
-      if (!v || v === "__all__" || v === "0") next.delete(k); else next.set(k, v);
+      if (v === undefined || v === null || v === "" || v === "__all__" || v === "0") next.delete(k);
+      else next.set(k, v);
     });
     setSearchParams(next, { replace: true });
   };
 
   const canEdit = hasPerm("stock.edit");
+
+  const onSort = (colKey) => {
+    if (sortKey !== colKey) { patch({ sort: colKey, dir: "asc" }); return; }
+    if (sortDir === "asc")  { patch({ sort: colKey, dir: "desc" }); return; }
+    patch({ sort: "", dir: "" }); // 3rd click → clear
+  };
 
   const load = async () => {
     setLoading(true);
@@ -90,7 +124,8 @@ export default function Stock() {
     try { const { data: d } = await api.get("/suppliers"); setSuppliers(d); }
     catch { setSuppliers([]); }
   };
-  useEffect(() => { load(); setSelected(new Set()); /* eslint-disable-next-line */ }, [q, category, supplier, review]);
+  // eslint-disable-next-line
+  useEffect(() => { load(); setSelected(new Set()); }, [q, category, supplier, review]);
   useEffect(() => { loadSuppliers(); }, []);
 
   const supplierName = (sid) => suppliers.find(s => s.id === sid)?.name || "";
@@ -103,7 +138,7 @@ export default function Stock() {
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(items.map(i => i.id)));
   const anyFilter = q || category !== "__all__" || supplier !== "__all__" || review;
 
-  // Group items by category (preserving original sort within each group).
+  // Group + sort WITHIN each category (category order stays fixed).
   const grouped = useMemo(() => {
     const groups = new Map();
     for (const it of items) {
@@ -111,16 +146,28 @@ export default function Stock() {
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(it);
     }
-    // Sort category names alphabetically, but keep "Uncategorised" last.
     const keys = [...groups.keys()].sort((a, b) => {
       if (a === "Uncategorised") return 1;
       if (b === "Uncategorised") return -1;
       return a.localeCompare(b);
     });
-    return keys.map(k => ({ category: k, rows: groups.get(k) }));
-  }, [items]);
+    return keys.map(k => {
+      let rows = groups.get(k);
+      if (sortKey && SORT_COLS[sortKey]) {
+        const get = SORT_COLS[sortKey].get;
+        const dir = sortDir === "desc" ? -1 : 1;
+        rows = [...rows].sort((a, b) => {
+          const va = get(a); const vb = get(b);
+          if (va < vb) return -1 * dir;
+          if (va > vb) return  1 * dir;
+          return 0;
+        });
+      }
+      return { category: k, rows };
+    });
+  }, [items, sortKey, sortDir]);
 
-  const columnCount = 8 + (canEdit ? 1 : 0);
+  const columnCount = 9 + (canEdit ? 1 : 0);
 
   const doBulkDelete = async () => {
     try {
@@ -129,6 +176,21 @@ export default function Stock() {
       setBulkOpen(false); setSelected(new Set()); await load();
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
   };
+
+  // Sub-header row rendered per group (below the orange banner).
+  const subHeader = (
+    <tr className="bg-gray-100 text-gray-700 border-b border-gray-300" data-testid="stock-subheader">
+      {canEdit && <th className="px-3 py-1.5 w-10"></th>}
+      <th className="px-4 py-1.5 w-16"></th>
+      <th className="px-4 py-1.5 text-left"><SortHeader colKey="part_number" sortKey={sortKey} sortDir={sortDir} onSort={onSort}>Part number</SortHeader></th>
+      <th className="px-4 py-1.5 text-left"><SortHeader colKey="description" sortKey={sortKey} sortDir={sortDir} onSort={onSort}>Description</SortHeader></th>
+      <th className="px-4 py-1.5 text-left"><span className="uppercase tracking-wider text-[10px] font-bold text-gray-500">Supplier</span></th>
+      <th className="px-4 py-1.5 text-right"><SortHeader colKey="pack_qty"    sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full">Pack qty</SortHeader></th>
+      <th className="px-4 py-1.5 text-right"><SortHeader colKey="pack_weight" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full">Pack wt (kg)</SortHeader></th>
+      <th className="px-4 py-1.5 text-right"><SortHeader colKey="unit_price"  sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full">Unit price</SortHeader></th>
+      <th className="px-4 py-1.5 text-right"><SortHeader colKey="on_hand_qty" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full">On hand</SortHeader></th>
+    </tr>
+  );
 
   return (
     <div className="space-y-4 p-6" data-testid="stock-page">
@@ -177,6 +239,12 @@ export default function Stock() {
         </button>
         <span className="text-[11px] uppercase tracking-wider font-bold bg-[#1F2A33] text-white rounded-full px-2.5 py-1"
                data-testid="stock-count">{total} item{total === 1 ? "" : "s"}</span>
+        {sortKey && (
+          <span className="text-[11px] uppercase tracking-wider font-semibold bg-[#3A6B8C] text-white rounded-full px-2.5 py-1"
+                 data-testid="stock-sort-badge">
+            Sort: {SORT_COLS[sortKey]?.label ?? sortKey} {sortDir === "desc" ? "▼" : "▲"}
+          </span>
+        )}
         {anyFilter && (
           <button type="button" onClick={() => setSearchParams({}, { replace: true })}
                    className="text-[11px] uppercase tracking-wider font-semibold text-[#3A6B8C] underline hover:text-[#1F2A33]"
@@ -189,7 +257,7 @@ export default function Stock() {
          : items.length === 0 ? <div className="p-6 text-sm text-gray-500">{anyFilter ? "No stock items match the current filters." : "No stock items yet. Import an Excel price list or add items manually."}</div>
          : (
           <table className="w-full text-sm">
-            <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider sticky top-0 z-30">
+            <thead className="bg-[#3A6B8C] text-white sticky top-0 z-30">
               <tr>
                 {canEdit && (
                   <th className="px-3 py-3 text-left w-10">
@@ -199,13 +267,13 @@ export default function Stock() {
                   </th>
                 )}
                 <th className="px-4 py-3 text-left w-16"></th>
-                <th className="px-4 py-3 text-left">Part number</th>
-                <th className="px-4 py-3 text-left">Description</th>
-                <th className="px-4 py-3 text-left">Supplier</th>
-                <th className="px-4 py-3 text-right">Pack qty</th>
-                <th className="px-4 py-3 text-right">Pack wt (kg)</th>
-                <th className="px-4 py-3 text-right">Unit price</th>
-                <th className="px-4 py-3 text-right">On hand</th>
+                <th className="px-4 py-3 text-left"><SortHeader colKey="part_number" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="text-white">Part number</SortHeader></th>
+                <th className="px-4 py-3 text-left"><SortHeader colKey="description" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="text-white">Description</SortHeader></th>
+                <th className="px-4 py-3 text-left"><span className="uppercase tracking-wider text-[10px] font-bold">Supplier</span></th>
+                <th className="px-4 py-3 text-right"><SortHeader colKey="pack_qty"    sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full text-white">Pack qty</SortHeader></th>
+                <th className="px-4 py-3 text-right"><SortHeader colKey="pack_weight" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full text-white">Pack wt (kg)</SortHeader></th>
+                <th className="px-4 py-3 text-right"><SortHeader colKey="unit_price"  sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full text-white">Unit price</SortHeader></th>
+                <th className="px-4 py-3 text-right"><SortHeader colKey="on_hand_qty" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full text-white">On hand</SortHeader></th>
               </tr>
             </thead>
             <tbody>
@@ -213,7 +281,7 @@ export default function Stock() {
                 <Fragment key={`grp-${catName}`}>
                   <tr data-testid={`stock-category-header-${catName}`}>
                     <td colSpan={columnCount} className="p-0">
-                      <div className="sticky top-[36px] z-20 bg-[#F97316] text-white uppercase tracking-widest text-xs font-bold px-4 py-2 flex items-center gap-2 border-y border-orange-800/40 shadow-sm">
+                      <div className="sticky top-[42px] z-20 bg-[#F97316] text-white uppercase tracking-widest text-xs font-bold px-4 py-2 flex items-center gap-2 border-y border-orange-800/40 shadow-sm">
                         <AppIcon name={iconForCategory(catName)} size={22} decorative
                                   className="drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]"/>
                         <span>{catName}</span>
@@ -221,6 +289,7 @@ export default function Stock() {
                       </div>
                     </td>
                   </tr>
+                  {subHeader}
                   {rows.map(it => (
                     <tr key={it.id} className={`border-t border-gray-200 ${selected.has(it.id) ? "bg-yellow-50" : "hover:bg-gray-50"}`}
                         data-testid={`stock-row-${it.id}`}>
@@ -246,6 +315,13 @@ export default function Stock() {
                       <td className="px-4 py-3 font-mono text-xs font-bold text-[#1F2A33]">{it.part_number}</td>
                       <td className="px-4 py-3 text-gray-700">
                         <div>{it.description || <span className="italic text-gray-400">No description</span>}</div>
+                        {(it.wll_tonnes || it.length_mm || it.bar_size) && (
+                          <div className="mt-0.5 flex flex-wrap gap-1 text-[10px] font-medium text-gray-500">
+                            {it.wll_tonnes && <span className="bg-blue-50 text-blue-700 px-1.5 rounded">{it.wll_tonnes}t WLL</span>}
+                            {it.length_mm  && <span className="bg-emerald-50 text-emerald-700 px-1.5 rounded">{it.length_mm}mm</span>}
+                            {it.bar_size   && <span className="bg-slate-100 text-slate-700 px-1.5 rounded">{it.bar_size}</span>}
+                          </div>
+                        )}
                         {it.needs_review && (
                           <span className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded"
                                  data-testid={`stock-review-chip-${it.id}`}>review price</span>
@@ -357,11 +433,16 @@ function StockImportModal({ open, onOpenChange, suppliers, onImported }) {
           {preview && (
             <>
               <div className="bg-emerald-50 border border-emerald-200 rounded p-3 text-sm text-emerald-900 space-y-1">
-                <div>Parsed <b>{preview.items.length}</b> rows · <b>{preview.valid_count}</b> valid · <b>{preview.needs_review_count}</b> flagged for review</div>
+                <div>Parsed <b>{preview.items.length}</b> rows · <b>{preview.valid_count}</b> valid · <b>{preview.needs_review_count}</b> flagged for review · <b>{preview.header_redeclarations ?? 0}</b> header re-declaration{preview.header_redeclarations === 1 ? "" : "s"}</div>
                 <div className="text-xs text-emerald-800">
-                  Images extracted: <b>{preview.images_extracted ?? 0}</b> ·
+                  Images: <b>{preview.images_extracted ?? 0}</b> written from {preview.image_stats?.anchor_count ?? 0} anchors ({preview.image_stats?.media_files ?? 0} media files) ·
                   {" "}Missing image: <b>{preview.images_missing ?? preview.items.length}</b>
                 </div>
+                {preview.populated_counts && (
+                  <div className="text-[11px] text-emerald-700">
+                    Populated: unit_price {preview.populated_counts.unit_price} · pack_qty {preview.populated_counts.pack_qty} · pack_weight {preview.populated_counts.pack_weight} · WLL {preview.populated_counts.wll_tonnes} · length {preview.populated_counts.length_mm} · bar {preview.populated_counts.bar_size}
+                  </div>
+                )}
               </div>
               <div className="border border-gray-200 rounded overflow-y-auto max-h-64">
                 <table className="w-full text-xs">
