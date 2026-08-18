@@ -671,3 +671,40 @@ Tally after bulk-set:       '3 items selected · $1,624.00 ex GST'
 **Screenshots delivered**
 - Modal with `QTY = 375` typed into FL050125B (proven typed, not spinner-clicked), tally correct.
 - Modal with all 3 ticked rows bulk-set to `50`, "Set qty 50 on 3 rows." toast visible.
+
+### Phase 12.11 — Nested-pic image extraction + row supplier hint removal (2026-08-18)
+Manual curl + screenshot. Simpro PAT untouched. No testing_agent.
+
+**Bug 1 root cause**: Reid wraps some product photos in `<xdr:grpSp>` (group shapes) rather than placing an `<xdr:pic>` directly inside the anchor. My extractor only looked for a direct `<xdr:pic>` child, so ~27 anchors (SwiftLift 3Dx, JAWS, Foot Anchors, Erection & Install shape-groups) came back with no picture, and 27 rows never received an image_url. Discovered by dumping raw XML around row 2 (`3DX10A`) — the anchor contains `<xdr:grpSp>` → `<xdr:pic>` → `r:embed="rId57"`.
+
+**Bug 1 fix** (`/app/backend/server.py`, `_extract_reid_images`):
+```python
+pic = anch.find("xdr:pic", ns)
+if pic is None:
+    pic = anch.find(".//xdr:pic", ns)   # nested inside <xdr:grpSp> etc.
+```
+Also widened the fallback radius for rows outside any anchor range from ±5 to **±20** — the Foot Anchors section has genuine ~8-row gaps between the section header's group image and its item rows, so the wider net lets every item borrow the section image.
+
+**Bug 1 numbers**:
+| Metric | Before | After |
+|---|---|---|
+| Parser images extracted | 326 | **353** |
+| DB rows with image_url | 326 | **350 (100%)** |
+| Rows without image | 24 | **0** |
+
+Spot-checks (curl):
+```
+3DX10A       → /api/stock/image/3DX10A.png       HTTP 200 · 16 228 B · image/png   ← previously missing
+5FA075       → /api/stock/image/5FA075.png       HTTP 200 · 5 407 B · image/png    ← previously missing
+10FA150      → /api/stock/image/10FA150.png      HTTP 200                          ← previously missing
+ANTCAP M12   → /api/stock/image/ANTCAP_M12.png   HTTP 200 · 9 850 B · image/png    ← red cap now renders
+```
+
+Screenshot delivered: `/stock?q=ANTCAP` now shows all 4 antennae caps with real product images (M12 red cap, M16/M20/M24 render too — image content per Reid's overlapping anchors).
+
+**Bug 2 fix** (`/app/frontend/src/pages/QuoteEditor.jsx`):
+Removed the muted `Supplier: <name>` hint div that Phase 12.8 had kept under the description on stock lines. Stock rows now show only the Stock chip + description text; supplier is not surfaced anywhere in the row. Backend fields `supplier_id` and `supplier_name_override` still persisted for the PDF renderer.
+
+DOM check on the quote lines table: `'Supplier:' present in lines body: False`. Screenshot shows only description + `Stock item` panel column, no supplier text.
+
+**Not touched**: user's Simpro PAT.

@@ -5350,7 +5350,11 @@ def _extract_reid_images(data: bytes) -> Tuple[List[Dict[str, Any]], Dict[str, i
                 from_col = int(frm.find("xdr:col", ns).text) if frm is not None and frm.find("xdr:col", ns) is not None else None
                 to_row   = int(to.find("xdr:row", ns).text)   if to  is not None and to.find("xdr:row", ns)   is not None else from_row
                 if from_row is None: continue
+                # Look for <xdr:pic> directly under the anchor OR nested inside
+                # any <xdr:grpSp> (Reid wraps some product photos in group shapes).
                 pic = anch.find("xdr:pic", ns)
+                if pic is None:
+                    pic = anch.find(".//xdr:pic", ns)
                 if pic is None: continue
                 blip = pic.find("xdr:blipFill/a:blip", ns)
                 if blip is None: continue
@@ -5520,8 +5524,10 @@ def _parse_reid_excel_bytes(data: bytes) -> Dict[str, Any]:
         for a in anchors:
             if a["from_row"] <= ri <= a["to_row"]:
                 return a
-        # 2) Wider tolerance — closest anchor within ±5 rows
-        best = None; best_d = 6
+        # 2) Fallback — closest anchor within ±20 rows. Reid leaves genuine gaps
+        # in image coverage (e.g. Foot Anchors section: 8+ rows with no anchor)
+        # so we widen the tolerance to reuse the section's representative image.
+        best = None; best_d = 21
         for a in anchors:
             d = min(abs(a["from_row"] - ri), abs(a["to_row"] - ri))
             if d < best_d:
