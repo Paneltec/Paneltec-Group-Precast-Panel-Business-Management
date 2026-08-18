@@ -5405,7 +5405,13 @@ def _parse_reid_excel_bytes(data: bytes) -> Dict[str, Any]:
         # Category-header row = only Part No column is populated (strip-aware)
         if part_no and not desc and not pack_w and not pack_q and not sell:
             current_cat = str(part_no).strip()
-            current_brand = brand_of(current_cat)
+            # Update brand ONLY if the new category text actually names a brand;
+            # umbrella categories like "Erection & Installation" or "Structural
+            # Reinforcing Systems" don't have a brand keyword, so preserve the
+            # previously-detected brand (usually Reid) rather than wiping it.
+            detected = brand_of(current_cat)
+            if detected is not None:
+                current_brand = detected
             continue
 
         if not part_no: continue
@@ -5528,20 +5534,34 @@ async def import_stock_excel_confirm(payload: StockImportConfirmPayload,
                                       actor: dict = Depends(require_permission("stock.edit"))):
     default_sid = payload.supplier_id
     if not default_sid:
-        # Default to Reid supplier if present
+        # Default fallback: Reid supplier if it exists.
         reid = await db.suppliers.find_one({"name": "Reid"})
         default_sid = reid["id"] if reid else ""
+
+    # Build a case-insensitive brand → supplier_id map once (avoids N queries).
+    brand_to_sid: Dict[str, str] = {}
+    async for s in db.suppliers.find({}, {"_id": 0, "id": 1, "name": 1}):
+        brand_to_sid[(s.get("name") or "").strip().lower()] = s["id"]
+
+    def _resolve_sid(brand: str) -> str:
+        if not brand: return default_sid
+        return brand_to_sid.get(brand.strip().lower(), default_sid)
+
     created = updated = 0
+    supplier_counts: Dict[str, int] = {}
     for src in payload.items:
         part_no = (src.get("part_number") or "").strip()
         if not part_no: continue
+        row_brand = (src.get("brand") or "").strip()
+        row_sid = _resolve_sid(row_brand)
+        supplier_counts[row_brand or "(unknown)"] = supplier_counts.get(row_brand or "(unknown)", 0) + 1
         doc = {
             "part_number": part_no,
             "description": src.get("description") or "",
             "category": src.get("category") or "",
             "subcategory": src.get("subcategory") or "",
-            "brand": src.get("brand") or "",
-            "supplier_id": default_sid,
+            "brand": row_brand,
+            "supplier_id": row_sid,
             "unit_price": src.get("unit_price"),
             "pack_weight": src.get("pack_weight"),
             "pack_qty": src.get("pack_qty"),
@@ -5573,8 +5593,10 @@ async def import_stock_excel_confirm(payload: StockImportConfirmPayload,
     await record_audit(actor, "stock_import_excel", "stock_item", None,
                         f"{created + updated} stock items",
                         metadata={"created": created, "updated": updated,
-                                    "supplier_id": default_sid})
-    return {"created": created, "updated": updated}
+                                    "default_supplier_id": default_sid,
+                                    "supplier_counts": supplier_counts})
+    return {"created": created, "updated": updated,
+            "supplier_counts": supplier_counts}
 
 
 app.include_router(api_router)

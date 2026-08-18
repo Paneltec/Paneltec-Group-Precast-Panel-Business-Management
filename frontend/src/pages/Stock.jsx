@@ -139,6 +139,8 @@ export default function Stock() {
   const anyFilter = q || category !== "__all__" || supplier !== "__all__" || review;
 
   // Group + sort WITHIN each category (category order stays fixed).
+  // Also detect the category's supplier — normally all rows in a category
+  // share one supplier; if they don't, we surface "Multiple" on the banner.
   const grouped = useMemo(() => {
     const groups = new Map();
     for (const it of items) {
@@ -153,6 +155,21 @@ export default function Stock() {
     });
     return keys.map(k => {
       let rows = groups.get(k);
+      // Category-level supplier: single distinct supplier_id / brand → its name;
+      // otherwise "Multiple".
+      const sids = new Set(rows.map(r => r.supplier_id).filter(Boolean));
+      const brands = new Set(rows.map(r => (r.brand || "").trim()).filter(Boolean));
+      let catSupplier = "";
+      if (sids.size === 1) {
+        const [sid] = sids;
+        catSupplier = suppliers.find(s => s.id === sid)?.name || "";
+      } else if (sids.size > 1) {
+        catSupplier = "Multiple";
+      } else if (brands.size === 1) {
+        const [b] = brands; catSupplier = b;
+      } else if (brands.size > 1) {
+        catSupplier = "Multiple";
+      }
       if (sortKey && SORT_COLS[sortKey]) {
         const get = SORT_COLS[sortKey].get;
         const dir = sortDir === "desc" ? -1 : 1;
@@ -163,11 +180,11 @@ export default function Stock() {
           return 0;
         });
       }
-      return { category: k, rows };
+      return { category: k, rows, catSupplier };
     });
-  }, [items, sortKey, sortDir]);
+  }, [items, sortKey, sortDir, suppliers]);
 
-  const columnCount = 9 + (canEdit ? 1 : 0);
+  const columnCount = 8 + (canEdit ? 1 : 0);
 
   const doBulkDelete = async () => {
     try {
@@ -184,7 +201,6 @@ export default function Stock() {
       <th className="px-4 py-1.5 w-16"></th>
       <th className="px-4 py-1.5 text-left"><SortHeader colKey="part_number" sortKey={sortKey} sortDir={sortDir} onSort={onSort}>Part number</SortHeader></th>
       <th className="px-4 py-1.5 text-left"><SortHeader colKey="description" sortKey={sortKey} sortDir={sortDir} onSort={onSort}>Description</SortHeader></th>
-      <th className="px-4 py-1.5 text-left"><span className="uppercase tracking-wider text-[10px] font-bold text-gray-500">Supplier</span></th>
       <th className="px-4 py-1.5 text-right"><SortHeader colKey="pack_qty"    sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full">Pack qty</SortHeader></th>
       <th className="px-4 py-1.5 text-right"><SortHeader colKey="pack_weight" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full">Pack wt (kg)</SortHeader></th>
       <th className="px-4 py-1.5 text-right"><SortHeader colKey="unit_price"  sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full">Unit price</SortHeader></th>
@@ -269,7 +285,6 @@ export default function Stock() {
                 <th className="px-4 py-3 text-left w-16"></th>
                 <th className="px-4 py-3 text-left"><SortHeader colKey="part_number" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="text-white">Part number</SortHeader></th>
                 <th className="px-4 py-3 text-left"><SortHeader colKey="description" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="text-white">Description</SortHeader></th>
-                <th className="px-4 py-3 text-left"><span className="uppercase tracking-wider text-[10px] font-bold">Supplier</span></th>
                 <th className="px-4 py-3 text-right"><SortHeader colKey="pack_qty"    sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full text-white">Pack qty</SortHeader></th>
                 <th className="px-4 py-3 text-right"><SortHeader colKey="pack_weight" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full text-white">Pack wt (kg)</SortHeader></th>
                 <th className="px-4 py-3 text-right"><SortHeader colKey="unit_price"  sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="justify-end w-full text-white">Unit price</SortHeader></th>
@@ -277,7 +292,7 @@ export default function Stock() {
               </tr>
             </thead>
             <tbody>
-              {grouped.map(({ category: catName, rows }) => (
+              {grouped.map(({ category: catName, rows, catSupplier }) => (
                 <Fragment key={`grp-${catName}`}>
                   <tr data-testid={`stock-category-header-${catName}`}>
                     <td colSpan={columnCount} className="p-0">
@@ -285,6 +300,15 @@ export default function Stock() {
                         <AppIcon name={iconForCategory(catName)} size={22} decorative
                                   className="drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]"/>
                         <span>{catName}</span>
+                        {catSupplier && (
+                          <>
+                            <span className="text-white/60">·</span>
+                            <span className="normal-case tracking-normal font-medium text-white/85"
+                                   data-testid={`stock-banner-supplier-${catName}`}>
+                              {catSupplier}
+                            </span>
+                          </>
+                        )}
                         <span className="ml-auto normal-case tracking-normal text-[11px] font-semibold bg-white/20 rounded-full px-2 py-0.5">{rows.length} item{rows.length === 1 ? "" : "s"}</span>
                       </div>
                     </td>
@@ -327,7 +351,6 @@ export default function Stock() {
                                  data-testid={`stock-review-chip-${it.id}`}>review price</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-xs text-gray-600">{supplierName(it.supplier_id) || it.brand || "—"}</td>
                       <td className="px-4 py-3 text-right text-xs text-gray-700">{fmtNum(it.pack_qty, 0)}</td>
                       <td className="px-4 py-3 text-right text-xs text-gray-700">{fmtNum(it.pack_weight, 2)}</td>
                       <td className="px-4 py-3 text-right font-semibold">{fmtAud(it.unit_price)}</td>

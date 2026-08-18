@@ -537,3 +537,32 @@ Manual curl + screenshot. Simpro PAT untouched. No testing_agent.
 **Files changed**: `/app/backend/server.py` (`_STOCK_LABELS` + `_detect_header_row`).
 
 **Not touched**: user's Simpro PAT.
+
+### Phase 12.6 — Supplier per-brand assignment + banner-level Supplier UI (2026-08-18)
+Manual curl + screenshot. Simpro PAT untouched. No testing_agent.
+
+**Backend** — `/app/backend/server.py`
+- `POST /api/stock/import-excel/confirm` now builds a case-insensitive `brand → supplier_id` map from the `suppliers` collection once per request, then resolves each row's supplier from its parsed `brand`. Falls back to the payload `supplier_id` (or the Reid supplier) when a row lacks a brand.
+- Confirm response includes a `supplier_counts` breakdown (`{brand: rows}`) so the UI/import summary can surface the split.
+- `_parse_reid_excel_bytes` now keeps `current_brand` sticky across "umbrella" category rows that don't name a brand (e.g. "Erection & Installation", "Structural Reinforcing Systems"), preventing the previously-detected brand from being wiped.
+
+**Frontend** — `/app/frontend/src/pages/Stock.jsx`
+- Removed the `Supplier` column entirely (top thead + per-group sub-header + all data `<td>`s).
+- Added supplier text to the orange category banner in the format
+  `[icon] <CATEGORY> · <Supplier> · <N items>`.
+  Category name stays white uppercase bold; supplier is white/85 medium normal-case with a `·` separator; item pill unchanged.
+- The banner supplier is derived from the group's rows: if all rows share a single `supplier_id` → that supplier's name; if multiple → `Multiple`; if no supplier_id but a single distinct `brand` → the brand string; otherwise blank.
+- Sort options unchanged (Supplier never was in the SORT_COLS map, so no change needed there).
+
+**Live re-import result**
+- Supplier assignment counts: **Reid 353 · Ramset 4 · Peltzer Con 0**
+- Curl verification of the 4 Ramset FaceLifters:
+  ```
+  FL050125B | category=Ramset™ FaceLifters | brand=Ramset | supplier=Ramset  ✓
+  FL050150B | category=Ramset™ FaceLifters | brand=Ramset | supplier=Ramset  ✓
+  FL050175B | category=Ramset™ FaceLifters | brand=Ramset | supplier=Ramset  ✓
+  FL050200B | category=Ramset™ FaceLifters | brand=Ramset | supplier=Ramset  ✓
+  ```
+- Whole-DB distribution: Reid **346**, Ramset **4** (some part numbers are repeated across Reid/Ramset sections; upsert-by-part_number kept the last, hence 346 not 353).
+- UI verified via DOM: header labels are `['Part number', 'Description', 'Pack qty', 'Pack wt (kg)', 'Unit price', 'On hand']` — no Supplier column at any level.
+- Banners rendered as `'Ramset™ FaceLifters·Ramset4 items'` and `'Reid™ SwiftLift™ FaceLifters·Reid4 items'`.
