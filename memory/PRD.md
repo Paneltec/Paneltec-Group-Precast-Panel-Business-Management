@@ -643,3 +643,31 @@ Final quote:
 **Screenshots delivered**
 - Quote line-items view showing a red trash button on every row (`Delete buttons rendered: 4 / expected 4`).
 - Confirm modal open on FL050125B: `Remove FL050125B from this quote?` + Cancel / red "Delete line".
+
+### Phase 12.10 — Typable qty inputs on StockPicker + bulk-set-qty helper (2026-08-18)
+Manual curl-free screenshot verification. Simpro PAT untouched. No testing_agent.
+
+**Files changed**
+- `/app/frontend/src/components/StockPickerModal.jsx`
+  - Row qty is now stored as a **string** in `picks[id]` so an in-progress empty value survives keystrokes (previously `parseInt(..., 10) || 1` snapped the field back to `1` the moment the user cleared it, blocking typing "25" cleanly).
+  - `onChange` accepts any string; `onBlur` (`commitQty`) normalises empty/invalid to `"1"`; `onFocus` auto-selects the current value so typing replaces cleanly.
+  - Payload builder in `doAdd` coerces each string to a positive integer with a `1` fallback at submit time.
+  - `runningTotal` re-computed from the string values.
+  - Attributes tightened: `type="number" inputMode="numeric" min={1} step={1}` and `w-20 tabular-nums`.
+  - **New bulk-set helper** in the footer next to the tally: appears only when ≥1 row is picked. `SET ALL TO [___]` numeric input + **Apply** button (Enter also submits). Sets the same qty on every ticked row and toasts `Set qty N on M rows.`
+
+**Verified via Playwright DOM script**
+```
+Value after Ctrl+A + Delete: ''            ← was previously snapping to '1'
+Value after typing '375':    '375'
+Tally after typing:         '3 items selected · $4,079.16 ex GST'
+                              (= 375 × $10.82 + 1 × $10.82 + 1 × $10.84 ✓)
+Qty values after bulk-set to 50: ['50', '50', '50']
+Tally after bulk-set:       '3 items selected · $1,624.00 ex GST'
+```
+
+**QuoteEditor single-line entry** — no code change required. The existing `NumF` "Quantity" input in the Add-line dialog (line ~587, `data-testid="line-qty"`) is a standard `<Input type="number" step="1" min="1">` with `onChange={e => onChange(e.target.value)}` — already fully typable. Confirmed by inspection.
+
+**Screenshots delivered**
+- Modal with `QTY = 375` typed into FL050125B (proven typed, not spinner-clicked), tally correct.
+- Modal with all 3 ticked rows bulk-set to `50`, "Set qty 50 on 3 rows." toast visible.

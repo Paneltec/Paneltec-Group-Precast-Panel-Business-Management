@@ -133,24 +133,43 @@ export default function StockPickerModal({ open, onOpenChange, quoteId, onAdded 
     setPicks(prev => {
       const next = { ...prev };
       if (item.id in next) delete next[item.id];
-      else next[item.id] = 1;
+      else next[item.id] = "1";      // strings — allows in-progress empty state
       return next;
     });
   };
+  // Accept any string during typing (including "" while the user is clearing/retyping);
+  // final coercion happens in doAdd. onBlur normalises empty/invalid to "1".
   const setQty = (id, qty) => {
+    setPicks(prev => (id in prev) ? { ...prev, [id]: qty } : prev);
+  };
+  const commitQty = (id) => {
     setPicks(prev => {
       if (!(id in prev)) return prev;
-      const n = Math.max(1, parseInt(qty, 10) || 1);
-      return { ...prev, [id]: n };
+      const n = parseInt(prev[id], 10);
+      return { ...prev, [id]: (Number.isFinite(n) && n > 0) ? String(n) : "1" };
     });
+  };
+  // Bulk-set: apply a single qty value to every currently-ticked row.
+  const [bulkQty, setBulkQty] = useState("");
+  const applyBulkQty = () => {
+    const n = parseInt(bulkQty, 10);
+    if (!Number.isFinite(n) || n <= 0) { toast.error("Enter a positive integer to bulk-set."); return; }
+    setPicks(prev => {
+      const next = {};
+      for (const k of Object.keys(prev)) next[k] = String(n);
+      return next;
+    });
+    toast.success(`Set qty ${n} on ${Object.keys(picks).length} row${Object.keys(picks).length === 1 ? "" : "s"}.`);
   };
 
   const pickedCount = Object.keys(picks).length;
   const runningTotal = useMemo(() => {
     let t = 0;
     for (const it of items) {
-      const q = picks[it.id];
-      if (q && it.unit_price) t += q * it.unit_price;
+      const raw = picks[it.id];
+      if (!raw) continue;
+      const q = parseInt(raw, 10);
+      if (Number.isFinite(q) && q > 0 && it.unit_price) t += q * it.unit_price;
     }
     return t;
   }, [picks, items]);
@@ -164,10 +183,11 @@ export default function StockPickerModal({ open, onOpenChange, quoteId, onAdded 
     const payload = {
       items: Object.entries(picks).map(([id, qty]) => {
         const it = rowsById[id];
+        const n = parseInt(qty, 10);
         return {
           line_type: "stock",
           description: it.description || it.part_number,
-          quantity: qty,
+          quantity: (Number.isFinite(n) && n > 0) ? n : 1,
           part_number: it.part_number,
           stock_item_id: it.id,
           supplier_id: it.supplier_id || null,
@@ -338,12 +358,21 @@ export default function StockPickerModal({ open, onOpenChange, quoteId, onAdded 
                           <td className="px-4 py-2 text-right text-xs text-gray-700">{fmtNum(it.pack_weight, 2)}</td>
                           <td className="px-4 py-2 text-right font-semibold">{fmtAud(it.unit_price)}</td>
                           <td className="px-4 py-2 text-right">
-                            <Input type="number" min={1} value={picks[it.id] ?? ""}
-                                    onChange={e => setQty(it.id, e.target.value)}
-                                    onFocus={() => { if (!(it.id in picks)) togglePick(it); }}
-                                    className="h-8 w-20 text-right"
-                                    disabled={!isPicked}
-                                    data-testid={`stock-picker-qty-${it.id}`}/>
+                            <Input
+                              type="number"
+                              inputMode="numeric"
+                              min={1}
+                              step={1}
+                              value={picks[it.id] ?? ""}
+                              onChange={e => setQty(it.id, e.target.value)}
+                              onBlur={() => commitQty(it.id)}
+                              onFocus={(e) => {
+                                if (!(it.id in picks)) togglePick(it);
+                                e.target.select();
+                              }}
+                              className="h-8 w-20 text-right tabular-nums"
+                              disabled={!isPicked}
+                              data-testid={`stock-picker-qty-${it.id}`}/>
                           </td>
                         </tr>
                       );
@@ -355,13 +384,28 @@ export default function StockPickerModal({ open, onOpenChange, quoteId, onAdded 
           )}
         </div>
 
-        {/* Footer with running tally + primary action */}
+        {/* Footer with running tally + bulk-set qty + primary action */}
         <DialogFooter className="px-6 py-4 border-t border-gray-200 flex-shrink-0 items-center justify-between bg-gray-50 sm:justify-between">
-          <div className="text-sm text-gray-700" data-testid="stock-picker-tally">
-            <span className="font-semibold text-[#1F2A33]">{pickedCount}</span> item{pickedCount === 1 ? "" : "s"} selected
-            {" · "}
-            <span className="font-semibold text-[#1F2A33]">{fmtAud(runningTotal)}</span>
-            <span className="text-gray-500"> ex GST</span>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="text-sm text-gray-700" data-testid="stock-picker-tally">
+              <span className="font-semibold text-[#1F2A33]">{pickedCount}</span> item{pickedCount === 1 ? "" : "s"} selected
+              {" · "}
+              <span className="font-semibold text-[#1F2A33]">{fmtAud(runningTotal)}</span>
+              <span className="text-gray-500"> ex GST</span>
+            </div>
+            {pickedCount > 0 && (
+              <div className="flex items-center gap-1.5" data-testid="stock-picker-bulk-qty">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-[#3A6B8C]">Set all to</span>
+                <Input type="number" inputMode="numeric" min={1} step={1}
+                       value={bulkQty} onChange={e => setBulkQty(e.target.value)}
+                       onKeyDown={(e) => { if (e.key === "Enter") applyBulkQty(); }}
+                       placeholder="qty" className="h-8 w-20 text-right tabular-nums"
+                       data-testid="stock-picker-bulk-qty-input"/>
+                <Button size="sm" variant="outline" onClick={applyBulkQty}
+                        className="h-8 px-2 text-xs"
+                        data-testid="stock-picker-bulk-qty-apply">Apply</Button>
+              </div>
+            )}
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}
