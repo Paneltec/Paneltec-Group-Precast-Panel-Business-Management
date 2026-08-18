@@ -6,6 +6,7 @@ load_dotenv(ROOT_DIR / '.env')
 
 import os
 import re
+import io
 import uuid
 import logging
 import httpx
@@ -5118,44 +5119,237 @@ async def bulk_delete_stock(payload: StockBulkDeletePayload, actor: dict = Depen
 
 
 # --- Excel import ---
+STOCK_IMAGE_DIR = ROOT_DIR.parent / "backend" / "uploads" / "stock" if False else None
+# ^^ initialised below where ROOT_DIR is known-safe. Real path is `<repo>/backend/uploads/stock/`.
+from pathlib import Path as _Path
+STOCK_IMAGE_DIR = _Path(__file__).parent / "uploads" / "stock"
+STOCK_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _extract_reid_images(data: bytes) -> Dict[int, List[Tuple[bytes, str]]]:
+    """Extract embedded pictures from an .xlsx zip and index by anchor row (0-based).
+    Returns {row_index: [(image_bytes, extension), ...]} for the first worksheet.
+    """
+    import zipfile
+    import re as _re
+    import xml.etree.ElementTree as ET
+    ns = {
+        "xdr": "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing",
+        "a":   "http://schemas.openxmlformats.org/drawingml/2006/main",
+        "r":   "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    }
+    out: Dict[int, List[Tuple[bytes, str]]] = {}
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = zf.namelist()
+        # Locate drawing xmls
+        drawing_xmls = [n for n in names if _re.match(r"xl/drawings/drawing\d+\.xml$", n)]
+        for dpath in drawing_xmls:
+            rels_path = dpath.replace("xl/drawings/", "xl/drawings/_rels/") + ".rels"
+            rels_map: Dict[str, str] = {}
+            if rels_path in names:
+                rroot = ET.fromstring(zf.read(rels_path))
+                for rel in rroot.findall("{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"):
+                    rels_map[rel.get("Id")] = rel.get("Target")  # e.g. "../media/image1.png"
+            droot = ET.fromstring(zf.read(dpath))
+            # Iterate both twoCellAnchor and oneCellAnchor
+            anchor_tags = [f"{{{ns['xdr']}}}twoCellAnchor",
+                           f"{{{ns['xdr']}}}oneCellAnchor",
+                           f"{{{ns['xdr']}}}absoluteAnchor"]
+            for anch in list(droot):
+                if anch.tag not in anchor_tags: continue
+                frm = anch.find("xdr:from", ns)
+                if frm is None: continue
+                row_el = frm.find("xdr:row", ns)
+                if row_el is None or row_el.text is None: continue
+                row_idx = int(row_el.text)
+                pic = anch.find("xdr:pic", ns)
+                if pic is None: continue
+                blip = pic.find("xdr:blipFill/a:blip", ns)
+                if blip is None: continue
+                rid = blip.get(f"{{{ns['r']}}}embed")
+                target = rels_map.get(rid)
+                if not target: continue
+                # Resolve relative path (e.g. "../media/image1.png" -> "xl/media/image1.png",
+                # or absolute "/xl/media/image1.png" -> "xl/media/image1.png")
+                if target.startswith("../"):
+                    media_path = "xl/" + target[3:]
+                elif target.startswith("/"):
+                    media_path = target[1:]
+                else:
+                    media_path = "xl/drawings/" + target if not target.startswith("xl/") else target
+                if media_path not in names: continue
+                img_bytes = zf.read(media_path)
+                ext = media_path.rsplit(".", 1)[-1].lower() if "." in media_path else "png"
+                if ext == "jpeg": ext = "jpg"
+                out.setdefault(row_idx, []).append((img_bytes, ext))
+    return out
+
+
 def _parse_reid_excel_bytes(data: bytes) -> Dict[str, Any]:
-    """Parser tailored to the Reid/Ramset price-list format:
-    col A empty, cols B-F = Part No / Description / Pack weight / Pack qty / Sell Price ea.
-    A row with only Part No populated is treated as a category header."""
+    """Header-driven parser for Reid/Ramset price-list Excel:
+      - Locates columns by header name (Part No, Description, Pack weight, Pack qty,
+        Price per, Sell Price ea) — never confuses Price per with Sell Price ea.
+      - A row with only a value in the Part No column is treated as a category header.
+      - Extracts embedded product images from the workbook's drawing XML and pairs
+        them with rows by anchor row-index (within ±2 rows).
+    Returns {items, valid_count, needs_review_count, images_extracted, images_missing,
+             debug_pairings (first 5)}.
+    """
     from openpyxl import load_workbook
     from io import BytesIO
     wb = load_workbook(BytesIO(data), data_only=True)
     ws = wb[wb.sheetnames[0]]
+
     def brand_of(cat: str) -> Optional[str]:
         c = (cat or "").lower()
         if "reid" in c: return "Reid"
         if "ramset" in c: return "Ramset"
         if "peltzer" in c: return "Peltzer Con"
         return None
+
+    def norm(s) -> str:
+        return "".join(ch for ch in str(s or "").lower() if ch.isalnum())
+
+    # --- Header detection: scan the first 8 rows for a row that contains
+    # normalised tokens matching our expected labels.
+    labels = {
+        "part_number": {"partno", "partnumber", "product", "productcode", "code"},
+        "description": {"description", "productdescription", "desc"},
+        "pack_weight": {"packweight", "weight", "packwgt"},
+        "pack_qty":    {"packqty", "packquantity", "qtyperpack", "packsize"},
+        "price_per":   {"priceper", "priceperkg", "priceperunit"},
+        "sell_price":  {"sellpriceea", "sellprice", "priceea", "sellprc", "sellpriceeach", "listpriceea"},
+    }
+    header_row_idx = None
+    col_idx: Dict[str, int] = {}
+    all_rows = list(ws.iter_rows(values_only=True))
+    for ri, row in enumerate(all_rows[:15]):
+        tokens = {norm(c): j for j, c in enumerate(row) if c is not None and str(c).strip()}
+        if not tokens: continue
+        found: Dict[str, int] = {}
+        for key, alts in labels.items():
+            for lbl, j in tokens.items():
+                if lbl in alts:
+                    found[key] = j; break
+        # Require at least Part No + (Sell Price OR Price per) to accept as header row
+        if "part_number" in found and ("sell_price" in found or "price_per" in found):
+            header_row_idx = ri
+            col_idx = found
+            break
+
+    # Fallback: fixed B-G layout (Part No / Description / Pack weight / Pack qty / Price per / Sell Price ea)
+    if header_row_idx is None:
+        header_row_idx = 0
+        col_idx = {"part_number": 1, "description": 2, "pack_weight": 3,
+                   "pack_qty": 4, "price_per": 5, "sell_price": 6}
+
+    def cell(row_tuple, key):
+        j = col_idx.get(key)
+        if j is None or j >= len(row_tuple): return None
+        return row_tuple[j]
+
+    # --- Extract embedded images (best-effort; parsing continues if it fails)
+    images_by_row: Dict[int, List[Tuple[bytes, str]]] = {}
+    try:
+        images_by_row = _extract_reid_images(data)
+    except Exception as _e:
+        logger.info(f"Stock import: image extraction skipped ({type(_e).__name__}: {_e})")
+
     items: List[Dict[str, Any]] = []
-    current_cat: Optional[str] = None; current_brand: Optional[str] = None
-    for i, row in enumerate(ws.iter_rows(values_only=True), 1):
-        if i == 1: continue
-        cells = list(row) + [None] * max(0, 6 - len(row))
-        _, part_no, desc, pack_w, pack_q, price = cells[:6]
-        if not any(x is not None and str(x).strip() for x in cells): continue
-        if part_no and not (desc or pack_w or pack_q or price):
-            current_cat = str(part_no).strip(); current_brand = brand_of(current_cat); continue
+    current_cat: Optional[str] = None
+    current_brand: Optional[str] = None
+    debug_pairings: List[Dict[str, Any]] = []
+    images_extracted = 0
+    used_row_indices: set = set()
+
+    for ri, row in enumerate(all_rows):
+        if ri <= header_row_idx: continue
+        part_no = cell(row, "part_number")
+        desc    = cell(row, "description")
+        pack_w  = cell(row, "pack_weight")
+        pack_q  = cell(row, "pack_qty")
+        sell    = cell(row, "sell_price")
+        # ignore price_per intentionally for unit_price mapping
+        if not any(c is not None and str(c).strip() for c in row): continue
+        # Category-header row = only the Part No column populated
+        if part_no is not None and str(part_no).strip() and not (desc or pack_w or pack_q or sell):
+            current_cat = str(part_no).strip()
+            current_brand = brand_of(current_cat)
+            continue
         if not part_no or not str(part_no).strip(): continue
-        needs_review = price is None or not desc
+
+        pn = str(part_no).strip()
+        # Locate image for this row (search ±2 rows around ri)
+        image_url: Optional[str] = None
+        for delta in (0, 1, -1, 2, -2):
+            rk = ri + delta
+            if rk in images_by_row and rk not in used_row_indices:
+                img_bytes, ext = images_by_row[rk][0]
+                # Safe filename
+                safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in pn)
+                out_path = STOCK_IMAGE_DIR / f"{safe}.{ext}"
+                try:
+                    out_path.write_bytes(img_bytes)
+                    image_url = f"/api/stock/image/{safe}.{ext}"
+                    used_row_indices.add(rk)
+                    images_extracted += 1
+                    if len(debug_pairings) < 5:
+                        debug_pairings.append({
+                            "part_number": pn, "excel_row": ri + 1,
+                            "anchor_row": rk, "delta": delta,
+                            "image_file": f"{safe}.{ext}", "bytes": len(img_bytes),
+                        })
+                except Exception as _e:
+                    logger.warning(f"Stock image write failed for {pn}: {_e}")
+                break
+
+        needs_review = sell is None or not desc
         items.append({
-            "part_number": str(part_no).strip(),
+            "part_number": pn,
             "description": (str(desc).strip() if desc else ""),
             "category": current_cat or "",
             "brand": current_brand or "",
             "pack_weight": float(pack_w) if isinstance(pack_w, (int, float)) else None,
             "pack_qty": int(pack_q) if isinstance(pack_q, (int, float)) else None,
-            "unit_price": float(price) if isinstance(price, (int, float)) else None,
+            "unit_price": float(sell) if isinstance(sell, (int, float)) else None,
+            "image_url": image_url or "",
             "needs_review": needs_review,
         })
-    return {"items": items,
-             "valid_count": sum(1 for i in items if not i["needs_review"]),
-             "needs_review_count": sum(1 for i in items if i["needs_review"])}
+
+    logger.info(f"Stock import parsed {len(items)} rows | header row={header_row_idx} | "
+                f"columns={col_idx} | images_extracted={images_extracted} "
+                f"| debug_pairings={debug_pairings}")
+
+    return {
+        "items": items,
+        "valid_count": sum(1 for i in items if not i["needs_review"]),
+        "needs_review_count": sum(1 for i in items if i["needs_review"]),
+        "images_extracted": images_extracted,
+        "images_missing": sum(1 for i in items if not i["image_url"]),
+        "header_row": header_row_idx + 1,
+        "columns": col_idx,
+        "debug_pairings": debug_pairings,
+    }
+
+
+@api_router.get("/stock/image/{filename}")
+async def get_stock_image(filename: str):
+    """Serve a Reid/Ramset product image extracted at import time.
+    Public endpoint (no auth) so browser `<img>` tags can load it directly;
+    the payload is a public supplier catalogue image, not confidential.
+    Filename is `<sanitised_part_number>.<ext>`.
+    """
+    # Prevent path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    path = STOCK_IMAGE_DIR / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+    from fastapi.responses import FileResponse
+    ext = filename.rsplit(".", 1)[-1].lower()
+    mt = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+          "webp": "image/webp", "gif": "image/gif"}.get(ext, "application/octet-stream")
+    return FileResponse(str(path), media_type=mt)
 
 
 @api_router.post("/stock/import-excel")
@@ -5197,7 +5391,6 @@ async def import_stock_excel_confirm(payload: StockImportConfirmPayload,
             "pack_weight": src.get("pack_weight"),
             "pack_qty": src.get("pack_qty"),
             "unit_of_measure": src.get("unit_of_measure") or "EA",
-            "image_url": src.get("image_url") or "",
             "on_hand_qty": int(src.get("on_hand_qty") or 0),
             "min_stock_level": int(src.get("min_stock_level") or 0),
             "notes": src.get("notes") or "",
@@ -5205,11 +5398,16 @@ async def import_stock_excel_confirm(payload: StockImportConfirmPayload,
             "is_active": True,
             "updated_at": now_iso(),
         }
+        # Only set image_url when the parser actually captured one — never wipe
+        # an existing image with an empty string on re-import.
+        if src.get("image_url"):
+            doc["image_url"] = src["image_url"]
         existing = await db.stock_items.find_one({"part_number": part_no}, {"_id": 0, "id": 1})
         if existing:
             await db.stock_items.update_one({"id": existing["id"]}, {"$set": doc})
             updated += 1
         else:
+            if "image_url" not in doc: doc["image_url"] = ""
             doc["id"] = str(uuid.uuid4()); doc["created_at"] = now_iso(); doc["deleted_at"] = None
             await db.stock_items.insert_one(doc); created += 1
     await record_audit(actor, "stock_import_excel", "stock_item", None,

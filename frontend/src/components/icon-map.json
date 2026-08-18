@@ -124,5 +124,17 @@
   "audit_trail": "Magnifying glass tilted left",
   "help_book": "Open book",
   "compliance_forms": "Clipboard",
-  "lock": "Locked"
+  "lock": "Locked",
+  "chains": "Chains",
+  "link": "Link",
+  "donut": "Doughnut",
+  "nut_and_bolt": "Nut and bolt",
+  "screw": "Screwdriver",
+  "chair": "Chair",
+  "hammer": "Hammer",
+  "straight_ruler": "Straight ruler",
+  "spray_bottle": "Spray bottle",
+  "oil_drum": "Oil drum",
+  "building_construction": "Building construction",
+  "stock": "Package"
 }

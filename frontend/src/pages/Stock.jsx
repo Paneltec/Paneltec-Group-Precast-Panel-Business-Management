@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Loader2, Trash2, Upload, Plus, AlertTriangle } from "lucide-react";
 import AppIcon from "../components/AppIcon";
@@ -11,8 +11,41 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
 import { toast, Toaster } from "sonner";
 
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
 const fmtAud = (v) => v === null || v === undefined ? "—"
   : new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(v);
+const fmtNum = (v, digits = 2) => v === null || v === undefined || v === ""
+  ? "—" : Number(v).toLocaleString("en-AU", { minimumFractionDigits: 0, maximumFractionDigits: digits });
+
+// Resolve absolute image URL for the browser <img> tag.
+const imgSrc = (u) => {
+  if (!u) return "";
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  return `${BACKEND_URL}${u}`;
+};
+
+// Category → AppIcon key. Matches on lowercased category name; first match wins.
+// Keys map into /components/icon-map.json entries we added in this pass.
+const CATEGORY_ICON_RULES = [
+  { test: /chain|clutch/i,                    icon: "chains" },
+  { test: /lift|anchor/i,                     icon: "link" },
+  { test: /shackle|hook|rigging|sling/i,      icon: "link" },
+  { test: /bar chair|spacer|cover/i,          icon: "donut" },
+  { test: /ferrule|insert|thread/i,           icon: "nut_and_bolt" },
+  { test: /bolt|nut|coach|hex/i,              icon: "nut_and_bolt" },
+  { test: /screw|dyna|fix|fastener/i,         icon: "screw" },
+  { test: /rebar|steel|mesh|reinforc/i,       icon: "chair" },
+  { test: /brace|prop|strut|scaffold/i,       icon: "hammer" },
+  { test: /form|edge|profile|ruler|mould/i,   icon: "straight_ruler" },
+  { test: /sealant|glue|adhesive|spray/i,     icon: "spray_bottle" },
+  { test: /grout|oil|release|chemical/i,      icon: "oil_drum" },
+  { test: /precast|panel|concrete|construct/i, icon: "building_construction" },
+];
+const iconForCategory = (cat) => {
+  const c = (cat || "").toLowerCase();
+  for (const r of CATEGORY_ICON_RULES) if (r.test.test(c)) return r.icon;
+  return "package";
+};
 
 export default function Stock() {
   const { hasPerm } = useAuth();
@@ -69,6 +102,25 @@ export default function Stock() {
   const toggleRow = (id) => { const n = new Set(selected); n.has(id) ? n.delete(id) : n.add(id); setSelected(n); };
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(items.map(i => i.id)));
   const anyFilter = q || category !== "__all__" || supplier !== "__all__" || review;
+
+  // Group items by category (preserving original sort within each group).
+  const grouped = useMemo(() => {
+    const groups = new Map();
+    for (const it of items) {
+      const key = it.category || "Uncategorised";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(it);
+    }
+    // Sort category names alphabetically, but keep "Uncategorised" last.
+    const keys = [...groups.keys()].sort((a, b) => {
+      if (a === "Uncategorised") return 1;
+      if (b === "Uncategorised") return -1;
+      return a.localeCompare(b);
+    });
+    return keys.map(k => ({ category: k, rows: groups.get(k) }));
+  }, [items]);
+
+  const columnCount = 8 + (canEdit ? 1 : 0);
 
   const doBulkDelete = async () => {
     try {
@@ -137,7 +189,7 @@ export default function Stock() {
          : items.length === 0 ? <div className="p-6 text-sm text-gray-500">{anyFilter ? "No stock items match the current filters." : "No stock items yet. Import an Excel price list or add items manually."}</div>
          : (
           <table className="w-full text-sm">
-            <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider">
+            <thead className="bg-[#3A6B8C] text-white uppercase text-[10px] tracking-wider sticky top-0 z-30">
               <tr>
                 {canEdit && (
                   <th className="px-3 py-3 text-left w-10">
@@ -149,39 +201,64 @@ export default function Stock() {
                 <th className="px-4 py-3 text-left w-16"></th>
                 <th className="px-4 py-3 text-left">Part number</th>
                 <th className="px-4 py-3 text-left">Description</th>
-                <th className="px-4 py-3 text-left">Category</th>
                 <th className="px-4 py-3 text-left">Supplier</th>
+                <th className="px-4 py-3 text-right">Pack qty</th>
+                <th className="px-4 py-3 text-right">Pack wt (kg)</th>
                 <th className="px-4 py-3 text-right">Unit price</th>
                 <th className="px-4 py-3 text-right">On hand</th>
               </tr>
             </thead>
             <tbody>
-              {items.map(it => (
-                <tr key={it.id} className={`border-t border-gray-200 ${selected.has(it.id) ? "bg-yellow-50" : "hover:bg-gray-50"}`}
-                    data-testid={`stock-row-${it.id}`}>
-                  {canEdit && (
-                    <td className="px-3 py-3">
-                      <Checkbox checked={selected.has(it.id)} onCheckedChange={() => toggleRow(it.id)}
-                                 data-testid={`stock-select-${it.id}`}/>
+              {grouped.map(({ category: catName, rows }) => (
+                <Fragment key={`grp-${catName}`}>
+                  <tr data-testid={`stock-category-header-${catName}`}>
+                    <td colSpan={columnCount} className="p-0">
+                      <div className="sticky top-[36px] z-20 bg-[#F97316] text-white uppercase tracking-widest text-xs font-bold px-4 py-2 flex items-center gap-2 border-y border-orange-800/40 shadow-sm">
+                        <AppIcon name={iconForCategory(catName)} size={22} decorative
+                                  className="drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]"/>
+                        <span>{catName}</span>
+                        <span className="ml-auto normal-case tracking-normal text-[11px] font-semibold bg-white/20 rounded-full px-2 py-0.5">{rows.length} item{rows.length === 1 ? "" : "s"}</span>
+                      </div>
                     </td>
-                  )}
-                  <td className="px-4 py-3">
-                    {it.image_url ? <img src={it.image_url} alt="" className="w-10 h-10 object-cover rounded"/>
-                                   : <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center"><AppIcon name="package" size={20} decorative/></div>}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs font-bold text-[#1F2A33]">{it.part_number}</td>
-                  <td className="px-4 py-3 text-gray-700">
-                    <div>{it.description || <span className="italic text-gray-400">No description</span>}</div>
-                    {it.needs_review && (
-                      <span className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded"
-                             data-testid={`stock-review-chip-${it.id}`}>review price</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-600">{it.category || "—"}</td>
-                  <td className="px-4 py-3 text-xs text-gray-600">{supplierName(it.supplier_id) || it.brand || "—"}</td>
-                  <td className="px-4 py-3 text-right font-semibold">{fmtAud(it.unit_price)}</td>
-                  <td className="px-4 py-3 text-right">{it.on_hand_qty}</td>
-                </tr>
+                  </tr>
+                  {rows.map(it => (
+                    <tr key={it.id} className={`border-t border-gray-200 ${selected.has(it.id) ? "bg-yellow-50" : "hover:bg-gray-50"}`}
+                        data-testid={`stock-row-${it.id}`}>
+                      {canEdit && (
+                        <td className="px-3 py-3">
+                          <Checkbox checked={selected.has(it.id)} onCheckedChange={() => toggleRow(it.id)}
+                                     data-testid={`stock-select-${it.id}`}/>
+                        </td>
+                      )}
+                      <td className="px-4 py-3">
+                        {it.image_url ? (
+                          <img src={imgSrc(it.image_url)} alt={it.part_number}
+                                className="w-12 h-12 object-cover rounded border border-gray-200 bg-white"
+                                loading="lazy"
+                                onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                data-testid={`stock-img-${it.id}`}/>
+                        ) : (
+                          <div className="w-12 h-12 bg-gray-50 rounded border border-gray-200 flex items-center justify-center">
+                            <AppIcon name={iconForCategory(it.category)} size={24} decorative/>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs font-bold text-[#1F2A33]">{it.part_number}</td>
+                      <td className="px-4 py-3 text-gray-700">
+                        <div>{it.description || <span className="italic text-gray-400">No description</span>}</div>
+                        {it.needs_review && (
+                          <span className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded"
+                                 data-testid={`stock-review-chip-${it.id}`}>review price</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{supplierName(it.supplier_id) || it.brand || "—"}</td>
+                      <td className="px-4 py-3 text-right text-xs text-gray-700">{fmtNum(it.pack_qty, 0)}</td>
+                      <td className="px-4 py-3 text-right text-xs text-gray-700">{fmtNum(it.pack_weight, 2)}</td>
+                      <td className="px-4 py-3 text-right font-semibold">{fmtAud(it.unit_price)}</td>
+                      <td className="px-4 py-3 text-right">{it.on_hand_qty}</td>
+                    </tr>
+                  ))}
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -255,7 +332,7 @@ function StockImportModal({ open, onOpenChange, suppliers, onImported }) {
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto" data-testid="stock-import-modal">
         <DialogHeader>
           <DialogTitle>Import stock from Excel</DialogTitle>
-          <DialogDescription>Upload a supplier price list (`.xlsx`). Rows with matching part numbers will be updated; new part numbers will be created.</DialogDescription>
+          <DialogDescription>Upload a supplier price list (<code>.xlsx</code>). Rows with matching part numbers will be updated; new part numbers will be created. Embedded product images are extracted and attached automatically.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div>
@@ -279,20 +356,38 @@ function StockImportModal({ open, onOpenChange, suppliers, onImported }) {
           )}
           {preview && (
             <>
-              <div className="bg-emerald-50 border border-emerald-200 rounded p-3 text-sm text-emerald-900">
-                Parsed <b>{preview.items.length}</b> rows · <b>{preview.valid_count}</b> valid · <b>{preview.needs_review_count}</b> flagged for review
+              <div className="bg-emerald-50 border border-emerald-200 rounded p-3 text-sm text-emerald-900 space-y-1">
+                <div>Parsed <b>{preview.items.length}</b> rows · <b>{preview.valid_count}</b> valid · <b>{preview.needs_review_count}</b> flagged for review</div>
+                <div className="text-xs text-emerald-800">
+                  Images extracted: <b>{preview.images_extracted ?? 0}</b> ·
+                  {" "}Missing image: <b>{preview.images_missing ?? preview.items.length}</b>
+                </div>
               </div>
               <div className="border border-gray-200 rounded overflow-y-auto max-h-64">
                 <table className="w-full text-xs">
                   <thead className="bg-gray-100 uppercase text-[10px] tracking-wider text-gray-600">
-                    <tr><th className="px-2 py-1 text-left">Part no.</th><th className="px-2 py-1 text-left">Description</th><th className="px-2 py-1 text-left">Category</th><th className="px-2 py-1 text-right">Price</th></tr>
+                    <tr>
+                      <th className="px-2 py-1 text-left w-10"></th>
+                      <th className="px-2 py-1 text-left">Part no.</th>
+                      <th className="px-2 py-1 text-left">Description</th>
+                      <th className="px-2 py-1 text-left">Category</th>
+                      <th className="px-2 py-1 text-right">Pack qty</th>
+                      <th className="px-2 py-1 text-right">Pack wt</th>
+                      <th className="px-2 py-1 text-right">Sell price ea</th>
+                    </tr>
                   </thead>
                   <tbody>
                     {preview.items.slice(0, 20).map((r, i) => (
                       <tr key={i} className="border-t border-gray-100">
+                        <td className="px-2 py-1">{r.image_url
+                          ? <img src={imgSrc(r.image_url)} alt="" className="w-8 h-8 object-cover rounded"/>
+                          : <div className="w-8 h-8 bg-gray-50 rounded"/>}
+                        </td>
                         <td className="px-2 py-1 font-mono">{r.part_number}</td>
                         <td className="px-2 py-1">{r.description || <span className="italic text-amber-700">missing</span>}</td>
                         <td className="px-2 py-1 text-gray-500">{r.category}</td>
+                        <td className="px-2 py-1 text-right">{fmtNum(r.pack_qty, 0)}</td>
+                        <td className="px-2 py-1 text-right">{fmtNum(r.pack_weight, 2)}</td>
                         <td className="px-2 py-1 text-right">{fmtAud(r.unit_price)}</td>
                       </tr>
                     ))}

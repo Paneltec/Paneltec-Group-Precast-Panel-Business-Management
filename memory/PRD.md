@@ -442,3 +442,32 @@ Next: Phase 7 — Pricing model upgrade (Cost vs Sell + labour per panel type & 
 - Backend: `IntegrationSimpro.position_filter` typed as `Dict[str, List[str]]` (keyed by str(company_id)). `_coerce_position_filter` helper normalises any legacy list-form value to `{}` on read. `SimproSyncEmployeesPayload` gains `apply_position_filter: bool = True`. `_matches_position_filter(section, company_id, role, apply)` is applied in both `POST /api/integrations/simpro/preview-employees` and `.../sync-employees`. Preview returns `applied_position_filter` + `filtered_by_position_count`; sync returns `applied_position_filter` + `skipped_by_position` and includes both in the audit metadata.
 - Frontend `IntegrationSettings.jsx`: new `SimproPositionFilterPerCompany` accordion — one collapsible section per configured `company_id`, each with its own ChipInput. Section headers show either `CO <id>` or `<name> (CO <id>)` when a company name has been learned via LIST modal or Test Connection. Empty-state chips-row hint: "No filter — all positions from this company will be imported." Orphan filter entries are pruned on save.
 - Frontend `SimproEmployeeImportModal.jsx`: new "Apply position filter for the selected companies" checkbox (default ON), wired to both preview + sync calls. Per-company breakdown shown when at least one company has a filter configured. Preview count now reports "N filtered by position" when the filter is active.
+
+### Phase 12.3 — Stock Excel parser overhaul + embedded images + category-grouped list (2026-08-18)
+Delivered against the standing "no testing agent" rule. Manual curl + screenshot verification only.
+
+**Backend** — `/app/backend/server.py`
+- `_parse_reid_excel_bytes` now header-driven: scans the first 15 rows for tokens matching Part No / Description / Pack weight / Pack qty / Price per / Sell Price ea, and maps `unit_price` **strictly to Sell Price ea** (never Price per). Falls back to fixed B–G layout only if no header row is found.
+- Category-header detection preserved (row with only the Part No column populated).
+- New helper `_extract_reid_images(data)` opens the .xlsx as a zip, walks `xl/drawings/drawingN.xml` + its `.rels`, and returns `{anchor_row_index: [(bytes, ext), …]}`. Handles both `../media/imageN.ext` and `/xl/media/imageN.ext` Target formats.
+- Each parsed row scans anchors within ±2 rows of its own row for a matching image; first hit wins and is written to `/app/backend/uploads/stock/<sanitised_part_number>.<ext>`. `image_url` is set to `/api/stock/image/<file>`.
+- New public route `GET /api/stock/image/{filename}` (no auth — public catalogue image), with path-traversal guard.
+- Parser response now includes `images_extracted`, `images_missing`, `header_row`, `columns`, `debug_pairings` (first 5).
+- `/api/stock/import-excel/confirm` no longer wipes an existing `image_url` on re-import when the incoming row lacks one.
+
+**Frontend** — `/app/frontend/src/pages/Stock.jsx`
+- Rows grouped by `category` with a **sticky orange banner** (`#F97316`, white uppercase bold, item count pill on the right). Category rows use `iconForCategory()` (keyword rules covering chains/lifting/rigging/spacers/ferrules/bolts/screws/rebar/braces/forms/sealants/grout/precast → package fallback).
+- New columns **Pack qty** and **Pack wt (kg)** between Supplier and Unit price.
+- Product images now render as real `<img>` from `image_url` (prefixed with `REACT_APP_BACKEND_URL`), 48×48, `object-cover`, rounded border. Fluent Emoji category icon still used as the fallback when no `image_url`.
+- Import preview modal now shows Pack qty / Pack wt / Sell price ea columns + Images extracted vs Images missing counts.
+
+**Icons added** — `/app/frontend/src/components/icon-map.json`
+- `chains`, `link`, `donut` (Doughnut), `nut_and_bolt`, `screw` (Screwdriver), `chair`, `hammer`, `straight_ruler`, `spray_bottle`, `oil_drum`, `building_construction`, `stock` (Package).
+
+**Verified**
+- Synthetic 4-row Reid-style .xlsx: parser correctly maps `unit_price = 3.20` from Sell Price ea (not `1.50` from Price per), captures pack_qty (50) and pack_weight (0.35), and extracts the embedded 1×1 PNG at anchor row 2 → paired to `RLA-100` at Excel row 3 (delta 0). See debug pairing:
+  `{'part_number':'RLA-100','excel_row':3,'anchor_row':2,'delta':0,'image_file':'RLA-100.png','bytes':68}`
+- `GET /api/stock/image/RLA-100.png` returns `HTTP 200 · image/png` publicly.
+- Stock UI screenshot confirms orange banner + category icon + pack columns rendering.
+
+**PAT untouched.** No `testing_agent_v3` invoked.
