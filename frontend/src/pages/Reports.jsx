@@ -13,6 +13,7 @@ import { Checkbox } from "../components/ui/checkbox";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "../components/ui/dialog";
 import { toast } from "sonner";
+import { downloadPdf } from "../lib/print";
 
 const CARDS = [
   { key:"customers", title:"Customers", desc:"Top accounts, growth, activity",      icon:Users,      perm:"customers.view",  kpi:(k)=>[`Active: ${k.active_customers}`, `Top: ${formatAUD(k.top_customer_revenue_aud||0)}`]},
@@ -61,7 +62,9 @@ function TileBanner({ src, Icon, title }) {
 export default function Reports() {
   const { hasPerm, isSuperAdmin } = useAuth();
   const [previews, setPreviews] = useState({});
+  const [marginPdfOpen, setMarginPdfOpen] = useState(false);
   const visible = CARDS.filter(c => isSuperAdmin || hasPerm(c.perm));
+  const canSeeCosts = isSuperAdmin || hasPerm("pricing.view_costs");
 
   useEffect(() => {
     visible.forEach(c => {
@@ -118,6 +121,31 @@ export default function Reports() {
                 No reports available with your current permissions.
               </div>
             )}
+            {canSeeCosts && (
+              <button type="button"
+                onClick={() => setMarginPdfOpen(true)}
+                data-testid="margin-analysis-pdf-tile"
+                className="text-left bg-white border-2 border-[#F5C518] rounded hover:shadow-md transition-all group overflow-hidden flex flex-col">
+                <div className="w-full h-20 md:h-[120px] rounded-t bg-[#1F2A33] flex items-center justify-center gap-3">
+                  <span className="text-4xl">🔒</span>
+                  <div className="text-[#F5C518] text-xs uppercase tracking-[0.18em] font-black">Internal PDF</div>
+                </div>
+                <div className="p-5 flex-1">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider font-bold text-[#F5C518] flex items-center gap-1">
+                        <span>🔒</span> Internal — Margin Analysis
+                      </div>
+                      <div className="text-sm text-gray-500 mt-1">Cost, margin AUD and margin % breakdown per quote. Confidential internal report.</div>
+                    </div>
+                    <AppIcon name="download" size={20} decorative/>
+                  </div>
+                  <div className="mt-3">
+                    <div className="text-xs font-semibold text-[#059669] tabular-nums">Generate PDF ↗</div>
+                  </div>
+                </div>
+              </button>
+            )}
           </div>
         </TabsContent>
 
@@ -141,7 +169,85 @@ export default function Reports() {
           )}
         </TabsContent>
       </Tabs>
+      {canSeeCosts && (
+        <MarginAnalysisPdfModal open={marginPdfOpen} onOpenChange={setMarginPdfOpen}/>
+      )}
     </div>
+  );
+}
+
+function MarginAnalysisPdfModal({ open, onOpenChange }) {
+  const [from, setFrom] = useState(defaultDate(-30));
+  const [to, setTo] = useState(defaultDate(0));
+  const [status, setStatus] = useState("all");
+  const [generating, setGenerating] = useState(false);
+  const onGenerate = async () => {
+    setGenerating(true);
+    try {
+      toast.loading("Generating margin analysis PDF…", { id: "margin-pdf" });
+      const params = new URLSearchParams({ from, to });
+      if (status && status !== "all") params.set("status", status);
+      await downloadPdf(`/reports/margin-analysis/pdf?${params.toString()}`,
+        `paneltec_margin_analysis_${from}_${to}.pdf`);
+      toast.success("Margin analysis PDF downloaded", { id: "margin-pdf" });
+      onOpenChange(false);
+    } catch (err) {
+      const detail = err?.response?.data?.detail || "Failed to generate PDF";
+      toast.error(String(detail), { id: "margin-pdf" });
+    } finally {
+      setGenerating(false);
+    }
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent data-testid="margin-analysis-modal">
+        <DialogHeader>
+          <DialogTitle className="inline-flex items-center gap-2">
+            <span>🔒</span> Internal — Margin Analysis
+          </DialogTitle>
+          <DialogDescription>
+            Confidential internal report. Cost and margin breakdown for every quote in the selected window. Only visible to users with pricing.view_costs.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Date from</Label>
+              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+                className="mt-1" data-testid="margin-from"/>
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Date to</Label>
+              <Input type="date" value={to} onChange={(e) => setTo(e.target.value)}
+                className="mt-1" data-testid="margin-to"/>
+            </div>
+          </div>
+          <div>
+            <Label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Status</Label>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger className="mt-1" data-testid="margin-status"><SelectValue/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="draft">Draft</SelectItem>
+                <SelectItem value="sent">Sent</SelectItem>
+                <SelectItem value="accepted">Accepted</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+                <SelectItem value="expired">Expired</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={generating} data-testid="margin-cancel">Cancel</Button>
+          <Button onClick={onGenerate} disabled={generating}
+            className="bg-[#1F2A33] text-white hover:bg-[#3A6B8C]"
+            data-testid="margin-generate">
+            {generating ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <AppIcon name="download" size={16} className="mr-2" decorative/>}
+            {generating ? "Generating…" : "Generate PDF"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

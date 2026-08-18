@@ -973,3 +973,34 @@ Every detail page now uses `downloadPdf('/api/<entity>/{id}/pdf')` from `/app/fr
 - `@api_router.patch("/projects/{pid}")` decorator previously had no attached function (the `update_project` body was orphaned below the DELETE decorator). Both PATCH and DELETE incorrectly resolved to `delete_project`. Fixed in the same landing.
 
 
+
+### Phase 12.18 — Internal Margin Analysis PDF (2026-08-18)
+
+New confidential internal report exportable from the Reports page. Aggregates cost/margin per quote in a date range.
+
+**Backend**
+- `GET /api/reports/margin-analysis/pdf?from=&to=&status=` (defaults: last 30 days, all statuses). Gated on `pricing.view_costs`. Read-only export, no side effects.
+- Template `/app/backend/templates/margin_analysis.html` — CSS custom properties (`--pt-navy`, `--pt-navy-deep`, `--pt-navy-bar`, `--pt-yellow`, `--pt-emerald`, `--pt-emerald-tint`, `--pt-text`) so future margin reports pick up the same theme automatically.
+- Sections: shared Paneltec header + strapline · navy title bar with 🔒 icon + yellow underline · emerald-tinted top summary (Quotes / Total sell / Total cost / Margin AUD / Margin %) · per-quote block with steel-blue quote bar (`#375A7F`), yellow-on-near-black column headers (`#1B2431`), emerald green margin values (`#059669`), emerald-tint per-quote totals.
+- Footer: strapline "Paneltec Group · Precast Panel Business Management · Page X of Y" plus red **CONFIDENTIAL — INTERNAL USE ONLY** watermark bottom-right.
+- Audit event `margin_analysis_pdf_exported` with `{from, to, status, quote_count, total_margin_aud, generated_by, filename}`.
+
+**Frontend**
+- New tile on `Reports.jsx`: "Internal — Margin Analysis" (padlock, yellow border, dark navy hero, download arrow). Only rendered for users with `pricing.view_costs` (hidden entirely for Production/Accounts without cost visibility).
+- Tile click → `MarginAnalysisPdfModal` Dialog: date-from / date-to / status filter. **Generate PDF** button downloads via existing `downloadPdf()` helper with filename `paneltec_margin_analysis_<from>_<to>.pdf`.
+
+**Curl verification**
+- Admin (`admin@paneltec.com.au`): `GET /api/reports/margin-analysis/pdf` → **200 · application/pdf · 34,916 bytes · %PDF-1.7 magic**.
+- Production user (`production@paneltec.com.au`, no `pricing.view_costs`): same endpoint → **403 · `{"detail":"Permission required: pricing.view_costs"}`**.
+
+**Screenshots delivered**
+- Reports page with the padlocked "Internal PDF · Internal — Margin Analysis" tile in the grid.
+- Filter modal open with date range, status dropdown, Generate PDF button.
+- Rendered PDF matching the specified colour scheme: dark navy title bar w/ yellow underline · emerald summary block · steel-blue quote bar w/ yellow quote number · yellow column headers on `#1B2431` · emerald margin values · red confidential watermark in footer.
+
+**Guardrails**
+- Internal-only: endpoint requires auth + `pricing.view_costs`, tile hidden without perm, watermark on every page.
+- Zero side effects — no downstream mutation on generation.
+- Simpro PAT untouched (`api_token: '••••••••c74c'`).
+
+

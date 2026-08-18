@@ -6853,6 +6853,127 @@ async def job_pdf(jid: str, user: dict = Depends(require_permission("jobs.view")
     )
 
 
+# --- Margin Analysis PDF (internal, gated on pricing.view_costs) ---
+
+def _line_label(l: dict) -> str:
+    if l.get("line_type") == "stock":
+        part = (l.get("part_number") or "").strip()
+        desc = (l.get("description") or "").strip()
+        return (f"{part} · {desc}" if part and desc else (part or desc or "Stock item"))
+    label = l.get("panel_type_label") or l.get("description") or "Panel"
+    dims = ""
+    if l.get("length_m") and l.get("height_m"):
+        dims = f" · {l['length_m']}×{l['height_m']}×{l.get('thickness_mm','?')}mm"
+    return f"{label}{dims}"
+
+
+async def _build_margin_analysis_pdf(date_from: str, date_to: str,
+                                      status_filter: Optional[str],
+                                      actor: dict) -> bytes:
+    from weasyprint import HTML
+    df_iso, dt_iso = _date_range_iso(date_from, date_to, default_days=30)
+    q: Dict[str, Any] = {
+        "deleted_at": {"$in": [None]},
+        "created_at": {"$gte": df_iso, "$lte": dt_iso},
+    }
+    if status_filter and status_filter != "all":
+        q["status"] = status_filter
+    docs = await db.quotes.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+    # Preload customer/project names for the header of each block
+    cust_ids = {d.get("customer_id") for d in docs if d.get("customer_id")}
+    proj_ids = {d.get("project_id") for d in docs if d.get("project_id")}
+    customers = {c["id"]: c for c in await db.customers.find(
+        {"id": {"$in": list(cust_ids)}}, {"_id": 0, "id": 1, "company_name": 1}).to_list(1000)}
+    projects = {p["id"]: p for p in await db.projects.find(
+        {"id": {"$in": list(proj_ids)}}, {"_id": 0, "id": 1, "project_name": 1}).to_list(1000)}
+
+    quotes_render: List[dict] = []
+    agg_sell = agg_cost = 0.0
+    for d in docs:
+        lines_out: List[dict] = []
+        q_sell = q_cost = 0.0
+        for l in (d.get("line_items") or []):
+            sell = float(l.get("subtotal_aud") or 0.0)
+            cost = float(l.get("total_cost_aud") or 0.0)
+            margin = sell - cost
+            mpct = (margin / sell * 100.0) if sell > 0 else 0.0
+            lines_out.append({
+                "label": _line_label(l),
+                "sell": sell, "cost": cost,
+                "margin": margin, "margin_pct": mpct,
+            })
+            q_sell += sell; q_cost += cost
+        q_margin = q_sell - q_cost
+        q_mpct = (q_margin / q_sell * 100.0) if q_sell > 0 else 0.0
+        quotes_render.append({
+            "quote_number": d.get("quote_number"),
+            "status": d.get("status"),
+            "customer_name": (customers.get(d.get("customer_id")) or {}).get("company_name"),
+            "project_name":  (projects.get(d.get("project_id")) or {}).get("project_name"),
+            "lines": lines_out,
+            "total_sell": q_sell, "total_cost": q_cost,
+            "total_margin": q_margin, "margin_pct": q_mpct,
+        })
+        agg_sell += q_sell; agg_cost += q_cost
+
+    agg_margin = agg_sell - agg_cost
+    agg_pct = (agg_margin / agg_sell * 100.0) if agg_sell > 0 else 0.0
+    company = await _load_company_settings()
+
+    tpl = _get_jinja_env().get_template("margin_analysis.html")
+    html = tpl.render(
+        quotes=quotes_render,
+        agg={"total_sell": agg_sell, "total_cost": agg_cost,
+             "total_margin": agg_margin, "margin_pct": agg_pct},
+        date_from=(df_iso or "")[:10],
+        date_to=(dt_iso or "")[:10],
+        status_filter=(status_filter if status_filter and status_filter != "all" else None),
+        company=company,
+        generated_at=_fmt_generated_at(),
+        generated_by=actor.get("email") or actor.get("name"),
+    )
+    return HTML(string=html, base_url=str(ROOT_DIR)).write_pdf()
+
+
+@_records_pdf_router.get("/reports/margin-analysis/pdf")
+async def margin_analysis_pdf(
+    date_from: Optional[str] = Query(None, alias="from"),
+    date_to:   Optional[str] = Query(None, alias="to"),
+    status:    Optional[str] = None,
+    user: dict = Depends(require_permission("pricing.view_costs")),
+):
+    """Internal margin-analysis PDF. Gated on `pricing.view_costs`.
+    Read-only export — no side effects. Default window: last 30 days."""
+    pdf_bytes = await _build_margin_analysis_pdf(date_from or "", date_to or "", status, user)
+    df_iso, dt_iso = _date_range_iso(date_from or "", date_to or "", default_days=30)
+    fname = f"paneltec_margin_analysis_{df_iso[:10]}_{dt_iso[:10]}.pdf"
+    # Compute quote count + margin for audit metadata (cheap re-query)
+    q: Dict[str, Any] = {
+        "deleted_at": {"$in": [None]},
+        "created_at": {"$gte": df_iso, "$lte": dt_iso},
+    }
+    if status and status != "all":
+        q["status"] = status
+    qc = await db.quotes.count_documents(q)
+    total_margin = 0.0
+    async for d in db.quotes.find(q, {"_id": 0, "subtotal": 1, "total_cost_aud": 1}):
+        total_margin += float(d.get("subtotal") or 0) - float(d.get("total_cost_aud") or 0)
+    await record_audit(
+        user, "margin_analysis_pdf_exported", "report", "margin-analysis", fname,
+        metadata={"from": df_iso[:10], "to": dt_iso[:10],
+                  "status": status or "all",
+                  "quote_count": qc,
+                  "total_margin_aud": round(total_margin, 2),
+                  "generated_by": user.get("id"), "filename": fname},
+    )
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{fname}"'},
+    )
+
+
+
 
 app.include_router(_records_pdf_router)
 

@@ -1,0 +1,250 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Internal — Margin Analysis {{ date_from }} → {{ date_to }}</title>
+  <style>
+    :root {
+      --pt-navy:        #1F2A33;
+      --pt-navy-deep:   #1B2431;
+      --pt-navy-bar:    #375A7F;
+      --pt-yellow:      #F5C518;
+      --pt-emerald:     #059669;
+      --pt-emerald-tint:#ECFDF5;
+      --pt-text:        #0F172A;
+      --pt-muted:       #6b7280;
+      --pt-border:      #e5e7eb;
+    }
+    @page {
+      size: A4; margin: 15mm 14mm 22mm 14mm;
+      @bottom-center {
+        content: "Paneltec Group · Precast Panel Business Management · Page " counter(page) " of " counter(pages);
+        font-family: 'Helvetica', 'Arial', sans-serif;
+        font-size: 8.5px; color: var(--pt-muted);
+        letter-spacing: 0.05em; font-style: italic;
+      }
+      @bottom-right {
+        content: "CONFIDENTIAL — INTERNAL USE ONLY";
+        font-family: 'Helvetica', 'Arial', sans-serif;
+        font-size: 7.5px; color: #b91c1c;
+        font-weight: 700; letter-spacing: 0.12em;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Helvetica', 'Arial', sans-serif;
+      color: var(--pt-text); font-size: 10.5px; line-height: 1.4; margin: 0;
+    }
+    header.hdr {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      border-bottom: 3px solid var(--pt-yellow);
+      padding-bottom: 12px; margin-bottom: 16px;
+    }
+    .brand { font-size: 26px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; color: var(--pt-navy); }
+    .brand .accent { color: var(--pt-yellow); }
+    .strapline { font-style: italic; color: var(--pt-muted); font-size: 11px; margin-top: 4px; }
+    .biz-line { margin-top: 6px; font-size: 9px; color: var(--pt-muted); line-height: 1.5; }
+    .meta-r { text-align: right; font-size: 9.5px; color: var(--pt-muted); }
+    .meta-r .doc-title { font-size: 14px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: var(--pt-navy); }
+    .meta-r .range { font-family: 'Menlo', 'Consolas', monospace; margin-top: 4px; color: var(--pt-navy); }
+
+    .title-bar {
+      background: var(--pt-navy);
+      color: white; padding: 10px 14px;
+      border-bottom: 4px solid var(--pt-yellow);
+      margin-bottom: 14px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .title-bar .lock { font-size: 16px; }
+    .title-bar h1 {
+      margin: 0; font-size: 15px; font-weight: 900;
+      text-transform: uppercase; letter-spacing: 0.14em;
+    }
+    .title-bar .filter-note {
+      margin-left: auto; font-size: 9px; color: var(--pt-yellow);
+      text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700;
+    }
+
+    /* Summary card — larger typography */
+    .summary {
+      background: var(--pt-emerald-tint);
+      border-left: 4px solid var(--pt-emerald);
+      border-radius: 4px; padding: 14px 16px;
+      margin-bottom: 18px;
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px;
+    }
+    .summary .cell .k {
+      font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.14em;
+      color: var(--pt-muted); font-weight: 700; margin-bottom: 3px;
+    }
+    .summary .cell .v {
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: 16px; font-weight: 900; color: var(--pt-text);
+      letter-spacing: -0.01em;
+    }
+    .summary .cell.margin .v { color: var(--pt-emerald); }
+
+    /* Per-quote block */
+    .quote-block { margin-bottom: 16px; page-break-inside: avoid; }
+    .quote-bar {
+      background: var(--pt-navy-bar); color: white;
+      padding: 6px 12px; font-size: 10px;
+      display: flex; align-items: center; gap: 10px;
+      border-radius: 3px 3px 0 0;
+    }
+    .quote-bar .qn {
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-weight: 900; color: var(--pt-yellow);
+      font-size: 11px; letter-spacing: 0.02em;
+    }
+    .quote-bar .cust { font-weight: 600; }
+    .quote-bar .status {
+      margin-left: auto; text-transform: uppercase; letter-spacing: 0.14em;
+      font-size: 8.5px; font-weight: 700;
+      background: rgba(255,255,255,0.15); padding: 2px 8px; border-radius: 10px;
+    }
+    table.margin-table {
+      width: 100%; border-collapse: collapse;
+    }
+    table.margin-table thead th {
+      background: var(--pt-navy-deep);
+      color: var(--pt-yellow);
+      font-size: 8.5px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.1em;
+      padding: 6px 8px; text-align: left;
+    }
+    table.margin-table thead th.right { text-align: right; }
+    table.margin-table tbody td {
+      padding: 6px 8px; font-size: 10px;
+      border-bottom: 1px solid var(--pt-border);
+      color: var(--pt-text);
+    }
+    table.margin-table tbody tr:nth-child(odd) td { background: #FAFBFC; }
+    table.margin-table td.right {
+      text-align: right; font-family: 'Menlo', 'Consolas', monospace;
+    }
+    table.margin-table td.margin,
+    table.margin-table td.margin-pct {
+      color: var(--pt-emerald); font-weight: 700;
+    }
+    .qt-totals {
+      background: var(--pt-emerald-tint);
+      border: 1px solid var(--pt-emerald);
+      border-radius: 0 0 3px 3px;
+      padding: 8px 12px;
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+      margin-top: 0;
+    }
+    .qt-totals .cell .k {
+      font-size: 8px; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--pt-muted); font-weight: 700;
+    }
+    .qt-totals .cell .v {
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: 12px; font-weight: 800; color: var(--pt-text);
+      margin-top: 1px;
+    }
+    .qt-totals .cell.margin .v { color: var(--pt-emerald); }
+
+    .no-data {
+      background: #FAFBFC; border: 1px dashed var(--pt-border);
+      padding: 30px; text-align: center; color: var(--pt-muted);
+      font-style: italic; font-size: 11px; border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <header class="hdr">
+    <div>
+      <div class="brand">Paneltec<span class="accent">Group</span></div>
+      <div class="strapline">Precast Panel Business Management</div>
+      <div class="biz-line">
+        {{ company.business_name }}{% if company.abn %} · ABN {{ company.abn }}{% endif %}
+      </div>
+    </div>
+    <div class="meta-r">
+      <div class="doc-title">Margin Analysis</div>
+      <div class="range">{{ date_from }} → {{ date_to }}</div>
+      <div style="margin-top:4px;">Generated {{ generated_at }}</div>
+      {% if generated_by %}<div>By {{ generated_by }}</div>{% endif %}
+    </div>
+  </header>
+
+  <div class="title-bar">
+    <span class="lock">🔒</span>
+    <h1>Internal — Margin Analysis</h1>
+    <span class="filter-note">
+      {{ quotes | length }} quote{{ 's' if (quotes | length) != 1 else '' }}
+      {% if status_filter %} · status: {{ status_filter }}{% endif %}
+    </span>
+  </div>
+
+  <div class="summary">
+    <div class="cell">
+      <div class="k">Quotes analysed</div>
+      <div class="v">{{ quotes | length }}</div>
+    </div>
+    <div class="cell">
+      <div class="k">Total sell</div>
+      <div class="v">{{ agg.total_sell | aud }}</div>
+    </div>
+    <div class="cell">
+      <div class="k">Total cost</div>
+      <div class="v">{{ agg.total_cost | aud }}</div>
+    </div>
+    <div class="cell margin">
+      <div class="k">Margin AUD</div>
+      <div class="v">{{ agg.total_margin | aud }}</div>
+    </div>
+    <div class="cell margin">
+      <div class="k">Margin %</div>
+      <div class="v">{{ '%.1f' % agg.margin_pct }}%</div>
+    </div>
+  </div>
+
+  {% if not quotes %}
+    <div class="no-data">
+      No quotes with margin data in the selected period.
+    </div>
+  {% endif %}
+
+  {% for q in quotes %}
+    <div class="quote-block">
+      <div class="quote-bar">
+        <span class="qn">{{ q.quote_number }}</span>
+        <span class="cust">{{ q.customer_name or '—' }}</span>
+        {% if q.project_name %}<span>· {{ q.project_name }}</span>{% endif %}
+        <span class="status">{{ q.status }}</span>
+      </div>
+      <table class="margin-table">
+        <thead>
+          <tr>
+            <th style="width:45%">Line</th>
+            <th class="right" style="width:14%">Sell</th>
+            <th class="right" style="width:14%">Cost</th>
+            <th class="right" style="width:14%">Margin</th>
+            <th class="right" style="width:13%">Margin %</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in q.lines %}
+            <tr>
+              <td>{{ l.label }}</td>
+              <td class="right">{{ l.sell | aud }}</td>
+              <td class="right">{{ l.cost | aud }}</td>
+              <td class="right margin">{{ l.margin | aud }}</td>
+              <td class="right margin-pct">{{ '%.1f' % l.margin_pct }}%</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="qt-totals">
+        <div class="cell"><div class="k">Total sell</div><div class="v">{{ q.total_sell | aud }}</div></div>
+        <div class="cell"><div class="k">Total cost</div><div class="v">{{ q.total_cost | aud }}</div></div>
+        <div class="cell margin"><div class="k">Margin AUD</div><div class="v">{{ q.total_margin | aud }}</div></div>
+        <div class="cell margin"><div class="k">Margin %</div><div class="v">{{ '%.1f' % q.margin_pct }}%</div></div>
+      </div>
+    </div>
+  {% endfor %}
+</body>
+</html>
