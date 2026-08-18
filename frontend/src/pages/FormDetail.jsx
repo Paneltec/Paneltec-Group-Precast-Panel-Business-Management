@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { Loader2, ArrowLeft } from "lucide-react";
-import { api } from "../lib/api";
+import { api, formatApiErrorDetail } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import AppIcon from "../components/AppIcon";
 import { Button } from "../components/ui/button";
@@ -12,6 +12,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "../components/ui/select";
 import { toast } from "sonner";
+import { downloadPdf } from "../lib/print";
 
 const STATUS_PILL = {
   draft:     "bg-gray-100 text-gray-700",
@@ -122,7 +123,17 @@ export default function FormDetail() {
                 <AppIcon name="restore" size={16} className="mr-2" decorative/> Revert
               </Button>
             )}
-            <Button variant="outline" onClick={() => window.open(`/forms/${id}/print`, "_blank")} data-testid="print-btn">
+            <Button variant="outline"
+              onClick={async () => {
+                try {
+                  toast.loading("Generating PDF…", { id: "form-pdf" });
+                  await downloadPdf(`/compliance-forms/${id}/pdf`, `paneltec_form_${form.form_number || id}.pdf`);
+                  toast.success("Form PDF downloaded", { id: "form-pdf" });
+                } catch (err) {
+                  toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF", { id: "form-pdf" });
+                }
+              }}
+              data-testid="print-btn">
               <AppIcon name="print" size={16} className="mr-2" decorative/> Print
             </Button>
           </div>

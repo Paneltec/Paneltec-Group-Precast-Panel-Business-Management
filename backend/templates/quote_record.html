@@ -1,0 +1,361 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Quote {{ quote.quote_number }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 15mm 14mm 22mm 14mm;
+      @bottom-center {
+        content: "Paneltec Group · Precast Panel Business Management · Page " counter(page) " of " counter(pages);
+        font-family: 'Helvetica', 'Arial', sans-serif;
+        font-size: 8.5px; color: #6b7280; letter-spacing: 0.05em;
+        font-style: italic;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Helvetica', 'Arial', sans-serif;
+      color: #1F2A33; font-size: 11px; line-height: 1.4; margin: 0;
+    }
+
+    /* ---------- Header ---------- */
+    header.hdr {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      border-bottom: 3px solid #F5C518; padding-bottom: 14px; margin-bottom: 18px;
+    }
+    .brand { font-size: 30px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; color: #1F2A33; }
+    .brand .accent { color: #F5C518; }
+    .strapline {
+      font-style: italic; color: #6b7280;
+      font-size: 11.5px; margin-top: 4px; letter-spacing: 0.02em;
+    }
+    .biz-line { margin-top: 8px; font-size: 9px; color: #6b7280; line-height: 1.5; }
+    .biz-line strong { color: #1F2A33; }
+
+    /* Quote number card, top-right */
+    .qn-card {
+      background: #1F2A33; color: white;
+      padding: 10px 14px; border-radius: 4px;
+      text-align: right; min-width: 200px;
+    }
+    .qn-card .lbl {
+      font-size: 9px; text-transform: uppercase; letter-spacing: 0.16em;
+      color: #F5C518; font-weight: 700;
+    }
+    .qn-card .num {
+      font-size: 22px; font-weight: 900; font-family: 'Menlo', 'Consolas', monospace;
+      margin-top: 4px; letter-spacing: -0.02em;
+    }
+    .qn-card .dates { font-size: 9px; color: #b7bec4; margin-top: 6px; line-height: 1.5; }
+    .qn-card .dates strong { color: white; }
+    .qn-card .status {
+      display: inline-block; font-size: 8.5px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; padding: 2px 8px; border-radius: 10px;
+      background: white; color: #1F2A33; margin-top: 6px;
+    }
+
+    /* ---------- Parties (Quoted to / Project) ---------- */
+    .parties { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px; margin-bottom: 18px; }
+    .party-card {
+      background: #f8fafc; border-left: 4px solid #3A6B8C;
+      padding: 12px 14px; border-radius: 2px;
+    }
+    .party-card.right { border-left-color: #F5C518; background: #FFFBEA; }
+    .party-card .k {
+      font-size: 9px; text-transform: uppercase; letter-spacing: 0.14em;
+      color: #6b7280; font-weight: 700; margin-bottom: 4px;
+    }
+    .party-card .name { font-weight: 700; font-size: 14px; color: #1F2A33; margin-bottom: 2px; }
+    .party-card .line { color: #4b5563; font-size: 10.5px; line-height: 1.5; }
+
+    /* ---------- Group banners ---------- */
+    .group-banner {
+      background: #F5C518; color: #1F2A33;
+      padding: 5px 10px; font-size: 9.5px; font-weight: 900;
+      text-transform: uppercase; letter-spacing: 0.16em;
+      margin: 14px 0 0 0;
+    }
+    .group-banner .count {
+      float: right; font-weight: 700; opacity: 0.75;
+    }
+
+    /* ---------- Line item table ---------- */
+    table.items {
+      width: 100%; border-collapse: collapse;
+      margin-top: 0;
+    }
+    table.items thead th {
+      background: #1F2A33; color: white;
+      font-size: 9px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.1em;
+      padding: 8px 10px; text-align: left;
+    }
+    table.items thead th.right { text-align: right; }
+    table.items tbody td {
+      padding: 12px 10px;
+      border-bottom: 1px solid #e5e7eb;
+      vertical-align: top;
+    }
+    table.items tbody tr:nth-child(odd) td { background: #FAFAFA; }
+    table.items tbody tr:nth-child(even) td { background: #ffffff; }
+    table.items tbody tr.empty td {
+      text-align: center; color: #9ca3af; font-style: italic;
+      padding: 20px; background: #ffffff;
+    }
+
+    /* Column typography — the "jazz-up" */
+    td.desc {
+      font-size: 14px; line-height: 1.5; color: #1F2A33; font-weight: 500;
+    }
+    td.desc .part {
+      display: block; margin-top: 4px;
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: 12px; font-weight: 700; color: #3A6B8C;
+      letter-spacing: 0.01em;
+    }
+    td.desc .part .supplier {
+      font-family: 'Helvetica', 'Arial', sans-serif;
+      font-weight: 400; color: #6b7280; margin-left: 6px; font-size: 10px;
+    }
+    td.desc .sub {
+      display: block; margin-top: 2px;
+      font-size: 10px; color: #6b7280;
+    }
+    td.desc .thumb-wrap {
+      display: inline-block; vertical-align: top; margin-right: 10px;
+    }
+    td.desc .thumb-wrap img {
+      width: 50px; height: 50px; object-fit: contain;
+      border: 1px solid #e5e7eb; border-radius: 3px; background: white;
+      padding: 2px;
+    }
+    td.desc .desc-body {
+      display: inline-block; vertical-align: top; max-width: calc(100% - 70px);
+    }
+    td.panel {
+      font-size: 10.5px; color: #4b5563; line-height: 1.5;
+    }
+    td.panel .finish { font-size: 9.5px; color: #6b7280; margin-top: 2px; }
+    td.dims {
+      font-size: 12px; font-family: 'Menlo', 'Consolas', monospace;
+      color: #4b5563; text-align: right; white-space: nowrap;
+    }
+    td.qty {
+      font-size: 13px; font-weight: 700; font-family: 'Menlo', 'Consolas', monospace;
+      text-align: right;
+    }
+    td.total {
+      font-size: 13px; font-weight: 700; font-family: 'Menlo', 'Consolas', monospace;
+      text-align: right; color: #1F2A33;
+    }
+
+    /* ---------- Totals block ---------- */
+    .hr { border: 0; border-top: 2px solid #1F2A33; margin: 20px 0 12px 0; }
+    .totals-wrap { display: flex; justify-content: flex-end; margin-top: 4px; }
+    .totals {
+      width: 55%;
+      background: #f8fafc;
+      padding: 12px 14px;
+      border-radius: 4px;
+    }
+    .totals table { width: 100%; border-collapse: collapse; }
+    .totals td { padding: 6px 4px; font-size: 12px; }
+    .totals td.k { color: #6b7280; }
+    .totals td.v { text-align: right; font-family: 'Menlo', 'Consolas', monospace; font-weight: 600; color: #1F2A33; }
+    .totals tr.grand {
+      border-top: 1px solid #d5dee6;
+    }
+    .totals tr.grand td {
+      padding-top: 12px;
+      border-left: 4px solid #F5C518;
+      padding-left: 12px;
+      background: white;
+    }
+    .totals tr.grand td.k {
+      font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #1F2A33;
+      border-left: none; padding-left: 4px;
+    }
+    .totals tr.grand td.v {
+      font-size: 20px; font-weight: 900; color: #1F2A33;
+    }
+    .metric-row {
+      text-align: right; margin-top: 8px;
+      font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: #6b7280;
+    }
+
+    /* ---------- Notes ---------- */
+    .notes-block {
+      background: #FFFBEA; border-left: 4px solid #F5C518;
+      padding: 12px 14px; font-size: 11px; color: #4b5563;
+      white-space: pre-wrap; margin-top: 4px; line-height: 1.6;
+    }
+    h2.sec {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.14em; color: #1F2A33;
+      background: #F5C518; padding: 5px 10px; margin: 18px 0 6px 0;
+    }
+  </style>
+</head>
+<body>
+  <header class="hdr">
+    <div>
+      <div class="brand">Paneltec<span class="accent">Group</span></div>
+      <div class="strapline">Precast Panel Business Management</div>
+      <div class="biz-line">
+        <strong>{{ company.business_name }}</strong>{% if company.abn %} · ABN {{ company.abn }}{% endif %}<br/>
+        {% if company.address_street %}{{ company.address_street }}, {% endif %}{{ company.address_suburb or '' }} {{ company.address_state or '' }} {{ company.address_postcode or '' }}<br/>
+        {% if company.phone %}{{ company.phone }}{% endif %}{% if company.email %} · {{ company.email }}{% endif %}
+      </div>
+    </div>
+    <div class="qn-card">
+      <div class="lbl">Quote</div>
+      <div class="num">{{ quote.quote_number }}</div>
+      <div class="dates">
+        Issued <strong>{{ (quote.created_at or '')[:10] or '—' }}</strong><br/>
+        Valid until <strong>{{ quote.valid_until or '—' }}</strong>
+      </div>
+      <div class="status">{{ quote.status }}</div>
+    </div>
+  </header>
+
+  <div class="parties">
+    <div class="party-card">
+      <div class="k">Quoted to</div>
+      <div class="name">{{ customer.company_name }}</div>
+      {% if customer.contact_name %}<div class="line">{{ customer.contact_name }}</div>{% endif %}
+      {% if customer.contact_email %}<div class="line">{{ customer.contact_email }}</div>{% endif %}
+      {% if customer.contact_phone %}<div class="line">{{ customer.contact_phone }}</div>{% endif %}
+      {% if customer.abn %}<div class="line" style="margin-top:4px;">ABN {{ customer.abn }}</div>{% endif %}
+      {% if customer.billing_address and customer.billing_address.street %}
+        <div class="line" style="margin-top:4px;">
+          {{ customer.billing_address.street }}<br/>
+          {{ customer.billing_address.suburb }} {{ customer.billing_address.state }} {{ customer.billing_address.postcode }}
+        </div>
+      {% endif %}
+    </div>
+    <div class="party-card right">
+      {% if project %}
+        <div class="k">Project</div>
+        <div class="name">{{ project.project_name }}</div>
+        {% if project.code %}<div class="line">Code {{ project.code }}</div>{% endif %}
+        {% if project.location %}<div class="line">{{ project.location }}</div>{% endif %}
+        {% if project.site_address and project.site_address.street %}
+          <div class="line" style="margin-top:4px;">
+            {{ project.site_address.street }}<br/>
+            {{ project.site_address.suburb }} {{ project.site_address.state }} {{ project.site_address.postcode }}
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="k">Reference</div>
+        <div class="name">Quote #{{ quote.quote_number }}</div>
+        <div class="line">Reply by <strong>{{ quote.valid_until or '—' }}</strong></div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% macro line_row(l) %}
+    <tr>
+      <td class="desc">
+        {% if l.image_local_path %}
+          <div class="thumb-wrap"><img src="{{ l.image_local_path }}" alt=""/></div>
+          <div class="desc-body">
+            {{ l.description or l.panel_type_label or '—' }}
+            {% if l.line_type == 'stock' and l.part_number %}
+              <span class="part">{{ l.part_number }}{% if l.supplier_name_override %}<span class="supplier">· {{ l.supplier_name_override }}</span>{% endif %}</span>
+            {% endif %}
+          </div>
+        {% else %}
+          {{ l.description or l.panel_type_label or '—' }}
+          {% if l.line_type == 'stock' and l.part_number %}
+            <span class="part">{{ l.part_number }}{% if l.supplier_name_override %}<span class="supplier">· {{ l.supplier_name_override }}</span>{% endif %}</span>
+          {% endif %}
+        {% endif %}
+      </td>
+      <td class="panel">
+        {% if l.line_type == 'stock' %}
+          <em style="font-style:normal; color:#3A6B8C; font-weight:600;">Stock item</em>
+        {% else %}
+          {{ l.panel_type_label or '—' }}
+          {% if l.finish_label %}<div class="finish">{{ l.finish_label }}</div>{% endif %}
+        {% endif %}
+      </td>
+      <td class="dims">
+        {% if l.length_m and l.height_m %}
+          {{ l.length_m }} × {{ l.height_m }} × {{ l.thickness_mm }}mm
+        {% else %}—{% endif %}
+      </td>
+      <td class="qty">{{ l.quantity }}</td>
+      <td class="total">{{ l.total_aud | aud }}</td>
+    </tr>
+  {% endmacro %}
+
+  {% if panel_lines %}
+    <div class="group-banner">Panels <span class="count">{{ panel_lines | length }} line{{ 's' if panel_lines | length != 1 else '' }}</span></div>
+    <table class="items">
+      <thead>
+        <tr>
+          <th style="width:36%">Description</th>
+          <th style="width:20%">Panel</th>
+          <th class="right" style="width:16%">Dims</th>
+          <th class="right" style="width:10%">Qty</th>
+          <th class="right" style="width:18%">Total AUD</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in panel_lines %}{{ line_row(l) }}{% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  {% if stock_lines %}
+    <div class="group-banner">Stock items <span class="count">{{ stock_lines | length }} line{{ 's' if stock_lines | length != 1 else '' }}</span></div>
+    <table class="items">
+      <thead>
+        <tr>
+          <th style="width:44%">Description</th>
+          <th style="width:16%">Type</th>
+          <th class="right" style="width:12%">Dims</th>
+          <th class="right" style="width:10%">Qty</th>
+          <th class="right" style="width:18%">Total AUD</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in stock_lines %}{{ line_row(l) }}{% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  {% if not panel_lines and not stock_lines %}
+    <div class="group-banner">Line items</div>
+    <table class="items"><tbody>
+      <tr class="empty"><td colspan="5">No line items on this quote.</td></tr>
+    </tbody></table>
+  {% endif %}
+
+  <hr class="hr"/>
+
+  <div class="totals-wrap">
+    <div class="totals">
+      <table>
+        <tr><td class="k">Subtotal (ex GST)</td><td class="v">{{ quote.subtotal | aud }}</td></tr>
+        <tr><td class="k">GST (10%)</td><td class="v">{{ quote.gst | aud }}</td></tr>
+        <tr class="grand"><td class="k">Total inc GST</td><td class="v">{{ quote.total | aud }}</td></tr>
+      </table>
+      {% if quote.total_volume_m3 or quote.total_weight_tonnes %}
+        <div class="metric-row">
+          {% if quote.total_volume_m3 %}Volume {{ '%.3f' % quote.total_volume_m3 }} m³{% endif %}
+          {% if quote.total_volume_m3 and quote.total_weight_tonnes %} · {% endif %}
+          {% if quote.total_weight_tonnes %}{{ '%.3f' % quote.total_weight_tonnes }} t{% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if quote.notes_to_customer %}
+    <h2 class="sec">Notes</h2>
+    <div class="notes-block">{{ quote.notes_to_customer }}</div>
+  {% endif %}
+</body>
+</html>

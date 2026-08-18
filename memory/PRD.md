@@ -1,5 +1,20 @@
 # Paneltec Group — Product Requirements Document
 
+## Business Workflow (Paneltec Group precast operations)
+
+1. **Customer** — a construction company or client (e.g. Harbour Construction Pty Ltd)
+2. **Project** — the customer's overall construction project (e.g. Barangaroo Tower B — Façade)
+3. **Quote** — Paneltec's price offer against a project. Printable at any status (Draft/Sent/Accepted/Rejected). **PRINTING A QUOTE HAS ZERO SIDE EFFECTS.** Does not create a Job.
+4. **Job Sheet** — Paneltec's internal work order. Created ONLY when the customer accepts a quote. Tracks manufacturing schedule, delivery, and compliance hold points.
+5. **Invoice** — issued ONLY when the Job Sheet is completed. Separate process from the Job.
+
+Explicit rules:
+- A Quote is never a Job.
+- A Job is never an Invoice.
+- Printing / exporting any of these three documents is a **read-only action with no downstream mutations**.
+- Customer may reject a quote or never respond — that's fine, no Job is created.
+- Delete/soft-delete of a Quote must NOT touch any downstream Job or Invoice.
+
 ## Problem Statement
 Build a FARM-stack (FastAPI + React + MongoDB) web app for **Paneltec Group**, an Australian precast concrete panel business, in 4 phases. Phase 1 ships the core operating shell: auth, pricing settings, precast panel calculator, user administration, dashboard placeholder.
 
@@ -877,4 +892,84 @@ GET (no auth) /api/customers/{cid}/pdf → 401
 - User's Simpro PAT.
 - Existing browser print flows (`/customers/:id/print`, `/projects/:id/print`).
 - No `testing_agent_v3`.
+
+
+### Phase 12.17 — Quote/Invoice/Job PDFs + strapline across all documents + Quote PDF jazz-up (2026-08-18)
+
+**Bundled three landings**:
+1. Quote Print bug (popup asks for sign-in) — replaced browser-print popup with real backend PDF endpoint + `downloadPdf` helper. **Quote Print is now a first-class button, printable at every status (Draft/Sent/Accepted/Rejected/Expired), with zero side effects — no downstream Job/Invoice mutation.**
+2. Missing Print button audit — confirmed all detail-page Print buttons render for admin; Customer Print button consolidated (removed redundant popup variant, kept single backend-PDF button labelled "Print").
+3. Strapline "Precast Panel Business Management" now appears under Paneltec Group on every PDF.
+4. Quote PDF visual overhaul — bigger typography, category grouping, prominent totals block, product-image thumbnails.
+
+**Backend — new PDF endpoints (WeasyPrint + Jinja2)**
+- `GET /api/quotes/{qid}/pdf` — customer-facing, gated by `quotes.view`. Uses `_strip_internal_costs_from_quote` so cost/margin fields never leak. Read-only export; **audit event `quote_pdf_exported` written but no downstream mutation** (verified via curl: `jobs.total` and `invoices.total` unchanged after firing PDFs across all 4 statuses).
+- `GET /api/invoices/{iid}/pdf` — gated by `invoices.view`. Read-only, works at any status.
+- `GET /api/jobs/{jid}/pdf` — gated by `jobs.view`. Read-only production sheet.
+- All three write only an audit event (`{quote|invoice|job}_pdf_exported`) with metadata `{id, number, status, generated_by, filename}`.
+
+**Business workflow rules** (encoded at top of PRD)
+- Customer → Project → Quote → **(if accepted)** Job → **(if completed)** Invoice.
+- Printing any document is read-only; no downstream mutation. Delete/soft-delete of a Quote must NOT touch downstream Job/Invoice.
+
+**Templates — new + updated**
+- `templates/quote_record.html` — new; jazz-up styling
+- `templates/invoice_record.html` — new
+- `templates/job_record.html` — new (production sheet)
+- `templates/customer_record.html` — added strapline
+- `templates/project_record.html` — added strapline
+- Compliance form / NCR pack (inline HTML in `server.py` `_render_form_html`) — strapline element restyled from uppercase tag to italic muted grey to match the other documents.
+
+**Frontend — Print button consolidation**
+Every detail page now uses `downloadPdf('/api/<entity>/{id}/pdf')` from `/app/frontend/src/lib/print.js`. The helper attaches the JWT via the axios interceptor and downloads the blob to a temporary anchor — no popup, no sign-in prompt.
+
+| Page | Was | Now |
+|---|---|---|
+| `QuoteDetail.jsx` | `openPrintPopup('/quotes/:id/print')` | `downloadPdf('/quotes/:id/pdf')` |
+| `InvoiceDetail.jsx` | `openPrintPopup('/invoices/:id/print')` | `downloadPdf('/invoices/:id/pdf')` |
+| `JobDetail.jsx` | `openPrintPopup('/jobs/:id/print')` | `downloadPdf('/jobs/:id/pdf')` |
+| `FormDetail.jsx` | `window.open('/forms/:id/print', "_blank")` | `downloadPdf('/compliance-forms/:id/pdf')` |
+| `CustomerForm.jsx` (header) | popup Print + separate `Print to PDF` | single `Print` → `downloadPdf('/customers/:id/pdf')` |
+| `CustomerForm.jsx` (project row) | `openPrintPopup('/projects/:id/print')` | `downloadPdf('/projects/:id/pdf')` |
+| `ProjectDetail.jsx` | `downloadPdf(/projects/:id/pdf)` (already) | unchanged |
+| `FormsList.jsx` (bulk zip/combined) | `fetch()` blob (already correct) | unchanged |
+| `Help.jsx` | `openPrintPopup('/help/print')` (public route, no auth call) | unchanged |
+| `Calculator.jsx` | in-tab `window.print()` | unchanged (same tab, JWT intact) |
+
+**Quote PDF visual polish**
+- Header: bigger Paneltec brand, italic strapline, dark charcoal quote-number card top-right with `QUOTE / Q-2026-0024 / Issued <date> / Valid until <date> / STATUS pill`.
+- Two side-by-side party cards: steel-blue accent for "Quoted to", yellow accent for "Project".
+- Yellow group banners ("PANELS" / "STOCK ITEMS") with per-group line counts.
+- Item table: **description 14pt (line-height 1.5)**, part-number sub-line 12pt monospace bold in steel blue, dims 12pt mono, qty 13pt bold mono, total 13pt bold mono, alternating `#FAFAFA` / white row striping, 12px cell padding for breathing room.
+- 50×50 product image thumbnails on stock lines when the item has an `image_url` (resolved to local `file://` path server-side).
+- Horizontal charcoal rule between line items and totals.
+- Totals block: subtle grey card, right-aligned, **Total inc GST at 20pt with a 4px yellow left border**.
+- Volume/tonnage metric under the total, small caps.
+- Footer: italic "Paneltec Group · Precast Panel Business Management · Page X of Y".
+
+**Zero-leak guarantees preserved**
+- `_strip_internal_costs_from_quote` runs before render — no `total_cost_aud`, `margin_aud`, `margin_pct`, per-line cost snapshots on the customer-facing Quote PDF.
+- No "OVERRIDDEN" chip, no `qty × unit = subtotal` subtitles, no internal margin analysis — those remain internal to `QuoteEditor.jsx` / `QuoteDetail.jsx`.
+
+**Verified via curl** (rate-limit-adjusted admin session)
+- 5 endpoints return 200 + `application/pdf` + valid `%PDF-1.7` magic bytes: quote (25.8 KB), invoice (26.3 KB), customer (22.3 KB), project (23.7 KB), job (24.0 KB).
+- Compliance form PDF still 200 (18.9 KB).
+- No-auth → 401; bad-id (authed) → 404.
+- Printing quotes across all 4 statuses (draft/sent/accepted/rejected) leaves `jobs.total` and `invoices.total` **unchanged** — confirmed zero side effects.
+
+**Screenshots delivered**
+- Quote 0024 PDF — new jazz-up styling with strapline, dark quote card, yellow group banner, yellow-bordered TOTAL INC GST, italic footer.
+- Customer PDF (Paneltec Pty Ltd) — strapline visible under brand.
+- Invoice PDF (INV-2026-0003, Harbour Construction, $11,246.40) — strapline visible.
+- Compliance form PDF (Form 9.1.2 Pre-Pour Checklist, PRE-2026-0004) — strapline in matching italic muted style.
+- Job PDF (J-2026-0007 production sheet) — strapline visible.
+
+**Not touched**
+- User's Simpro PAT (still masked in API as `••••••••c74c` — untouched).
+- Customer-facing surfaces (`QuotePrint.jsx`, `PublicQuote.jsx`) — no internal cost/margin fields exposed.
+- No `testing_agent_v3`.
+
+**Latent bug fixed**
+- `@api_router.patch("/projects/{pid}")` decorator previously had no attached function (the `update_project` body was orphaned below the DELETE decorator). Both PATCH and DELETE incorrectly resolved to `delete_project`. Fixed in the same landing.
+
 

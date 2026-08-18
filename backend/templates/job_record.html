@@ -1,0 +1,194 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Job {{ job.job_number }} — Production Sheet</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 14mm 12mm 18mm 12mm;
+      @bottom-center {
+        content: "{{ company.business_name }} · ABN {{ company.abn or '—' }} · Page " counter(page) " of " counter(pages);
+        font-family: 'Helvetica', 'Arial', sans-serif;
+        font-size: 8px; color: #6b7280; letter-spacing: 0.05em;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { font-family: 'Helvetica', 'Arial', sans-serif; color: #1F2A33; font-size: 10px; line-height: 1.35; margin: 0; }
+    header.hdr { border-bottom: 4px solid #1F2A33; padding-bottom: 6px; margin-bottom: 8px; }
+    .hdr-top { display: flex; justify-content: space-between; align-items: flex-start; }
+    .brand { font-size: 22px; font-weight: 900; letter-spacing: -0.02em; line-height: 1; color: #1F2A33; }
+    .strapline { font-style: italic; color: #6b7280; font-size: 10px; margin-top: 3px; letter-spacing: 0.02em; }
+    .meta-r { text-align: right; font-size: 9.5px; color: #4b5563; }
+    .meta-r strong { color: #1F2A33; }
+    h1 {
+      font-size: 22px; font-weight: 900; margin: 8px 0 0 0; text-align: center;
+      border-top: 2px solid #1F2A33; border-bottom: 2px solid #1F2A33; padding: 5px 0;
+      letter-spacing: 0.02em;
+    }
+    .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 10px 0 8px 0; }
+    .k { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.12em; color: #6b7280; font-weight: 700; margin-bottom: 2px; }
+    .site-block { border: 2px solid #1F2A33; padding: 8px 10px; margin: 6px 0 10px 0; }
+    .site-block .addr { font-size: 15px; font-weight: 900; margin-top: 4px; }
+    .schedule { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0 10px 0; }
+    .schedule .cell { border: 1px solid #1F2A33; padding: 6px 8px; }
+    .schedule .val { font-size: 14px; font-weight: 700; font-family: 'Menlo', 'Consolas', monospace; }
+    table.items { width: 100%; border-collapse: collapse; border: 2px solid #1F2A33; }
+    table.items th, table.items td { border: 1px solid #1F2A33; padding: 3px 4px; font-size: 8.5px; text-align: left; vertical-align: top; }
+    table.items th { background: #1F2A33; color: white; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; font-size: 8px; }
+    table.items td.right { text-align: right; font-family: 'Menlo', 'Consolas', monospace; }
+    table.items tr.tot td { background: #e5e7eb; font-weight: 700; font-family: 'Menlo', 'Consolas', monospace; }
+    .assign { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+    .assign .cell { border: 1px solid #1F2A33; padding: 8px 10px; font-size: 10px; }
+    .assign .name { font-weight: 700; }
+    .notes {
+      border: 1px solid #1F2A33; padding: 8px 10px; margin: 6px 0;
+      font-size: 10px; white-space: pre-wrap;
+    }
+    .signoff { border-top: 2px solid #1F2A33; padding-top: 8px; margin-top: 12px; }
+    .signoff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin-top: 6px; font-size: 8.5px; }
+    .signoff-grid .cell .rule { border-bottom: 1px solid #1F2A33; height: 20px; }
+    .signoff-grid .cell .lbl { margin-top: 3px; text-transform: uppercase; letter-spacing: 0.08em; color: #4b5563; }
+  </style>
+</head>
+<body>
+  <header class="hdr">
+    <div class="hdr-top">
+      <div>
+        <div class="brand">PANELTEC GROUP</div>
+        <div class="strapline">Precast Panel Business Management</div>
+      </div>
+      <div class="meta-r">
+        <div>Job: <strong style="font-family:monospace;">{{ job.job_number }}</strong></div>
+        <div>Status: <strong>{{ (job.status or '') | replace('_',' ') | upper }}</strong></div>
+        <div>Printed: {{ generated_at }}</div>
+      </div>
+    </div>
+    <h1>PRODUCTION SHEET</h1>
+  </header>
+
+  <div class="parties">
+    <div>
+      <div class="k">Customer</div>
+      <div style="font-weight:700; font-size:12px;">{{ customer.company_name if customer else '—' }}</div>
+      {% if customer %}
+        <div style="font-size:9.5px;">{{ customer.contact_name or '—' }}{% if customer.contact_phone %} · {{ customer.contact_phone }}{% endif %}</div>
+      {% endif %}
+    </div>
+    <div>
+      <div class="k">Project</div>
+      <div style="font-weight:700; font-size:12px;">{{ project.project_name if project else '—' }}</div>
+      <div style="font-size:9.5px;">Quote: <span style="font-family:monospace;">{{ job.quote_number or '—' }}</span></div>
+    </div>
+  </div>
+
+  <div class="site-block">
+    <div class="k">Site / Delivery address</div>
+    {% if customer and customer.site_address and customer.site_address.street %}
+      <div class="addr">
+        {{ customer.site_address.street }}<br/>
+        {{ customer.site_address.suburb }} {{ customer.site_address.state }} {{ customer.site_address.postcode }}
+      </div>
+    {% else %}
+      <div class="addr">—</div>
+    {% endif %}
+  </div>
+
+  <div class="schedule">
+    <div class="cell">
+      <div class="k">Scheduled production</div>
+      <div class="val">{{ job.scheduled_production_date or '—' }}</div>
+    </div>
+    <div class="cell">
+      <div class="k">Scheduled delivery</div>
+      <div class="val">{{ job.scheduled_delivery_date or '—' }}</div>
+    </div>
+  </div>
+
+  <div class="k" style="margin-bottom:4px;">Panels to produce</div>
+  <table class="items">
+    <thead>
+      <tr>
+        <th>Description</th>
+        <th>Panel type</th>
+        <th class="right">L × H × T</th>
+        <th class="right">Qty</th>
+        <th>Grade</th>
+        <th>Finish</th>
+        <th>Reinf.</th>
+        <th class="right">Vol m³/pnl</th>
+        <th class="right">Wt t/pnl</th>
+        <th class="right">Total wt t</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% set ns = namespace(qty=0, vol=0.0, wt=0.0) %}
+      {% for l in job.line_items %}
+        {% set ns.qty = ns.qty + (l.quantity or 0) %}
+        {% set ns.vol = ns.vol + (l.total_volume_m3 or 0) %}
+        {% set ns.wt  = ns.wt  + ((l.total_weight_kg or 0) / 1000.0) %}
+        <tr>
+          <td>{{ l.description or '—' }}</td>
+          <td>{{ l.panel_type_label or '—' }}</td>
+          <td class="right">{{ l.length_m or '—' }}×{{ l.height_m or '—' }}×{{ l.thickness_mm or '—' }}</td>
+          <td class="right"><strong>{{ l.quantity or 0 }}</strong></td>
+          <td>{{ l.concrete_grade or '—' }}</td>
+          <td>{{ l.finish_label or '—' }}</td>
+          <td>{{ l.reinforcement_label or '—' }}</td>
+          <td class="right">{{ '%.3f' % (l.volume_per_panel_m3 or 0) }}</td>
+          <td class="right">{{ '%.3f' % ((l.total_weight_per_panel_kg or 0) / 1000.0) }}</td>
+          <td class="right"><strong>{{ '%.3f' % ((l.total_weight_kg or 0) / 1000.0) }}</strong></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="10" style="text-align:center; color:#6b7280; font-style:italic;">No panels scheduled.</td></tr>
+      {% endfor %}
+      <tr class="tot">
+        <td colspan="3">TOTALS</td>
+        <td class="right">{{ ns.qty }}</td>
+        <td colspan="4"></td>
+        <td class="right">{{ '%.3f' % ns.vol }} m³</td>
+        <td class="right">{{ '%.3f' % ns.wt }} t</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="assign">
+    <div class="cell">
+      <div class="k">Assigned crew</div>
+      {% for e in crew %}
+        <div style="font-size:9.5px; border-bottom: 1px dashed #d1d5db; padding: 2px 0;">
+          <span class="name">{{ e.name }}</span>{% if e.role %} · {{ e.role }}{% endif %}{% if e.phone %} · <span style="font-family:monospace">{{ e.phone }}</span>{% endif %}
+        </div>
+      {% else %}
+        <div style="font-size:9.5px; color:#6b7280;">— None assigned —</div>
+      {% endfor %}
+    </div>
+    <div class="cell">
+      <div class="k">Assigned vehicle</div>
+      {% if vehicle %}
+        <div class="name" style="font-size:12px;">{{ vehicle.id }} · {{ vehicle.name }}</div>
+        <div style="font-size:9.5px;">Rego <span style="font-family:monospace">{{ vehicle.rego or '—' }}</span></div>
+        <div style="font-size:9.5px;">Capacity <span style="font-family:monospace">{{ vehicle.capacity_tonnes or '—' }} t</span></div>
+      {% else %}
+        <div style="font-size:9.5px; color:#6b7280;">— None assigned —</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if job.production_notes %}
+    <div class="notes"><div class="k">Production notes</div>{{ job.production_notes }}</div>
+  {% endif %}
+  {% if job.delivery_notes %}
+    <div class="notes"><div class="k">Delivery notes</div>{{ job.delivery_notes }}</div>
+  {% endif %}
+
+  <div class="signoff">
+    <div class="k">Sign-off</div>
+    <div class="signoff-grid">
+      {% for label in ['Produced by','QC inspected by','Loaded by','Delivered by','Received by (customer signature)','Date'] %}
+        <div class="cell"><div class="rule"></div><div class="lbl">{{ label }}</div></div>
+      {% endfor %}
+    </div>
+  </div>
+</body>
+</html>

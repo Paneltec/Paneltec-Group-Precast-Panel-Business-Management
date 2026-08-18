@@ -6,7 +6,7 @@ import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { formatAUD, formatNumber, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
-import { openPrintPopup, openCustomerPreviewPopup } from "../lib/print";
+import { openCustomerPreviewPopup, downloadPdf } from "../lib/print";
 import UserBadge from "../components/UserBadge";
 import { useAuth } from "../contexts/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
@@ -132,7 +132,17 @@ export default function QuoteDetail() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => openPrintPopup(`/quotes/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="quote-print-btn">
+          <Button variant="outline"
+            onClick={async () => {
+              try {
+                toast.loading("Generating PDF…", { id: "quote-pdf" });
+                await downloadPdf(`/quotes/${id}/pdf`, `paneltec_quote_${quote.quote_number || id}.pdf`);
+                toast.success("Quote PDF downloaded", { id: "quote-pdf" });
+              } catch (err) {
+                toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF", { id: "quote-pdf" });
+              }
+            }}
+            className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="quote-print-btn">
             <AppIcon name="print" size={18} className="mr-2" decorative/> Print
           </Button>
           {quote.status === "draft" && (

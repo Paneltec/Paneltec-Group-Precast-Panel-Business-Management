@@ -11,7 +11,7 @@ import { formatAUD, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
 import { useAuth } from "../contexts/AuthContext";
-import { openPrintPopup } from "../lib/print";
+import { downloadPdf } from "../lib/print";
 import UserBadge from "../components/UserBadge";
 
 const STATUS_ICON = {draft:"invoice_status_draft",issued:"invoice_status_issued",paid:"invoice_status_paid",overdue:"invoice_status_overdue",cancelled:"invoice_status_cancelled"};
@@ -91,7 +91,17 @@ export default function InvoiceDetail() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => openPrintPopup(`/invoices/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="invoice-print-btn">
+          <Button variant="outline"
+            onClick={async () => {
+              try {
+                toast.loading("Generating PDF…", { id: "inv-pdf" });
+                await downloadPdf(`/invoices/${id}/pdf`, `paneltec_invoice_${inv.invoice_number || id}.pdf`);
+                toast.success("Invoice PDF downloaded", { id: "inv-pdf" });
+              } catch (err) {
+                toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF", { id: "inv-pdf" });
+              }
+            }}
+            className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="invoice-print-btn">
             <AppIcon name="print" size={18} className="mr-2" decorative/> Print
           </Button>
           <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold h-10" data-testid="invoice-email-btn">

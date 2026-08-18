@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { toast, Toaster } from "sonner";
 import { formatDateTime } from "../lib/format";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
-import { openPrintPopup, downloadPdf } from "../lib/print";
+import { downloadPdf } from "../lib/print";
 import DeleteRowActions from "../components/DeleteRowActions";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -135,9 +135,6 @@ export default function CustomerForm() {
         </div>
         {!isNew && (
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => openPrintPopup(`/customers/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold" data-testid="customer-print-btn">
-              <AppIcon name="print" size={18} className="mr-2" decorative/> Print
-            </Button>
             <Button variant="outline"
               onClick={async () => {
                 try {
@@ -148,8 +145,8 @@ export default function CustomerForm() {
                   toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF", { id: "cust-pdf" });
                 }
               }}
-              className="border-[#3A6B8C] text-[#3A6B8C] font-semibold" data-testid="customer-print-pdf-btn">
-              <AppIcon name="print" size={18} className="mr-2" decorative/> Print to PDF
+              className="border-[#1F2A33] text-[#1F2A33] font-semibold" data-testid="customer-print-btn">
+              <AppIcon name="print" size={18} className="mr-2" decorative/> Print
             </Button>
             <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold" data-testid="customer-email-btn">
               <AppIcon name="email" size={18} className="mr-2" decorative/> Email
@@ -396,7 +393,17 @@ function ProjectsCard({ customerId, projects, onChanged, customerSiteAddress, re
                 <td><span className="text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{p.status}</span></td>
                 <td className="text-xs text-gray-500">{formatDateTime(p.created_at)}</td>
                 <td className="text-right">
-                  <button type="button" onClick={() => openPrintPopup(`/projects/${p.id}/print`)} data-testid={`proj-print-${p.id}`}
+                  <button type="button"
+                    onClick={async () => {
+                      try {
+                        toast.loading("Generating PDF…", { id: `proj-pdf-${p.id}` });
+                        await downloadPdf(`/projects/${p.id}/pdf`, `paneltec_project_${p.id}.pdf`);
+                        toast.success("Project PDF downloaded", { id: `proj-pdf-${p.id}` });
+                      } catch (err) {
+                        toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF", { id: `proj-pdf-${p.id}` });
+                      }
+                    }}
+                    data-testid={`proj-print-${p.id}`}
                     className="text-[11px] font-bold uppercase tracking-wider text-[#3A6B8C] hover:text-[#1F2A33]">Print</button>
                   <span className="inline-block ml-2 align-middle">
                     <DeleteRowActions entity="projects" row={p}

@@ -6296,7 +6296,7 @@ def _render_form_html(form: dict, schema: dict, is_draft: bool) -> str:
       .hdr {{ display: flex; justify-content: space-between; align-items: flex-end;
                border-bottom: 2px solid #F5C518; padding-bottom: 6px; margin-bottom: 10px; }}
       .brand {{ font-size: 22px; font-weight: 900; letter-spacing: -0.02em; }}
-      .tag {{ font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.1em; }}
+      .tag {{ font-size: 10px; color: #6b7280; font-style: italic; letter-spacing: 0.02em; margin-top: 2px; }}
       .meta-r {{ text-align: right; font-size: 9px; color: #666; }}
       h1 {{ font-size: 16px; font-weight: 900; margin: 4px 0 12px 0; }}
       h2.sec {{ font-size: 11px; font-weight: 700; text-transform: uppercase;
@@ -6702,6 +6702,156 @@ async def project_pdf(pid: str, user: dict = Depends(require_permission("project
         content=pdf_bytes, media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{fname}"'},
     )
+
+
+async def _build_quote_pdf(quote_id: str) -> Tuple[bytes, dict]:
+    from weasyprint import HTML
+    quote = await db.quotes.find_one({"id": quote_id}, {"_id": 0})
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    # Zero-leak: strip internal cost/margin from the customer-facing PDF
+    _strip_internal_costs_from_quote(quote)
+    customer = await db.customers.find_one(
+        {"id": quote.get("customer_id")}, {"_id": 0}
+    ) or {"company_name": "Unknown customer"}
+    project = None
+    if quote.get("project_id"):
+        project = await db.projects.find_one({"id": quote["project_id"]}, {"_id": 0})
+    company = await _load_company_settings()
+
+    # Enrich stock lines with a local image path (file://) so WeasyPrint can
+    # embed thumbnails. Panel lines are unaffected. Missing images → no thumb.
+    for line in (quote.get("line_items") or []):
+        line["image_local_path"] = None
+        if line.get("line_type") == "stock" and line.get("stock_item_id"):
+            item = await db.stock_items.find_one(
+                {"id": line["stock_item_id"]}, {"_id": 0, "image_url": 1}
+            )
+            iurl = (item or {}).get("image_url") or ""
+            if iurl.startswith("/api/stock/image/"):
+                fname = iurl.rsplit("/", 1)[-1]
+                candidate = STOCK_IMAGE_DIR / fname
+                if candidate.exists():
+                    line["image_local_path"] = f"file://{candidate}"
+
+    # Partition lines into groups for the render — Panels first, then Stock,
+    # preserving original ordering within each group.
+    panel_lines = [l for l in (quote.get("line_items") or []) if l.get("line_type") != "stock"]
+    stock_lines = [l for l in (quote.get("line_items") or []) if l.get("line_type") == "stock"]
+
+    tpl = _get_jinja_env().get_template("quote_record.html")
+    html = tpl.render(
+        quote=quote, customer=customer, project=project, company=company,
+        panel_lines=panel_lines, stock_lines=stock_lines,
+        generated_at=_fmt_generated_at(),
+    )
+    pdf_bytes = HTML(string=html, base_url=str(ROOT_DIR)).write_pdf()
+    return pdf_bytes, quote
+
+
+async def _build_invoice_pdf(invoice_id: str) -> Tuple[bytes, dict]:
+    from weasyprint import HTML
+    invoice = await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    customer = await db.customers.find_one(
+        {"id": invoice.get("customer_id")}, {"_id": 0}
+    ) or {"company_name": "Unknown customer"}
+    company = await _load_company_settings()
+
+    tpl = _get_jinja_env().get_template("invoice_record.html")
+    html = tpl.render(
+        invoice=invoice, customer=customer, company=company,
+        generated_at=_fmt_generated_at(),
+    )
+    pdf_bytes = HTML(string=html, base_url=str(ROOT_DIR)).write_pdf()
+    return pdf_bytes, invoice
+
+
+async def _build_job_pdf(job_id: str) -> Tuple[bytes, dict]:
+    from weasyprint import HTML
+    job = await db.jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    customer = await db.customers.find_one(
+        {"id": job.get("customer_id")}, {"_id": 0}
+    ) or {"company_name": "Unknown customer"}
+    project = None
+    if job.get("project_id"):
+        project = await db.projects.find_one({"id": job["project_id"]}, {"_id": 0})
+    company = await _load_company_settings()
+    vehicle = None
+    if job.get("assigned_vehicle_id"):
+        vehicle = await db.vehicles.find_one({"id": job["assigned_vehicle_id"]}, {"_id": 0})
+    crew: List[dict] = []
+    for eid in (job.get("assigned_employee_ids") or []):
+        e = await db.employees.find_one({"id": eid}, {"_id": 0})
+        if e: crew.append(e)
+
+    tpl = _get_jinja_env().get_template("job_record.html")
+    html = tpl.render(
+        job=job, customer=customer, project=project, company=company,
+        vehicle=vehicle, crew=crew, generated_at=_fmt_generated_at(),
+    )
+    pdf_bytes = HTML(string=html, base_url=str(ROOT_DIR)).write_pdf()
+    return pdf_bytes, job
+
+
+@_records_pdf_router.get("/quotes/{qid}/pdf")
+async def quote_pdf(qid: str, user: dict = Depends(require_permission("quotes.view"))):
+    """Customer-facing quote PDF. Read-only export — no side effects, works at
+    any status (draft/sent/accepted/rejected/expired). Zero-leak: internal
+    cost/margin fields are stripped before rendering."""
+    pdf_bytes, quote = await _build_quote_pdf(qid)
+    fname = f"paneltec_quote_{_safe_filename(quote.get('quote_number') or qid)}.pdf"
+    await record_audit(
+        user, "quote_pdf_exported", "quote", qid,
+        quote.get("quote_number") or qid,
+        metadata={"quote_id": qid, "quote_number": quote.get("quote_number"),
+                  "status": quote.get("status"), "generated_by": user.get("id"),
+                  "filename": fname},
+    )
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{fname}"'},
+    )
+
+
+@_records_pdf_router.get("/invoices/{iid}/pdf")
+async def invoice_pdf(iid: str, user: dict = Depends(require_permission("invoices.view"))):
+    """Tax invoice PDF. Read-only export — no side effects, works at any status."""
+    pdf_bytes, invoice = await _build_invoice_pdf(iid)
+    fname = f"paneltec_invoice_{_safe_filename(invoice.get('invoice_number') or iid)}.pdf"
+    await record_audit(
+        user, "invoice_pdf_exported", "invoice", iid,
+        invoice.get("invoice_number") or iid,
+        metadata={"invoice_id": iid, "invoice_number": invoice.get("invoice_number"),
+                  "status": invoice.get("status"), "generated_by": user.get("id"),
+                  "filename": fname},
+    )
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{fname}"'},
+    )
+
+
+@_records_pdf_router.get("/jobs/{jid}/pdf")
+async def job_pdf(jid: str, user: dict = Depends(require_permission("jobs.view"))):
+    """Production sheet PDF. Read-only export — no side effects."""
+    pdf_bytes, job = await _build_job_pdf(jid)
+    fname = f"paneltec_job_{_safe_filename(job.get('job_number') or jid)}.pdf"
+    await record_audit(
+        user, "job_pdf_exported", "job", jid,
+        job.get("job_number") or jid,
+        metadata={"job_id": jid, "job_number": job.get("job_number"),
+                  "status": job.get("status"), "generated_by": user.get("id"),
+                  "filename": fname},
+    )
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{fname}"'},
+    )
+
 
 
 app.include_router(_records_pdf_router)

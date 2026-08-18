@@ -33,6 +33,7 @@
     }
     .brand { font-size: 24px; font-weight: 900; letter-spacing: -0.02em; line-height: 1; color: #1F2A33; }
     .brand .accent { color: #F5C518; }
+    .strapline { font-style: italic; color: #6b7280; font-size: 10px; margin-top: 3px; letter-spacing: 0.02em; }
     .biz-line { margin-top: 4px; font-size: 9px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.15em; }
     .meta-r { text-align: right; font-size: 9px; color: #6b7280; }
     .meta-r .title { font-size: 15px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: #1F2A33; }
@@ -122,6 +123,7 @@
   <header class="hdr">
     <div>
       <div class="brand">Paneltec<span class="accent">Group</span></div>
+      <div class="strapline">Precast Panel Business Management</div>
       <div class="biz-line">
         {{ company.business_name }}{% if company.abn %} · ABN {{ company.abn }}{% endif %}
         {% if company.phone %} · {{ company.phone }}{% endif %}

@@ -13,7 +13,7 @@ import { formatAUD, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
 import { useAuth } from "../contexts/AuthContext";
-import { openPrintPopup } from "../lib/print";
+import { downloadPdf } from "../lib/print";
 import UserBadge from "../components/UserBadge";
 
 const ORDER = ["scheduled","in_production","ready_for_delivery","delivered","installed","completed"];
@@ -153,7 +153,17 @@ export default function JobDetail() {
           <LastEmailedLabel at={job.last_email_sent_at} subject={job.last_email_subject}/>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => openPrintPopup(`/jobs/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="job-print-btn">
+          <Button variant="outline"
+            onClick={async () => {
+              try {
+                toast.loading("Generating PDF…", { id: "job-pdf" });
+                await downloadPdf(`/jobs/${id}/pdf`, `paneltec_job_${job.job_number || id}.pdf`);
+                toast.success("Job PDF downloaded", { id: "job-pdf" });
+              } catch (err) {
+                toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF", { id: "job-pdf" });
+              }
+            }}
+            className="border-[#1F2A33] text-[#1F2A33] font-semibold h-10" data-testid="job-print-btn">
             <AppIcon name="print" size={18} className="mr-2" decorative/> Print
           </Button>
           <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold h-10" data-testid="job-email-btn">
