@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { Loader2, ArrowLeft, Copy, Check, X, ExternalLink, Lock, ChevronDown, ChevronUp } from "lucide-react";
+import { Loader2, ArrowLeft, Copy, Check, X, ExternalLink, Lock, ChevronDown, ChevronUp, Trash2, Edit2 } from "lucide-react";
 import AppIcon from "../components/AppIcon";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
@@ -8,6 +8,8 @@ import { formatAUD, formatNumber, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
 import { openPrintPopup, openCustomerPreviewPopup } from "../lib/print";
 import UserBadge from "../components/UserBadge";
+import { useAuth } from "../contexts/AuthContext";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "../components/ui/dialog";
@@ -24,6 +26,8 @@ const STATUS_STYLES = {
 export default function QuoteDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { hasPerm } = useAuth();
+  const canEdit = hasPerm("quotes.edit");
   const [quote, setQuote] = useState(null);
   const [customer, setCustomer] = useState(null);
   const [project, setProject] = useState(null);
@@ -32,6 +36,22 @@ export default function QuoteDetail() {
   const [magicUrl, setMagicUrl] = useState("");
   const [emailPreview, setEmailPreview] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, line: null });
+
+  const lineLabelFor = (l) => l?.part_number
+    ? l.part_number
+    : (l?.panel_type_label ? `${l.panel_type_label} ${l.length_m || ""}×${l.height_m || ""}m` : "this line");
+
+  const isDraft = quote?.status === "draft";
+  const onDeleteLine = async (lineId) => {
+    try {
+      await api.delete(`/quotes/${id}/lines/${lineId}`);
+      toast.success("Line removed");
+      await load();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    }
+  };
 
   const load = async () => {
     try {
@@ -85,7 +105,7 @@ export default function QuoteDetail() {
       await navigator.clipboard.writeText(magicUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {}
+    } catch { /* clipboard denied */ }
   };
 
   if (error) return <div className="text-sm text-red-700">{error}</div>;
@@ -201,19 +221,58 @@ export default function QuoteDetail() {
                 <th className="px-3 py-2 text-right">Qty</th>
                 <th className="px-3 py-2 text-right">Subtotal</th>
                 <th className="px-3 py-2 text-right">Total inc GST</th>
+                {canEdit && isDraft && <th className="px-3 py-2 w-24"></th>}
               </tr>
             </thead>
             <tbody>
-              {(quote.line_items ?? []).map((l) => (
-                <tr key={l.id} className="border-b border-gray-100">
-                  <td className="px-3 py-2.5 text-[#1F2A33]">{l.description || "—"}</td>
-                  <td className="px-3 py-2.5 text-gray-700">{l.panel_type_label}<div className="text-[10px] text-gray-500">{l.finish_label} · {l.reinforcement_label}</div></td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">{l.length_m} × {l.height_m} × {l.thickness_mm}mm</td>
+              {(quote.line_items ?? []).map((l) => {
+                const isStock = l.line_type === "stock";
+                // Effective per-unit rate: for stock, unit_price_aud; for panel, subtotal/qty
+                const qty = Math.max(1, Number(l.quantity) || 1);
+                const rate = isStock
+                  ? Number(l.unit_price_aud) || 0
+                  : (Number(l.subtotal_aud) || 0) / qty;
+                return (
+                <tr key={l.id} className="border-b border-gray-100 align-top">
+                  <td className="px-3 py-2.5 text-[#1F2A33]">
+                    <div className="flex items-center gap-1.5">
+                      {isStock && <span className="text-[9px] font-bold uppercase tracking-wider bg-[#F5C518]/25 text-[#1F2A33] px-1.5 py-0.5 rounded">Stock</span>}
+                      <span>{l.description || "—"}</span>
+                    </div>
+                    <div className="text-[11px] text-gray-500 mt-0.5 tabular-nums" data-testid={`line-formula-${l.id}`}>
+                      {l.quantity} × {formatAUD(rate)} = {formatAUD(l.subtotal_aud)}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-gray-700">
+                    {isStock
+                      ? <span className="text-gray-400 italic text-xs">Stock item</span>
+                      : <>{l.panel_type_label}<div className="text-[10px] text-gray-500">{l.finish_label} · {l.reinforcement_label}</div></>}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">
+                    {isStock ? <span className="text-gray-300">—</span> : <>{l.length_m} × {l.height_m} × {l.thickness_mm}mm</>}
+                  </td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{l.quantity}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{formatAUD(l.subtotal_aud)}</td>
                   <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{formatAUD(l.total_aud)}</td>
-                </tr>
-              ))}
+                  {canEdit && isDraft && (
+                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                      <button onClick={() => navigate(`/quotes/${id}/edit`)}
+                              className="p-1.5 hover:bg-gray-100 rounded text-gray-500"
+                              data-testid={`detail-edit-line-${l.id}`}
+                              aria-label="Edit in editor" title="Open quote editor">
+                        <Edit2 size={14}/>
+                      </button>
+                      <button onClick={() => setDeleteConfirm({ open: true, line: l })}
+                              className="p-2 ml-1 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded transition-colors border border-red-200 hover:border-red-600"
+                              data-testid={`detail-delete-line-${l.id}`}
+                              aria-label={`Remove ${lineLabelFor(l)}`}
+                              title={`Remove ${lineLabelFor(l)}`}>
+                        <Trash2 size={14}/>
+                      </button>
+                    </td>
+                  )}
+                </tr>);
+              })}
             </tbody>
           </table>
         </div>
@@ -287,6 +346,30 @@ export default function QuoteDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteConfirm.open} onOpenChange={(v) => !v && setDeleteConfirm({ open: false, line: null })}>
+        <AlertDialogContent data-testid="detail-line-delete-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {lineLabelFor(deleteConfirm.line)} from this quote?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The line will be removed and quote totals will recalculate. This can&apos;t be undone from here — you&apos;ll need to re-add the line if you change your mind.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                const lineId = deleteConfirm.line?.id;
+                setDeleteConfirm({ open: false, line: null });
+                if (lineId) await onDeleteLine(lineId);
+              }}
+              className="bg-red-600 text-white hover:bg-red-700"
+              data-testid="detail-line-delete-confirm-btn">
+              Delete line
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

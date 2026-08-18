@@ -285,6 +285,11 @@ export default function QuoteEditor() {
                             {isStock && <span className="text-[9px] font-bold uppercase tracking-wider bg-[#F5C518]/25 text-[#1F2A33] px-1.5 py-0.5 rounded" data-testid={`line-stock-chip-${l.id}`}>Stock</span>}
                             <span>{l.description || <span className="text-gray-400 italic">No description</span>}</span>
                           </div>
+                          <div className="text-[11px] text-gray-500 mt-0.5 tabular-nums" data-testid={`editor-line-formula-${l.id}`}>
+                            {l.quantity} × {formatAUD(isStock
+                              ? (Number(l.unit_price_aud) || 0)
+                              : ((Number(l.subtotal_aud) || 0) / Math.max(1, Number(l.quantity) || 1)))} = {formatAUD(l.subtotal_aud)}
+                          </div>
                         </td>
                         <td className="px-3 py-2.5 text-gray-700">
                           {isStock

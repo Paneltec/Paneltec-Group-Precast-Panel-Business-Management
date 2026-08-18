@@ -765,3 +765,39 @@ GET  /api/customers/<cust>/projects  → new project appears in the list  ✓
 - User's Simpro PAT (the current test customer has no Simpro settings doc; PAT persistence path unchanged).
 - Deployment/env files.
 - No `testing_agent_v3`.
+
+### Phase 12.14 — Quote-detail line actions + qty × unit formula everywhere (2026-08-18)
+Manual curl + screenshot. Simpro PAT untouched. No testing_agent.
+
+**Audit of quote-line rendering surfaces**
+| Surface | Path | Before this pass | Notes |
+|---|---|---|---|
+| Quote editor  | `/quotes/:id/edit`   | ✅ trash+edit (Phase 12.9), ❌ no formula | internal — fix formula |
+| Quote detail  | `/quotes/:id`        | ❌ no actions,  ❌ no formula          | internal — **GAP**, add both |
+| Print/PDF     | `QuotePrint.jsx`     | (read-only)                            | customer-facing — leave clean |
+| Magic-link    | `PublicQuote.jsx`    | (read-only)                            | customer-facing — leave clean |
+
+**Files changed**
+- `/app/frontend/src/pages/QuoteDetail.jsx`
+  - Added imports: `Trash2`, `Edit2`, `useAuth`, `AlertDialog*`.
+  - Added `hasPerm("quotes.edit")` gate; edit+trash column shown **only when the quote is a `draft` AND the user has `quotes.edit`** (protects sent/accepted/rejected quotes from destructive edits from the detail page).
+  - Edit pencil → navigates to `/quotes/:id/edit`. Trash → confirm modal (`AlertDialog`) → `DELETE /api/quotes/:id/lines/:lineId` → reloads the quote.
+  - Added `data-testid="line-formula-{id}"` muted subtitle under each description: `<qty> × <rate> = <subtotal>`. Rate = `unit_price_aud` for stock lines; `subtotal / qty` for panel lines. AUD locale formatted.
+- `/app/frontend/src/pages/QuoteEditor.jsx`
+  - Added the same `qty × rate = subtotal` subtitle under each description with `data-testid="editor-line-formula-{id}"`. Existing trash+edit unchanged.
+
+**Not touched**
+- `QuotePrint.jsx` and `PublicQuote.jsx` (customer-facing surfaces — remain clean, no formula, no actions).
+- Backend endpoints (existing `DELETE /api/quotes/{qid}/lines/{lineId}` reused).
+- User's Simpro PAT.
+
+**Live DOM verification on `/quotes/10cd3163-…/`**
+```
+Detail delete buttons: 4  (was 0 before)
+Detail edit buttons:   4  (was 0 before)
+Formulas rendered:
+  10 × $10.82 = $108.20
+   7 × $10.82 = $75.74
+   1 × $5,112.00 = $5,112.00
+   1 × $5,112.00 = $5,112.00
+```
