@@ -593,3 +593,15 @@ Panel add still works unchanged: `POST /api/quotes/{qid}/lines` with `panel_type
 - **Quote after add** — 4 new stock rows appear with Ramset supplier, "Stock" chip in description, "Stock item" in the panel column, correct subtotals (`$108.20`, `$10.82`, `$10.84`, `$10.84`) and totals inc GST. Running totals recomputed: `Subtotal $5,415.10 · GST $541.50 · Total inc GST $5,956.60`. Toast "Added 4 items to quote." confirmed top-right.
 
 Existing typeahead single-line flow inside "Add line" is unchanged.
+
+### Phase 12.8 — Supplier column removed from Quote lines table (2026-08-18)
+Manual curl + screenshot. Simpro PAT untouched. No testing_agent.
+
+**Files changed**
+- `/app/frontend/src/pages/QuoteEditor.jsx` — removed the `<th>Supplier</th>` and its per-row `<td>{l.supplier_name_override}</td>`. Header is now `Part no. · Description · Panel · L × H · Qty · Subtotal · Total`. To preserve at-a-glance traceability on stock rows, the supplier now appears as a small muted hint (`Supplier: <name>`) directly under the description text (only for stock lines that carry a `supplier_name_override`).
+
+**Verified**
+- `/app/frontend/src/pages/Stock.jsx` — no per-row Supplier column (removed in Phase 12.6). `supplier` filter dropdown in the filter bar retained as requested.
+- `/app/frontend/src/components/StockPickerModal.jsx` — no per-row Supplier column. Supplier text appears only on the orange category banner (Phase 12.7).
+- Backend model unchanged: `supplier_id` and `supplier_name_override` continue to be persisted on every stock line for the customer PDF and internal traceability.
+- Live DOM check: header labels = `['Part no.', 'Description', 'Panel', 'L × H', 'Qty', 'Subtotal', 'Total']`; body cells containing exactly `"Ramset"` = **0**.

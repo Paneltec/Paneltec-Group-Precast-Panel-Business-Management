@@ -257,7 +257,6 @@ export default function QuoteEditor() {
                     <tr>
                       <th className="px-3 py-2 text-left">Part no.</th>
                       <th className="px-3 py-2 text-left">Description</th>
-                      <th className="px-3 py-2 text-left">Supplier</th>
                       <th className="px-3 py-2 text-left">Panel</th>
                       <th className="px-3 py-2 text-right">L × H</th>
                       <th className="px-3 py-2 text-right">Qty</th>
@@ -277,8 +276,10 @@ export default function QuoteEditor() {
                             {isStock && <span className="text-[9px] font-bold uppercase tracking-wider bg-[#F5C518]/25 text-[#1F2A33] px-1.5 py-0.5 rounded" data-testid={`line-stock-chip-${l.id}`}>Stock</span>}
                             <span>{l.description || <span className="text-gray-400 italic">No description</span>}</span>
                           </div>
+                          {isStock && l.supplier_name_override && (
+                            <div className="text-[10px] text-gray-500 mt-0.5" data-testid={`line-supplier-hint-${l.id}`}>Supplier: {l.supplier_name_override}</div>
+                          )}
                         </td>
-                        <td className="px-3 py-2.5 text-xs text-gray-700">{l.supplier_name_override || <span className="text-gray-300">—</span>}</td>
                         <td className="px-3 py-2.5 text-gray-700">
                           {isStock
                             ? <span className="text-gray-400 italic text-xs">Stock item</span>
