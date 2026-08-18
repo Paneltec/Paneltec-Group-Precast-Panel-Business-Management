@@ -28,6 +28,7 @@ import InvoiceDetail from "./pages/InvoiceDetail";
 import InvoicePrint from "./pages/InvoicePrint";
 import Vehicles, { VehicleForm } from "./pages/Vehicles";
 import Employees, { EmployeeForm } from "./pages/Employees";
+import Stock from "./pages/Stock";
 import IntegrationSettings from "./pages/IntegrationSettings";
 import CustomerPrint from "./pages/CustomerPrint";
 import ProjectPrint from "./pages/ProjectPrint";
@@ -86,6 +87,7 @@ function App() {
                   <Route path="/vehicles/:id" element={<ProtectedRoute permission="vehicles.view"><VehicleForm /></ProtectedRoute>} />
                   <Route path="/employees" element={<ProtectedRoute permission="employees.view"><Employees /></ProtectedRoute>} />
                   <Route path="/employees/:id" element={<ProtectedRoute permission="employees.view"><EmployeeForm /></ProtectedRoute>} />
+                  <Route path="/stock" element={<ProtectedRoute permission="stock.view"><Stock /></ProtectedRoute>} />
                   <Route path="/settings/pricing" element={<ProtectedRoute permission="pricing.view"><PricingSettings /></ProtectedRoute>} />
                   <Route path="/settings/company" element={<ProtectedRoute permission="company.view"><CompanySettings /></ProtectedRoute>} />
                   <Route path="/settings/integrations" element={<ProtectedRoute permission="integrations.view"><IntegrationSettings /></ProtectedRoute>} />

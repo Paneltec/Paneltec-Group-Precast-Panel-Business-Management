@@ -14,7 +14,7 @@ from typing import List, Optional, Literal, Any, Dict, Tuple
 
 import bcrypt
 import jwt
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Query, Response, Body
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Query, Response, Body, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -157,6 +157,8 @@ PERMISSION_MODULES = [
     {"key": "users",     "label": "Users",     "permissions": ["users.view", "users.manage"]},
     {"key": "audit",     "label": "Audit",     "permissions": ["audit.view"]},
     {"key": "forms",     "label": "Compliance Forms", "permissions": ["forms.view", "forms.create", "forms.edit", "forms.sign", "forms.delete", "forms.template_manage"]},
+    {"key": "stock",     "label": "Stock",     "permissions": ["stock.view", "stock.edit"]},
+    {"key": "suppliers", "label": "Suppliers", "permissions": ["suppliers.view", "suppliers.edit"]},
 ]
 ALL_PERMISSIONS: List[str] = [p for m in PERMISSION_MODULES for p in m["permissions"]]
 # These permissions are reserved for super-admins. Non-super-admins cannot hold them.
@@ -170,6 +172,7 @@ PERMISSION_PRESETS = {
             "projects.view","projects.create","projects.edit","projects.delete",
             "quotes.view","quotes.create","quotes.edit","quotes.send","quotes.mark_decision","quotes.revise",
             "jobs.view","invoices.view","vehicles.view","employees.view","customers.delete","projects.delete","quotes.delete",
+            "stock.view","stock.edit","suppliers.view",
         ],
     },
     "production": {
@@ -181,6 +184,7 @@ PERMISSION_PRESETS = {
             "vehicles.view","vehicles.edit","vehicles.delete",
             "employees.view","employees.edit","employees.delete",
             "forms.view","forms.create","forms.edit","forms.delete",
+            "stock.view",
         ],
     },
     "accounts": {
@@ -189,6 +193,7 @@ PERMISSION_PRESETS = {
             "customers.view","projects.view","quotes.view","jobs.view",
             "invoices.view","invoices.create","invoices.issue","invoices.mark_paid","invoices.push_xero","invoices.delete",
             "company.view","forms.view",
+            "stock.view","suppliers.view",
         ],
     },
     "readonly": {
@@ -4948,6 +4953,259 @@ async def ai_check_accept(draft_id: str, payload: AIAcceptPayload,
     return {"draft_id": draft_id, "status": "active", "accepted_changes": len(accepted)}
 
 
+# ---------------------------------------------------------------------------
+# Phase 11.8 — Suppliers + Stock catalogue
+# ---------------------------------------------------------------------------
+
+class SupplierIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str = Field(min_length=1, max_length=200)
+    contact_email: Optional[str] = ""
+    contact_phone: Optional[str] = ""
+    website: Optional[str] = ""
+    address: Optional[str] = ""
+    notes: Optional[str] = ""
+    is_active: bool = True
+
+@api_router.get("/suppliers")
+async def list_suppliers(_a: dict = Depends(require_permission("suppliers.view"))):
+    rows = []
+    async for d in db.suppliers.find({}, {"_id": 0}).sort("name", 1):
+        rows.append(d)
+    return rows
+
+@api_router.post("/suppliers")
+async def create_supplier(payload: SupplierIn, actor: dict = Depends(require_permission("suppliers.edit"))):
+    dup = await db.suppliers.find_one({"name": payload.name})
+    if dup: raise HTTPException(status_code=409, detail="Supplier with this name already exists.")
+    doc = {**payload.model_dump(), "id": str(uuid.uuid4()),
+           "created_at": now_iso(), "updated_at": now_iso()}
+    await db.suppliers.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+@api_router.put("/suppliers/{sid}")
+async def update_supplier(sid: str, payload: SupplierIn, actor: dict = Depends(require_permission("suppliers.edit"))):
+    upd = {**payload.model_dump(), "updated_at": now_iso()}
+    r = await db.suppliers.update_one({"id": sid}, {"$set": upd})
+    if r.matched_count == 0: raise HTTPException(status_code=404, detail="Supplier not found")
+    d = await db.suppliers.find_one({"id": sid}, {"_id": 0})
+    return d
+
+@api_router.delete("/suppliers/{sid}")
+async def delete_supplier(sid: str, actor: dict = Depends(require_permission("suppliers.edit"))):
+    # Prevent delete if any stock_items reference it.
+    ref = await db.stock_items.count_documents({"supplier_id": sid})
+    if ref: raise HTTPException(status_code=409, detail=f"Cannot delete — {ref} stock item(s) still reference this supplier.")
+    r = await db.suppliers.delete_one({"id": sid})
+    if r.deleted_count == 0: raise HTTPException(status_code=404, detail="Supplier not found")
+    return {"ok": True, "deleted": 1}
+
+
+class StockItemIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    part_number: str = Field(min_length=1, max_length=100)
+    description: str = ""
+    category: Optional[str] = ""
+    subcategory: Optional[str] = ""
+    brand: Optional[str] = ""
+    supplier_id: Optional[str] = ""
+    unit_price: Optional[float] = None
+    pack_weight: Optional[float] = None
+    pack_qty: Optional[int] = None
+    unit_of_measure: str = "EA"
+    image_url: Optional[str] = ""
+    on_hand_qty: int = 0
+    min_stock_level: int = 0
+    notes: Optional[str] = ""
+    needs_review: bool = False
+    is_active: bool = True
+
+
+@api_router.get("/stock")
+async def list_stock(q: Optional[str] = None, category: Optional[str] = None,
+                      supplier_id: Optional[str] = None,
+                      needs_review: Optional[bool] = None,
+                      is_active: Optional[bool] = True,
+                      limit: int = Query(100, le=500), offset: int = 0,
+                      _a: dict = Depends(require_permission("stock.view"))):
+    query: Dict[str, Any] = {}
+    if is_active is not None: query["is_active"] = is_active
+    if category: query["category"] = category
+    if supplier_id: query["supplier_id"] = supplier_id
+    if needs_review is not None: query["needs_review"] = needs_review
+    if q:
+        rx = {"$regex": q, "$options": "i"}
+        query["$or"] = [{"part_number": rx}, {"description": rx}]
+    total = await db.stock_items.count_documents(query)
+    rows = []
+    async for d in db.stock_items.find(query, {"_id": 0}).sort("part_number", 1).skip(offset).limit(limit):
+        rows.append(d)
+    # Distinct categories for filter dropdowns
+    cats = await db.stock_items.distinct("category")
+    return {"items": rows, "count": len(rows), "total": total, "categories": sorted([c for c in cats if c])}
+
+
+@api_router.get("/stock/typeahead")
+async def stock_typeahead(q: str = Query(min_length=1),
+                           _a: dict = Depends(require_permission("stock.view"))):
+    rx = {"$regex": q, "$options": "i"}
+    rows = []
+    async for d in db.stock_items.find(
+        {"is_active": True, "$or": [{"part_number": rx}, {"description": rx}]},
+        {"_id": 0, "id": 1, "part_number": 1, "description": 1, "unit_price": 1, "supplier_id": 1, "brand": 1}
+    ).sort("part_number", 1).limit(20):
+        rows.append(d)
+    return rows
+
+
+@api_router.get("/stock/{sid}")
+async def get_stock(sid: str, _a: dict = Depends(require_permission("stock.view"))):
+    d = await db.stock_items.find_one({"id": sid}, {"_id": 0})
+    if not d: raise HTTPException(status_code=404, detail="Stock item not found")
+    return d
+
+
+@api_router.post("/stock")
+async def create_stock(payload: StockItemIn, actor: dict = Depends(require_permission("stock.edit"))):
+    dup = await db.stock_items.find_one({"part_number": payload.part_number})
+    if dup: raise HTTPException(status_code=409, detail=f"Part number {payload.part_number} already exists.")
+    doc = {**payload.model_dump(), "id": str(uuid.uuid4()),
+           "created_at": now_iso(), "updated_at": now_iso(), "deleted_at": None}
+    await db.stock_items.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api_router.put("/stock/{sid}")
+async def update_stock(sid: str, payload: StockItemIn, actor: dict = Depends(require_permission("stock.edit"))):
+    upd = {**payload.model_dump(), "updated_at": now_iso()}
+    r = await db.stock_items.update_one({"id": sid}, {"$set": upd})
+    if r.matched_count == 0: raise HTTPException(status_code=404, detail="Stock item not found")
+    d = await db.stock_items.find_one({"id": sid}, {"_id": 0})
+    return d
+
+
+@api_router.delete("/stock/{sid}")
+async def delete_stock(sid: str, actor: dict = Depends(require_permission("stock.edit"))):
+    r = await db.stock_items.delete_one({"id": sid})
+    if r.deleted_count == 0: raise HTTPException(status_code=404, detail="Stock item not found")
+    return {"ok": True, "deleted": 1}
+
+
+class StockBulkDeletePayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    stock_item_ids: List[str] = Field(min_length=1)
+
+@api_router.post("/stock/bulk-delete")
+async def bulk_delete_stock(payload: StockBulkDeletePayload, actor: dict = Depends(require_permission("stock.edit"))):
+    r = await db.stock_items.delete_many({"id": {"$in": payload.stock_item_ids}})
+    await record_audit(actor, "bulk_deleted_stock", "stock_item", None,
+                        f"{r.deleted_count} stock items",
+                        metadata={"count": r.deleted_count, "ids": payload.stock_item_ids})
+    return {"deleted": r.deleted_count}
+
+
+# --- Excel import ---
+def _parse_reid_excel_bytes(data: bytes) -> Dict[str, Any]:
+    """Parser tailored to the Reid/Ramset price-list format:
+    col A empty, cols B-F = Part No / Description / Pack weight / Pack qty / Sell Price ea.
+    A row with only Part No populated is treated as a category header."""
+    from openpyxl import load_workbook
+    from io import BytesIO
+    wb = load_workbook(BytesIO(data), data_only=True)
+    ws = wb[wb.sheetnames[0]]
+    def brand_of(cat: str) -> Optional[str]:
+        c = (cat or "").lower()
+        if "reid" in c: return "Reid"
+        if "ramset" in c: return "Ramset"
+        if "peltzer" in c: return "Peltzer Con"
+        return None
+    items: List[Dict[str, Any]] = []
+    current_cat: Optional[str] = None; current_brand: Optional[str] = None
+    for i, row in enumerate(ws.iter_rows(values_only=True), 1):
+        if i == 1: continue
+        cells = list(row) + [None] * max(0, 6 - len(row))
+        _, part_no, desc, pack_w, pack_q, price = cells[:6]
+        if not any(x is not None and str(x).strip() for x in cells): continue
+        if part_no and not (desc or pack_w or pack_q or price):
+            current_cat = str(part_no).strip(); current_brand = brand_of(current_cat); continue
+        if not part_no or not str(part_no).strip(): continue
+        needs_review = price is None or not desc
+        items.append({
+            "part_number": str(part_no).strip(),
+            "description": (str(desc).strip() if desc else ""),
+            "category": current_cat or "",
+            "brand": current_brand or "",
+            "pack_weight": float(pack_w) if isinstance(pack_w, (int, float)) else None,
+            "pack_qty": int(pack_q) if isinstance(pack_q, (int, float)) else None,
+            "unit_price": float(price) if isinstance(price, (int, float)) else None,
+            "needs_review": needs_review,
+        })
+    return {"items": items,
+             "valid_count": sum(1 for i in items if not i["needs_review"]),
+             "needs_review_count": sum(1 for i in items if i["needs_review"])}
+
+
+@api_router.post("/stock/import-excel")
+async def import_stock_excel(file: UploadFile = File(...),
+                              _a: dict = Depends(require_permission("stock.edit"))):
+    data = await file.read()
+    try:
+        parsed = _parse_reid_excel_bytes(data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not parse Excel file: {e}")
+    return {**parsed, "filename": file.filename}
+
+
+class StockImportConfirmPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    items: List[Dict[str, Any]] = Field(min_length=1)
+    supplier_id: Optional[str] = None
+
+@api_router.post("/stock/import-excel/confirm")
+async def import_stock_excel_confirm(payload: StockImportConfirmPayload,
+                                      actor: dict = Depends(require_permission("stock.edit"))):
+    default_sid = payload.supplier_id
+    if not default_sid:
+        # Default to Reid supplier if present
+        reid = await db.suppliers.find_one({"name": "Reid"})
+        default_sid = reid["id"] if reid else ""
+    created = updated = 0
+    for src in payload.items:
+        part_no = (src.get("part_number") or "").strip()
+        if not part_no: continue
+        doc = {
+            "part_number": part_no,
+            "description": src.get("description") or "",
+            "category": src.get("category") or "",
+            "subcategory": src.get("subcategory") or "",
+            "brand": src.get("brand") or "",
+            "supplier_id": default_sid,
+            "unit_price": src.get("unit_price"),
+            "pack_weight": src.get("pack_weight"),
+            "pack_qty": src.get("pack_qty"),
+            "unit_of_measure": src.get("unit_of_measure") or "EA",
+            "image_url": src.get("image_url") or "",
+            "on_hand_qty": int(src.get("on_hand_qty") or 0),
+            "min_stock_level": int(src.get("min_stock_level") or 0),
+            "notes": src.get("notes") or "",
+            "needs_review": bool(src.get("needs_review", False)),
+            "is_active": True,
+            "updated_at": now_iso(),
+        }
+        existing = await db.stock_items.find_one({"part_number": part_no}, {"_id": 0, "id": 1})
+        if existing:
+            await db.stock_items.update_one({"id": existing["id"]}, {"$set": doc})
+            updated += 1
+        else:
+            doc["id"] = str(uuid.uuid4()); doc["created_at"] = now_iso(); doc["deleted_at"] = None
+            await db.stock_items.insert_one(doc); created += 1
+    await record_audit(actor, "stock_import_excel", "stock_item", None,
+                        f"{created + updated} stock items",
+                        metadata={"created": created, "updated": updated,
+                                    "supplier_id": default_sid})
+    return {"created": created, "updated": updated}
+
+
 app.include_router(api_router)
 
 
@@ -6148,10 +6406,29 @@ async def _heal_active_ai_providers():
         logger.exception(f"AI provider heal failed: {e}")
 
 
+async def _seed_suppliers_if_empty():
+    if await db.suppliers.count_documents({}) > 0: return
+    now = now_iso()
+    seeds = [
+        {"name": "Reid",        "website": "https://www.reid.com.au",   "notes": "Precast lifting hardware — Reid product line."},
+        {"name": "Ramset",      "website": "https://www.ramset.com.au", "notes": "Precast lifting hardware — Ramset product line."},
+        {"name": "Peltzer Con", "website": "",                          "notes": "In-house / Peltzer Con generic supplier."},
+    ]
+    for s in seeds:
+        await db.suppliers.insert_one({
+            **s, "id": str(uuid.uuid4()),
+            "contact_email": "", "contact_phone": "", "address": "",
+            "is_active": True, "created_at": now, "updated_at": now,
+        })
+    logger.info("[seed] Suppliers seeded: %s", ", ".join(s["name"] for s in seeds))
+
+
 @app.on_event("startup")
 async def on_startup():
     try: await seed_database()
     except Exception as e: logger.exception(f"Seeding failed: {e}")
+    try: await _seed_suppliers_if_empty()
+    except Exception as e: logger.exception(f"Supplier seed failed: {e}")
     await _heal_active_ai_providers()
     await _migrate_simpro_company_id()
 

@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { to: "/forms/templates", label: "Form Templates", icon: "settings", perm: "forms.template_manage", testid: "nav-form-templates" },
   { to: "/vehicles", label: "Vehicles", icon: "vehicles", perm: "vehicles.view", testid: "nav-vehicles" },
   { to: "/employees", label: "Employees", icon: "employees", perm: "employees.view", testid: "nav-employees" },
+  { to: "/stock", label: "Stock", icon: "package", perm: "stock.view", testid: "nav-stock" },
   { to: "/settings/pricing", label: "Pricing", icon: "pricing", perm: "pricing.view", testid: "nav-settings" },
   { to: "/settings/company", label: "Company", icon: "company", perm: "company.view", testid: "nav-company-settings" },
   { to: "/settings/integrations", label: "Integrations", icon: "integrations", perm: "integrations.view", testid: "nav-integrations" },
