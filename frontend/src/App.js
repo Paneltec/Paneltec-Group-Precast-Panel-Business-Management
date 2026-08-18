@@ -32,6 +32,7 @@ import Stock from "./pages/Stock";
 import IntegrationSettings from "./pages/IntegrationSettings";
 import CustomerPrint from "./pages/CustomerPrint";
 import ProjectPrint from "./pages/ProjectPrint";
+import ProjectDetail from "./pages/ProjectDetail";
 import JobPrint from "./pages/JobPrint";
 import Account from "./pages/Account";
 import ForcePasswordChange from "./pages/ForcePasswordChange";
@@ -70,6 +71,7 @@ function App() {
                   <Route path="/customers" element={<ProtectedRoute permission="customers.view"><CustomersList /></ProtectedRoute>} />
                   <Route path="/customers/new" element={<ProtectedRoute permission="customers.create"><CustomerForm /></ProtectedRoute>} />
                   <Route path="/customers/:id" element={<ProtectedRoute permission="customers.view"><CustomerForm /></ProtectedRoute>} />
+                  <Route path="/projects/:id" element={<ProtectedRoute permission="projects.view"><ProjectDetail /></ProtectedRoute>} />
                   <Route path="/quotes" element={<ProtectedRoute permission="quotes.view"><QuotesList /></ProtectedRoute>} />
                   <Route path="/quotes/new" element={<ProtectedRoute permission="quotes.create"><QuoteEditor /></ProtectedRoute>} />
                   <Route path="/quotes/:id" element={<ProtectedRoute permission="quotes.view"><QuoteDetail /></ProtectedRoute>} />

@@ -32,3 +32,29 @@ export function openPrintPopup(url) {
 export function openCustomerPreviewPopup(url) {
   return _openDockedPopup(url, "PaneltecCustomerPreview");
 }
+
+
+// Downloads a PDF from an authenticated backend endpoint.
+// Uses the shared axios instance so the JWT bearer token is attached
+// via the request interceptor. Falls back to opening in a new tab if
+// the browser blocks the download click.
+import { api } from "./api";
+
+export async function downloadPdf(path, fallbackFilename = "paneltec.pdf") {
+  const res = await api.get(path, { responseType: "blob" });
+  const blob = res.data;
+  // Extract filename from Content-Disposition if present
+  const cd = res.headers?.["content-disposition"] || "";
+  const m = /filename="?([^"]+)"?/i.exec(cd);
+  const filename = m ? m[1] : fallbackFilename;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Give the browser a tick to start the download before revoking.
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  return filename;
+}

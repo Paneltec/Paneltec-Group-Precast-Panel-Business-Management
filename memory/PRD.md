@@ -801,3 +801,80 @@ Formulas rendered:
    1 × $5,112.00 = $5,112.00
    1 × $5,112.00 = $5,112.00
 ```
+
+### Phase 12.15 — Stock line edit modal + per-quote price override (2026-08-18)
+Manual curl + screenshot. Simpro PAT untouched. No testing_agent.
+
+**No backend schema changes** — the existing `PATCH /api/quotes/{qid}/lines/{line_id}` already routes stock payloads to `build_stock_quote_line`, which honours the caller-supplied `unit_price`. Verified:
+```
+PATCH /quotes/{qid}/lines/{lid}  {line_type:"stock", quantity:3, part_number:"FL050125B", unit_price:7.50}
+  ⇒ quantity=3  unit_price_aud=7.5  subtotal=22.50  total=24.75  ✓
+```
+
+**Files changed**
+- **NEW `/app/frontend/src/components/StockLineEditModal.jsx`** — reusable modal:
+  - Read-only description block for context.
+  - Qty (typable, min 1, blur-normalised).
+  - Unit price (typable AUD, `$` prefix).
+  - Fetches the current catalogue price via `GET /api/stock/typeahead?q=<part_number>` on open. When the entered price differs (>$0.005), an amber "Overridden from $X.XX" pill appears + a "Reset to catalogue" button + a computed `X.X% off` (or `X.X% above catalogue`) helper. When matched, a small green "Matches catalogue price" note is shown instead.
+  - Zero-price warning banner ("won't contribute to total") when the user drops price to 0.
+  - Live `qty × price = subtotal` preview under the fields.
+  - Save disabled while price is negative/non-finite or qty<1.
+  - `PATCH` with `line_type:"stock"`, description, qty, part_number, stock_item_id, supplier_id, supplier_name_override, unit_price. Toasts `Line updated.`
+- **`/app/frontend/src/pages/QuoteEditor.jsx`**
+  - Enabled edit pencil on stock rows (yellow pill, `data-testid="edit-stock-line-{id}"`), previously only shown on panel rows.
+  - New `stockCatalogPriceMap` state fetched on mount for every distinct stock part_number in the quote; `isOverridden(line)` compares against the map.
+  - Added subtle `OVERRIDDEN` chip in the description cell next to the `STOCK` chip when a row's price differs from catalogue.
+  - Mounted `<StockLineEditModal>` next to the picker modal.
+- **`/app/frontend/src/pages/QuoteDetail.jsx`**
+  - On draft quotes with `quotes.edit`, the edit pencil on stock rows now opens the same modal in-place (instead of navigating to the editor). Panel rows still navigate to the editor.
+  - Mounted `<StockLineEditModal>`.
+
+**Screenshots delivered**
+- Editor row (before opening modal): `FL050125B` shows `STOCK` + `OVERRIDDEN` chips, formula `3 × $7.50 = $22.50`, total `$24.75`. `FL050150B` (matches catalogue) has NO overridden chip.
+- Modal open on `FL050125B` with `Qty=3`, price typed to `$8.50`. DOM confirms: pill `Overridden from $10.82`, discount `21.4% off`, subtitle `3 × $8.50 = $25.50`. `Reset to catalogue` button visible next to the pill.
+
+**Not touched**
+- Backend line CRUD / recompute paths (existing PATCH already handled overrides).
+- User's Simpro PAT.
+- Customer-facing print/magic-link surfaces (still read-only, no chips visible to customers).
+- No `testing_agent_v3`.
+
+**Margin comment**: The spec's optional `pricing.view_costs` gated "margin changed from X% to Y%" was skipped because stock lines don't carry a cost snapshot (`total_cost_aud = 0` from `build_stock_quote_line`), so any margin diff is trivially 100% → 100% and adds noise. Happy to wire it in a follow-up once stock items carry a landed-cost field.
+
+### Phase 12.16 — Print to PDF on Customer & Project detail (2026-08-18)
+
+Backend now returns proper PDF exports for customer and project records via WeasyPrint + Jinja2 templates. Frontend gets Print to PDF buttons on both detail pages, and a brand-new minimal Project detail page at `/projects/:id`.
+
+**Backend**
+- Added `GET /api/customers/{cid}/pdf` — `application/pdf`, gated by `customers.view`. Aggregates active projects, quotes, jobs, invoices for the customer.
+- Added `GET /api/projects/{pid}/pdf` — `application/pdf`, gated by `projects.view`. Aggregates quotes, jobs, invoices, compliance forms for the project + parent customer.
+- Templates in `/app/backend/templates/customer_record.html` and `project_record.html` — Jinja2, cohesive with existing charcoal/yellow brand. A `aud` filter formats numbers as `$1,234.56`.
+- Audit events `customer_pdf_exported` and `project_pdf_exported` written on every export with metadata `{customer_id | project_id, generated_by, filename}`.
+- Fixed a latent bug: `@api_router.patch("/projects/{pid}")` decorator had no attached function (the `update_project` body was orphaned below). PATCH `/projects/{pid}` now correctly updates the project.
+
+**Frontend**
+- `CustomerForm.jsx`: new **Print to PDF** button next to the existing browser-print button. Uses the shared axios instance (JWT interceptor) → blob → anchor download. Uses filename from `Content-Disposition`.
+- New helper `downloadPdf(path, fallbackFilename)` in `/app/frontend/src/lib/print.js`.
+- New page `ProjectDetail.jsx` at route `/projects/:id`. Sections: header (name + status pill + Print to PDF + Edit), overview card, customer card, and four sticky-yellow-banner tables (Quotes, Jobs, Invoices, Compliance forms). Row-click navigation to related entities. Edit opens a Dialog with name/code/location/status/notes fields → PATCH.
+- Project rows on the Customer detail page now link to the new project detail page.
+
+**Screenshots**
+- `Print to PDF` button visible on Customer detail page next to `Print`, `Email`, `Delete`.
+- Project detail page for **Barangaroo Tower B — Façade** renders overview, customer block, and all 4 related tables (Jobs 1 / Invoices $1,232,383.68 / Compliance forms 2).
+- Generated customer PDF (Paneltec Pty Ltd): brand header, yellow section banners, contact/address/account grids, and Projects/Quotes/Jobs/Invoices tables.
+- Generated project PDF (Barangaroo Tower B — Façade): status pill, overview grid, customer block, site address + notes, all four related tables.
+
+**Confirmed via curl**
+```
+GET /api/customers/{cid}/pdf → 200, content-type: application/pdf, ~21 KB
+GET /api/projects/{pid}/pdf  → 200, content-type: application/pdf, ~22 KB
+GET /api/customers/bad-id/pdf → 404, {"detail":"Customer not found"}
+GET (no auth) /api/customers/{cid}/pdf → 401
+```
+
+**Not touched**
+- User's Simpro PAT.
+- Existing browser print flows (`/customers/:id/print`, `/projects/:id/print`).
+- No `testing_agent_v3`.
+

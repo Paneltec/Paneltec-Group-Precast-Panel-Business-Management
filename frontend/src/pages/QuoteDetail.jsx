@@ -10,6 +10,7 @@ import { openPrintPopup, openCustomerPreviewPopup } from "../lib/print";
 import UserBadge from "../components/UserBadge";
 import { useAuth } from "../contexts/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
+import StockLineEditModal from "../components/StockLineEditModal";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "../components/ui/dialog";
@@ -37,6 +38,7 @@ export default function QuoteDetail() {
   const [emailPreview, setEmailPreview] = useState(null);
   const [copied, setCopied] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, line: null });
+  const [stockLineEdit, setStockLineEdit] = useState({ open: false, line: null });
 
   const lineLabelFor = (l) => l?.part_number
     ? l.part_number
@@ -256,12 +258,21 @@ export default function QuoteDetail() {
                   <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{formatAUD(l.total_aud)}</td>
                   {canEdit && isDraft && (
                     <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                      <button onClick={() => navigate(`/quotes/${id}/edit`)}
-                              className="p-1.5 hover:bg-gray-100 rounded text-gray-500"
-                              data-testid={`detail-edit-line-${l.id}`}
-                              aria-label="Edit in editor" title="Open quote editor">
-                        <Edit2 size={14}/>
-                      </button>
+                      {isStock ? (
+                        <button onClick={() => setStockLineEdit({ open: true, line: l })}
+                                className="p-2 mr-1 bg-yellow-50 hover:bg-[#F5C518] text-[#1F2A33] rounded transition-colors border border-yellow-200 hover:border-[#E0B416]"
+                                data-testid={`detail-edit-stock-line-${l.id}`}
+                                aria-label={`Edit ${l.part_number}`} title={`Edit ${l.part_number}`}>
+                          <Edit2 size={14}/>
+                        </button>
+                      ) : (
+                        <button onClick={() => navigate(`/quotes/${id}/edit`)}
+                                className="p-1.5 hover:bg-gray-100 rounded text-gray-500"
+                                data-testid={`detail-edit-line-${l.id}`}
+                                aria-label="Edit in editor" title="Open quote editor">
+                          <Edit2 size={14}/>
+                        </button>
+                      )}
                       <button onClick={() => setDeleteConfirm({ open: true, line: l })}
                               className="p-2 ml-1 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded transition-colors border border-red-200 hover:border-red-600"
                               data-testid={`detail-delete-line-${l.id}`}
@@ -346,6 +357,15 @@ export default function QuoteDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <StockLineEditModal
+        open={stockLineEdit.open}
+        onOpenChange={(v) => setStockLineEdit(s => ({ ...s, open: v }))}
+        quoteId={id}
+        line={stockLineEdit.line}
+        onSaved={load}
+      />
+
 
       <AlertDialog open={deleteConfirm.open} onOpenChange={(v) => !v && setDeleteConfirm({ open: false, line: null })}>
         <AlertDialogContent data-testid="detail-line-delete-confirm">

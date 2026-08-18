@@ -2441,6 +2441,12 @@ async def get_project(pid: str, _user: dict = Depends(require_permission("projec
     return await populate_user_refs(doc, _USER_REF_FIELDS["project"])
 
 @api_router.patch("/projects/{pid}")
+async def update_project(pid: str, payload: ProjectUpdate, _user: dict = Depends(require_permission("projects.edit"))):
+    updates = {k:v for k,v in payload.model_dump(exclude_unset=True).items()}
+    updates["updated_at"] = now_iso()
+    r = await db.projects.update_one({"id":pid}, {"$set":updates})
+    if r.matched_count == 0: raise HTTPException(status_code=404, detail="Project not found")
+    return await db.projects.find_one({"id":pid}, {"_id":0})
 
 @api_router.delete("/projects/{pid}")
 async def delete_project(pid: str, permanent: bool = Query(False), actor: dict = Depends(require_permission("projects.delete"))):
@@ -2449,12 +2455,6 @@ async def delete_project(pid: str, permanent: bool = Query(False), actor: dict =
         return await hard_delete_with_refs(db.projects, pid, actor, "project", "project_name")
     return await soft_delete_doc(db.projects, pid, actor, "project_name", "project")
 
-async def update_project(pid: str, payload: ProjectUpdate, _user: dict = Depends(require_permission("projects.edit"))):
-    updates = {k:v for k,v in payload.model_dump(exclude_unset=True).items()}
-    updates["updated_at"] = now_iso()
-    r = await db.projects.update_one({"id":pid}, {"$set":updates})
-    if r.matched_count == 0: raise HTTPException(status_code=404, detail="Project not found")
-    return await db.projects.find_one({"id":pid}, {"_id":0})
 
 
 # ---------------------------------------------------------------------------
@@ -6536,6 +6536,175 @@ async def cf_ncr_export(payload: NCRExportPayload,
 app.include_router(_cf_p3)
 
 
+# ===========================================================================
+# Phase 12.16 — Customer & Project record PDFs (WeasyPrint + Jinja2)
+# ===========================================================================
+_records_pdf_router = APIRouter(prefix="/api")
+
+_TEMPLATE_DIR = ROOT_DIR / "templates"
+
+
+def _aud_filter(v: Any) -> str:
+    """Jinja2 filter — format a number as AUD with thousand separators + 2 dp."""
+    try:
+        n = float(v or 0)
+    except (TypeError, ValueError):
+        return "$0.00"
+    sign = "-" if n < 0 else ""
+    n = abs(n)
+    return f"{sign}${n:,.2f}"
+
+
+def _get_jinja_env():
+    """Lazily build the Jinja2 environment; cached on the module."""
+    global _JINJA_ENV
+    try:
+        return _JINJA_ENV
+    except NameError:
+        from jinja2 import Environment, FileSystemLoader, select_autoescape
+        env = Environment(
+            loader=FileSystemLoader(str(_TEMPLATE_DIR)),
+            autoescape=select_autoescape(["html", "xml"]),
+            trim_blocks=True,
+            lstrip_blocks=True,
+        )
+        env.filters["aud"] = _aud_filter
+        _JINJA_ENV = env
+        return env
+
+
+def _fmt_generated_at() -> str:
+    return now_utc().strftime("%Y-%m-%d %H:%M UTC")
+
+
+async def _load_company_settings() -> dict:
+    doc = await db.settings.find_one({"key": "company"}, {"_id": 0, "key": 0}) or {}
+    # Provide safe defaults when company settings not yet configured
+    return {
+        "business_name": doc.get("business_name") or "Paneltec Group Pty Ltd",
+        "abn": doc.get("abn") or "",
+        "phone": doc.get("phone") or "",
+        "email": doc.get("email") or "",
+        **doc,
+    }
+
+
+def _customer_status_pill_class(status: Optional[str]) -> str:
+    s = (status or "Active").lower()
+    if s == "inactive": return "inactive"
+    if s in ("on hold", "on_hold", "hold"): return "hold"
+    return ""
+
+
+async def _build_customer_pdf(customer_id: str) -> Tuple[bytes, dict]:
+    from weasyprint import HTML
+    customer = await db.customers.find_one({"id": customer_id}, {"_id": 0})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    company = await _load_company_settings()
+    active = {"deleted_at": {"$in": [None]}}
+    projects = await db.projects.find(
+        {"customer_id": customer_id, **active}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    quotes = await db.quotes.find(
+        {"customer_id": customer_id, **active}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    jobs = await db.jobs.find(
+        {"customer_id": customer_id, **active}, {"_id": 0}
+    ).sort("created_from_quote_at", -1).to_list(500)
+    invoices = await db.invoices.find(
+        {"customer_id": customer_id, **active}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+
+    tpl = _get_jinja_env().get_template("customer_record.html")
+    html = tpl.render(
+        customer=customer,
+        company=company,
+        projects=projects,
+        quotes=quotes,
+        jobs=jobs,
+        invoices=invoices,
+        generated_at=_fmt_generated_at(),
+        status_pill_class=_customer_status_pill_class(customer.get("status")),
+    )
+    pdf_bytes = HTML(string=html, base_url=str(ROOT_DIR)).write_pdf()
+    return pdf_bytes, customer
+
+
+async def _build_project_pdf(project_id: str) -> Tuple[bytes, dict]:
+    from weasyprint import HTML
+    project = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    customer = await db.customers.find_one(
+        {"id": project.get("customer_id")}, {"_id": 0}
+    )
+    company = await _load_company_settings()
+    active = {"deleted_at": {"$in": [None]}}
+    quotes = await db.quotes.find(
+        {"project_id": project_id, **active}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    jobs = await db.jobs.find(
+        {"project_id": project_id, **active}, {"_id": 0}
+    ).sort("created_from_quote_at", -1).to_list(500)
+    invoices = await db.invoices.find(
+        {"project_id": project_id, **active}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    forms = await db.compliance_forms.find(
+        {"project_id": project_id, **active}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+
+    tpl = _get_jinja_env().get_template("project_record.html")
+    html = tpl.render(
+        project=project,
+        customer=customer,
+        company=company,
+        quotes=quotes,
+        jobs=jobs,
+        invoices=invoices,
+        forms=forms,
+        generated_at=_fmt_generated_at(),
+    )
+    pdf_bytes = HTML(string=html, base_url=str(ROOT_DIR)).write_pdf()
+    return pdf_bytes, project
+
+
+def _safe_filename(base: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", (base or "").strip()) or "record"
+    return slug[:80]
+
+
+@_records_pdf_router.get("/customers/{cid}/pdf")
+async def customer_pdf(cid: str, user: dict = Depends(require_permission("customers.view"))):
+    pdf_bytes, customer = await _build_customer_pdf(cid)
+    fname = f"paneltec_customer_{_safe_filename(customer.get('company_name') or cid)}_{now_utc().strftime('%Y-%m-%d')}.pdf"
+    await record_audit(
+        user, "customer_pdf_exported", "customer", cid,
+        customer.get("company_name") or cid,
+        metadata={"customer_id": cid, "generated_by": user.get("id"), "filename": fname},
+    )
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{fname}"'},
+    )
+
+
+@_records_pdf_router.get("/projects/{pid}/pdf")
+async def project_pdf(pid: str, user: dict = Depends(require_permission("projects.view"))):
+    pdf_bytes, project = await _build_project_pdf(pid)
+    fname = f"paneltec_project_{_safe_filename(project.get('project_name') or pid)}_{now_utc().strftime('%Y-%m-%d')}.pdf"
+    await record_audit(
+        user, "project_pdf_exported", "project", pid,
+        project.get("project_name") or pid,
+        metadata={"project_id": pid, "generated_by": user.get("id"), "filename": fname},
+    )
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{fname}"'},
+    )
+
+
+app.include_router(_records_pdf_router)
 
 
 

@@ -15,6 +15,7 @@ import { formatAUD, formatNumber } from "../lib/format";
 import { useAuth } from "../contexts/AuthContext";
 import { Toaster, toast } from "sonner";
 import StockPickerModal from "../components/StockPickerModal";
+import StockLineEditModal from "../components/StockLineEditModal";
 import ProjectCombobox from "../components/ProjectCombobox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
 
@@ -48,7 +49,39 @@ export default function QuoteEditor() {
   const [error, setError] = useState("");
   const [lineDialog, setLineDialog] = useState({ open: false, mode: "add", line: null });
   const [stockPickerOpen, setStockPickerOpen] = useState(false);
+  const [stockLineEdit, setStockLineEdit] = useState({ open: false, line: null });
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, line: null });
+  const [stockCatalogPriceMap, setStockCatalogPriceMap] = useState({}); // { part_number: unit_price }
+  useEffect(() => {
+    // Build a catalogue-price lookup for all stock parts referenced by the current lines,
+    // so we can flag override rows with a subtle chip.
+    const parts = Array.from(new Set(
+      (quote?.line_items || [])
+        .filter(l => l.line_type === "stock" && l.part_number)
+        .map(l => l.part_number)
+    ));
+    if (parts.length === 0) return;
+    (async () => {
+      const map = { ...stockCatalogPriceMap };
+      for (const pn of parts) {
+        if (map[pn] !== undefined) continue;
+        try {
+          const { data } = await api.get(`/stock/typeahead?q=${encodeURIComponent(pn)}`);
+          const exact = (data || []).find(s => (s.part_number || "").toLowerCase() === pn.toLowerCase());
+          map[pn] = exact?.unit_price ?? null;
+        } catch { map[pn] = null; }
+      }
+      setStockCatalogPriceMap(map);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quote?.line_items]);
+
+  const isOverridden = (l) => {
+    if (l.line_type !== "stock" || !l.part_number) return false;
+    const cat = stockCatalogPriceMap[l.part_number];
+    if (cat === null || cat === undefined) return false;
+    return Math.abs((Number(l.unit_price_aud) || 0) - cat) > 0.0049;
+  };
 
   // Form state for top fields
   const [customerId, setCustomerId] = useState("");
@@ -281,8 +314,12 @@ export default function QuoteEditor() {
                       <tr key={l.id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="px-3 py-2.5 font-mono text-[11px] text-[#1F2A33] whitespace-nowrap">{l.part_number || <span className="text-gray-300">—</span>}</td>
                         <td className="px-3 py-2.5 text-[#1F2A33]">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             {isStock && <span className="text-[9px] font-bold uppercase tracking-wider bg-[#F5C518]/25 text-[#1F2A33] px-1.5 py-0.5 rounded" data-testid={`line-stock-chip-${l.id}`}>Stock</span>}
+                            {isStock && isOverridden(l) && (
+                              <span className="text-[9px] font-bold uppercase tracking-wider bg-amber-100 border border-amber-300 text-amber-800 px-1.5 py-0.5 rounded" data-testid={`line-overridden-chip-${l.id}`}
+                                    title={`Catalogue price: ${new Intl.NumberFormat("en-AU",{style:"currency",currency:"AUD"}).format(stockCatalogPriceMap[l.part_number])}`}>Overridden</span>
+                            )}
                             <span>{l.description || <span className="text-gray-400 italic">No description</span>}</span>
                           </div>
                           <div className="text-[11px] text-gray-500 mt-0.5 tabular-nums" data-testid={`editor-line-formula-${l.id}`}>
@@ -308,6 +345,15 @@ export default function QuoteEditor() {
                                     className="p-1.5 hover:bg-gray-100 rounded"
                                     data-testid={`edit-line-${l.id}`}
                                     aria-label="Edit line">
+                              <Edit2 size={14}/>
+                            </button>
+                          )}
+                          {isStock && rootHasPerm("quotes.edit") && (
+                            <button onClick={() => setStockLineEdit({ open: true, line: l })}
+                                    className="p-2 mr-1 bg-yellow-50 hover:bg-[#F5C518] text-[#1F2A33] rounded transition-colors border border-yellow-200 hover:border-[#E0B416]"
+                                    data-testid={`edit-stock-line-${l.id}`}
+                                    aria-label={`Edit ${l.part_number}`}
+                                    title={`Edit ${l.part_number}`}>
                               <Edit2 size={14}/>
                             </button>
                           )}
@@ -388,6 +434,14 @@ export default function QuoteEditor() {
           onAdded={() => refreshQuote(createdQuoteId)}
         />
       )}
+
+      <StockLineEditModal
+        open={stockLineEdit.open}
+        onOpenChange={(v) => setStockLineEdit(s => ({ ...s, open: v }))}
+        quoteId={createdQuoteId}
+        line={stockLineEdit.line}
+        onSaved={() => refreshQuote(createdQuoteId)}
+      />
 
       <AlertDialog open={deleteConfirm.open} onOpenChange={(v) => !v && setDeleteConfirm({ open: false, line: null })}>
         <AlertDialogContent data-testid="line-delete-confirm">

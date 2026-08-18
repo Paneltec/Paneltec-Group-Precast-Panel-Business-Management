@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { toast, Toaster } from "sonner";
 import { formatDateTime } from "../lib/format";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
-import { openPrintPopup } from "../lib/print";
+import { openPrintPopup, downloadPdf } from "../lib/print";
 import DeleteRowActions from "../components/DeleteRowActions";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -137,6 +137,19 @@ export default function CustomerForm() {
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => openPrintPopup(`/customers/${id}/print`)} className="border-[#1F2A33] text-[#1F2A33] font-semibold" data-testid="customer-print-btn">
               <AppIcon name="print" size={18} className="mr-2" decorative/> Print
+            </Button>
+            <Button variant="outline"
+              onClick={async () => {
+                try {
+                  toast.loading("Generating PDF…", { id: "cust-pdf" });
+                  await downloadPdf(`/customers/${id}/pdf`, `paneltec_customer_${id}.pdf`);
+                  toast.success("Customer PDF downloaded", { id: "cust-pdf" });
+                } catch (err) {
+                  toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF", { id: "cust-pdf" });
+                }
+              }}
+              className="border-[#3A6B8C] text-[#3A6B8C] font-semibold" data-testid="customer-print-pdf-btn">
+              <AppIcon name="print" size={18} className="mr-2" decorative/> Print to PDF
             </Button>
             <Button variant="outline" onClick={() => setEmailOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] font-semibold" data-testid="customer-email-btn">
               <AppIcon name="email" size={18} className="mr-2" decorative/> Email
@@ -374,7 +387,12 @@ function ProjectsCard({ customerId, projects, onChanged, customerSiteAddress, re
           <tbody>
             {(projects ?? []).map(p => (
               <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="py-2.5 font-semibold text-[#1F2A33]">{p.project_name}<div className="text-xs text-gray-500 font-normal">{p.description}</div></td>
+                <td className="py-2.5 font-semibold text-[#1F2A33]">
+                  <Link to={`/projects/${p.id}`} className="hover:text-[#3A6B8C]" data-testid={`proj-link-${p.id}`}>
+                    {p.project_name}
+                  </Link>
+                  <div className="text-xs text-gray-500 font-normal">{p.description}</div>
+                </td>
                 <td><span className="text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{p.status}</span></td>
                 <td className="text-xs text-gray-500">{formatDateTime(p.created_at)}</td>
                 <td className="text-right">
