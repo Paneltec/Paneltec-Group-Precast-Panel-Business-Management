@@ -398,11 +398,18 @@ class QuoteUpdate(BaseModel):
     customer_id: Optional[str] = None; project_id: Optional[str] = None
     valid_until: Optional[str] = None; notes_to_customer: Optional[str] = None; internal_notes: Optional[str] = None
 class QuoteLineInput(BaseModel):
+    model_config = ConfigDict(extra="ignore")   # accept new stock fields without rejecting legacy payloads
     description: str = ""; panel_type_key: str
     length_m: float = Field(gt=0); height_m: float = Field(gt=0)
     thickness_mm: int = Field(gt=0); concrete_grade: str; quantity: int = Field(ge=1)
     reinforcement_type: Literal["light","standard","heavy","prestressed"]
     openings_m2: float = Field(ge=0); finish_key: str
+    # Phase 11.8 — stock catalogue traceability (all optional so existing
+    # quotes without these fields still validate).
+    part_number: Optional[str] = None
+    stock_item_id: Optional[str] = None
+    supplier_id: Optional[str] = None
+    supplier_name_override: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -617,11 +624,17 @@ def compute_calculation(payload: CalculateRequest, pricing: Dict[str, Any]) -> D
     }
 
 def build_quote_line(payload: QuoteLineInput, pricing: Dict[str, Any]) -> Dict[str, Any]:
-    calc_req = CalculateRequest(**payload.model_dump(exclude={"description"}))
+    calc_req = CalculateRequest(**payload.model_dump(exclude={"description",
+        "part_number", "stock_item_id", "supplier_id", "supplier_name_override"}))
     result = compute_calculation(calc_req, pricing)
     icb = result.get("internal_cost_breakdown") or {}
     return {
         "id": str(uuid.uuid4()), "description": payload.description.strip(),
+        # Phase 11.8 — stock catalogue traceability
+        "part_number": (payload.part_number or "").strip() or None,
+        "stock_item_id": payload.stock_item_id or None,
+        "supplier_id": payload.supplier_id or None,
+        "supplier_name_override": (payload.supplier_name_override or "").strip() or None,
         "panel_type_key": result["panel_type"]["key"], "panel_type_label": result["panel_type"]["label"],
         "length_m": payload.length_m, "height_m": payload.height_m, "thickness_mm": payload.thickness_mm,
         "concrete_grade": payload.concrete_grade, "quantity": payload.quantity,

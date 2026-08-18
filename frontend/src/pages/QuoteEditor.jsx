@@ -12,6 +12,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "../components/ui/dialog";
 import { formatAUD, formatNumber } from "../lib/format";
+import { useAuth } from "../contexts/AuthContext";
 import { Toaster, toast } from "sonner";
 
 const REINFORCEMENT_OPTIONS = [
@@ -26,6 +27,8 @@ const LINE_DEFAULTS = {
   length_m: "6", height_m: "3", thickness_mm: "150",
   concrete_grade: "C30/37", quantity: "1",
   reinforcement_type: "standard", openings_m2: "0", finish_key: "smooth",
+  // Phase 11.8 — stock catalogue traceability
+  part_number: "", stock_item_id: "", supplier_id: "", supplier_name_override: "",
 };
 
 export default function QuoteEditor() {
@@ -237,7 +240,9 @@ export default function QuoteEditor() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-[10px] uppercase tracking-wider text-gray-600 border-b">
                     <tr>
+                      <th className="px-3 py-2 text-left">Part no.</th>
                       <th className="px-3 py-2 text-left">Description</th>
+                      <th className="px-3 py-2 text-left">Supplier</th>
                       <th className="px-3 py-2 text-left">Panel</th>
                       <th className="px-3 py-2 text-right">L × H</th>
                       <th className="px-3 py-2 text-right">Qty</th>
@@ -249,7 +254,9 @@ export default function QuoteEditor() {
                   <tbody data-testid="lines-table-body">
                     {quote.line_items.map(l => (
                       <tr key={l.id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="px-3 py-2.5 font-mono text-[11px] text-[#1F2A33] whitespace-nowrap">{l.part_number || <span className="text-gray-300">—</span>}</td>
                         <td className="px-3 py-2.5 text-[#1F2A33]">{l.description || <span className="text-gray-400 italic">No description</span>}</td>
+                        <td className="px-3 py-2.5 text-xs text-gray-700">{l.supplier_name_override || <span className="text-gray-300">—</span>}</td>
                         <td className="px-3 py-2.5 text-gray-700">{l.panel_type_label}<div className="text-[10px] text-gray-500">{l.thickness_mm}mm · {l.finish_label}</div></td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">{l.length_m} × {l.height_m} m</td>
                         <td className="px-3 py-2.5 text-right tabular-nums">{l.quantity}</td>
@@ -342,7 +349,82 @@ function lineFormToPayload(f) {
     reinforcement_type: f.reinforcement_type,
     openings_m2: parseFloat(f.openings_m2),
     finish_key: f.finish_key,
+    // Phase 11.8 — send only non-empty stock fields so legacy lines stay clean.
+    part_number: f.part_number || null,
+    stock_item_id: f.stock_item_id || null,
+    supplier_id: f.supplier_id || null,
+    supplier_name_override: f.supplier_name_override || null,
   };
+}
+
+function StockPartNumberField({ form, setForm }) {
+  const { hasPerm } = useAuth();
+  const [suggestions, setSuggestions] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [suppliers, setSuppliers] = useState({});
+  useEffect(() => {
+    if (!hasPerm("suppliers.view") && !hasPerm("stock.view")) return;
+    api.get("/suppliers").then(({ data }) => {
+      const map = {}; data.forEach(s => { map[s.id] = s.name; });
+      setSuppliers(map);
+    }).catch(() => {});
+  }, [hasPerm]);
+  useEffect(() => {
+    if (!hasPerm("stock.view")) return;
+    const q = (form.part_number || "").trim();
+    if (q.length < 1) { setSuggestions([]); return; }
+    const t = setTimeout(() => {
+      api.get(`/stock/typeahead?q=${encodeURIComponent(q)}`).then(({ data }) => {
+        setSuggestions(data); setOpen(data.length > 0);
+      }).catch(() => setSuggestions([]));
+    }, 200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [form.part_number]);
+  const pick = (item) => {
+    setForm({
+      ...form,
+      part_number: item.part_number,
+      stock_item_id: item.id,
+      supplier_id: item.supplier_id || "",
+      supplier_name_override: suppliers[item.supplier_id] || item.brand || form.supplier_name_override,
+      description: form.description || item.description || "",
+    });
+    setOpen(false);
+  };
+  if (!hasPerm("stock.view")) return null;
+  return (
+    <div className="relative">
+      <Label className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">Part number (stock catalogue)</Label>
+      <Input value={form.part_number}
+              onChange={e => setForm({ ...form, part_number: e.target.value, stock_item_id: "" })}
+              onFocus={() => setOpen(suggestions.length > 0)}
+              onBlur={() => setTimeout(() => setOpen(false), 150)}
+              placeholder="Type part number or description to search stock…"
+              className="font-mono"
+              data-testid="line-part-number"/>
+      {open && suggestions.length > 0 && (
+        <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-200 rounded shadow-lg max-h-72 overflow-y-auto"
+             data-testid="line-part-suggestions">
+          {suggestions.map(s => (
+            <button key={s.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => pick(s)}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                    data-testid={`line-part-pick-${s.id}`}>
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-mono font-bold text-[#1F2A33]">{s.part_number}</span>
+                <span className="text-xs font-semibold text-gray-700">${(s.unit_price ?? 0).toFixed(2)}</span>
+              </div>
+              <div className="text-xs text-gray-600 truncate">{s.description || <span className="italic text-gray-400">no description</span>}</div>
+              <div className="text-[10px] uppercase tracking-wider text-gray-500 mt-0.5">{suppliers[s.supplier_id] || s.brand || "—"}</div>
+            </button>
+          ))}
+        </div>
+      )}
+      {form.stock_item_id && (
+        <div className="text-[11px] text-emerald-700 mt-1">Linked to stock item · description &amp; supplier prefilled (still editable below).</div>
+      )}
+    </div>
+  );
 }
 
 function LineDialogContent({ mode, line, options, onSubmit }) {
@@ -359,6 +441,10 @@ function LineDialogContent({ mode, line, options, onSubmit }) {
         reinforcement_type: line.reinforcement_key,
         openings_m2: String(line.openings_m2_per_panel),
         finish_key: line.finish_key,
+        part_number: line.part_number || "",
+        stock_item_id: line.stock_item_id || "",
+        supplier_id: line.supplier_id || "",
+        supplier_name_override: line.supplier_name_override || "",
       };
     }
     return LINE_DEFAULTS;
@@ -393,9 +479,16 @@ function LineDialogContent({ mode, line, options, onSubmit }) {
         <DialogDescription>Calculator inputs — server computes the price snapshot on save.</DialogDescription>
       </DialogHeader>
       <form onSubmit={submit} className="space-y-3">
+        <StockPartNumberField form={form} setForm={setForm}/>
         <div>
           <Label className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">Description</Label>
           <Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="e.g. North elevation, levels 1-6" data-testid="line-desc"/>
+        </div>
+        <div>
+          <Label className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">Supplier</Label>
+          <Input value={form.supplier_name_override} onChange={e => setForm({ ...form, supplier_name_override: e.target.value })}
+                  placeholder="Inherited from stock item — override if sourcing elsewhere"
+                  data-testid="line-supplier"/>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <SelF label="Panel type" value={form.panel_type_key} onChange={(v) => setForm({ ...form, panel_type_key: v })} testid="line-panel">
