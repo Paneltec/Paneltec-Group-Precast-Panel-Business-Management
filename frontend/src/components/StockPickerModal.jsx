@@ -303,10 +303,6 @@ export default function StockPickerModal({ open, onOpenChange, quoteId, onAdded 
                           <AppIcon name={iconForCategory(catName)} size={20} decorative
                                     className="drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]"/>
                           <span>{catName}</span>
-                          {catSupplier && (<>
-                            <span className="text-white/60">·</span>
-                            <span className="normal-case tracking-normal font-medium text-white/85">{catSupplier}</span>
-                          </>)}
                           <span className="ml-auto normal-case tracking-normal text-[11px] font-semibold bg-white/20 rounded-full px-2 py-0.5">{rows.length} item{rows.length === 1 ? "" : "s"}</span>
                         </div>
                       </td>

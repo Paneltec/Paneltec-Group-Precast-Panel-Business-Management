@@ -708,3 +708,23 @@ Removed the muted `Supplier: <name>` hint div that Phase 12.8 had kept under the
 DOM check on the quote lines table: `'Supplier:' present in lines body: False`. Screenshot shows only description + `Stock item` panel column, no supplier text.
 
 **Not touched**: user's Simpro PAT.
+
+### Phase 12.12 — Removed redundant supplier chunk from category banners (2026-08-18)
+Manual screenshot verification. Simpro PAT untouched. No testing_agent.
+
+**Files changed**
+- `/app/frontend/src/pages/Stock.jsx` — removed `{catSupplier && (…)}` chunk from the orange banner. The `catSupplier` derivation logic stays in place (still used to detect the "Multiple" edge case internally, but no longer rendered).
+- `/app/frontend/src/components/StockPickerModal.jsx` — same removal in the picker's group banner.
+
+**Retained**: the Supplier filter dropdown on the `/stock` filter row (still useful for filtering across categories by supplier).
+
+**DOM verification** — banner text now reads:
+```
+Stock page:      'Reid™ Narrow edgelift anchor - 8 Tonne4 items'
+                 'Reid™ SwiftLift™ 3Dx™ Lifting System - 10 Tonne1 item'
+Picker modal:    'Ramset™ FaceLifters4 items'
+                 'Reid™ SwiftLift™ FaceLifters4 items'
+```
+(no "Reid"/"Ramset" between the category name and the item count).
+
+**Not touched**: user's Simpro PAT. No `testing_agent_v3`.
