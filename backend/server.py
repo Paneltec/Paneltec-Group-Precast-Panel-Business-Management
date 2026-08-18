@@ -19,7 +19,7 @@ from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Query, 
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator
+from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -366,29 +366,81 @@ class Address(BaseModel):
         return v
 
 class CustomerCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    company_name: str = Field(min_length=1); abn: Optional[str] = None
-    contact_name: str = ""; contact_email: EmailStr; contact_phone: str = ""
-    billing_address: Address = Field(default_factory=Address)
+    # Accept additional fields silently — the Customers module is often
+    # populated from Simpro/import scripts that carry richer metadata.
+    model_config = ConfigDict(extra="ignore")
+    company_name: str = Field(min_length=1)
+    trading_name: Optional[str] = None
+    abn: Optional[str] = None
+    contact_name: str = ""
+    contact_email: Optional[EmailStr] = None
+    contact_phone: str = ""
+    # Secondary contact — all optional
+    secondary_contact_name: Optional[str] = None
+    secondary_contact_email: Optional[EmailStr] = None
+    secondary_contact_phone: Optional[str] = None
+    billing_address: Address = Field(default_factory=lambda: Address(state="TAS"))
     site_address: Address = Field(default_factory=Address)
-    site_same_as_billing: bool = True; account_terms: str = "30 days"; notes: str = ""
+    site_same_as_billing: bool = True
+    # Existing free-text terms retained for back-compat; new enum takes precedence when set.
+    account_terms: str = "30 days"
+    payment_terms: Literal["Net 14 days","Net 30 days","Net 60 days","COD"] = "Net 30 days"
+    tax_exempt: bool = False
+    status: Literal["Active","Inactive","Prospect","On Hold"] = "Active"
+    simpro_customer_id: Optional[str] = None
+    notes: str = ""
+
+    @model_validator(mode="after")
+    def _require_email_or_phone(self):
+        if not (self.contact_email or (self.contact_phone or "").strip()):
+            raise ValueError("Provide at least one primary contact method — email or phone.")
+        return self
+
+    @field_validator("billing_address", "site_address")
+    @classmethod
+    def _postcode_shape(cls, addr: "Address") -> "Address":
+        pc = (addr.postcode or "").strip()
+        if pc and not (pc.isdigit() and len(pc) == 4):
+            raise ValueError("Postcode must be 4 digits (Australian format).")
+        return addr
 
 class CustomerUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    company_name: Optional[str] = None; abn: Optional[str] = None
-    contact_name: Optional[str] = None; contact_email: Optional[EmailStr] = None; contact_phone: Optional[str] = None
-    billing_address: Optional[Address] = None; site_address: Optional[Address] = None
-    site_same_as_billing: Optional[bool] = None; account_terms: Optional[str] = None
-    notes: Optional[str] = None; active: Optional[bool] = None
+    model_config = ConfigDict(extra="ignore")
+    company_name: Optional[str] = None
+    trading_name: Optional[str] = None
+    abn: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    secondary_contact_name: Optional[str] = None
+    secondary_contact_email: Optional[EmailStr] = None
+    secondary_contact_phone: Optional[str] = None
+    billing_address: Optional[Address] = None
+    site_address: Optional[Address] = None
+    site_same_as_billing: Optional[bool] = None
+    account_terms: Optional[str] = None
+    payment_terms: Optional[Literal["Net 14 days","Net 30 days","Net 60 days","COD"]] = None
+    tax_exempt: Optional[bool] = None
+    status: Optional[Literal["Active","Inactive","Prospect","On Hold"]] = None
+    simpro_customer_id: Optional[str] = None
+    notes: Optional[str] = None
+    active: Optional[bool] = None
 
 class ProjectCreate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     customer_id: str; project_name: str = Field(min_length=1)
     site_address: Optional[Address] = None; description: str = ""
+    code: Optional[str] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
     status: Literal["planning","quoted","won","lost","completed"] = "planning"
 class ProjectUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
     project_name: Optional[str] = None; site_address: Optional[Address] = None
     description: Optional[str] = None
+    code: Optional[str] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
     status: Optional[Literal["planning","quoted","won","lost","completed"]] = None
 
 class QuoteCreate(BaseModel):
@@ -2299,13 +2351,20 @@ async def list_customers(_user: dict = Depends(require_permission("customers.vie
     return {"items":items,"total":total,"page":page,"page_size":page_size}
 
 @api_router.post("/customers", status_code=201)
-async def create_customer(payload: CustomerCreate, _user: dict = Depends(require_permission("customers.create"))):
+async def create_customer(payload: CustomerCreate, actor: dict = Depends(require_permission("customers.create"))):
     data = payload.model_dump()
     data["abn"] = normalise_abn(data.get("abn"))
     if data["site_same_as_billing"]: data["site_address"] = data["billing_address"]
-    doc = {"id":str(uuid.uuid4()),"active":True,"created_at":now_iso(),"updated_at":now_iso(),**data}
+    # active flag mirrors status for back-compat with existing filters
+    data["active"] = data.get("status", "Active") == "Active"
+    doc = {"id":str(uuid.uuid4()),"created_at":now_iso(),"updated_at":now_iso(),**data}
     await db.customers.insert_one(doc)
     doc.pop("_id", None)
+    await record_audit(actor, "customer_created", "customer", doc["id"],
+                        doc.get("company_name") or "",
+                        metadata={"customer_id": doc["id"],
+                                    "business_name": doc.get("company_name"),
+                                    "status": doc.get("status")})
     return doc
 
 @api_router.get("/customers/{cid}")
@@ -2360,13 +2419,20 @@ async def list_projects(_user: dict = Depends(require_permission("projects.view"
     return await db.projects.find(q, {"_id":0}).sort("created_at",-1).to_list(500)
 
 @api_router.post("/projects", status_code=201)
-async def create_project(payload: ProjectCreate, _user: dict = Depends(require_permission("projects.create"))):
-    cust = await db.customers.find_one({"id":payload.customer_id}, {"_id":0,"site_address":1})
+async def create_project(payload: ProjectCreate, actor: dict = Depends(require_permission("projects.create"))):
+    cust = await db.customers.find_one({"id":payload.customer_id}, {"_id":0,"site_address":1,"company_name":1})
     if not cust: raise HTTPException(status_code=400, detail="Customer not found")
     data = payload.model_dump()
     if data.get("site_address") is None: data["site_address"] = cust.get("site_address")
     doc = {"id":str(uuid.uuid4()),"created_at":now_iso(),"updated_at":now_iso(),**data}
-    await db.projects.insert_one(doc); doc.pop("_id", None); return doc
+    await db.projects.insert_one(doc); doc.pop("_id", None)
+    await record_audit(actor, "project_created", "project", doc["id"],
+                        doc.get("project_name") or "",
+                        metadata={"project_id": doc["id"],
+                                    "project_name": doc.get("project_name"),
+                                    "customer_id": doc.get("customer_id"),
+                                    "customer_name": cust.get("company_name")})
+    return doc
 
 @api_router.get("/projects/{pid}")
 async def get_project(pid: str, _user: dict = Depends(require_permission("projects.view"))):

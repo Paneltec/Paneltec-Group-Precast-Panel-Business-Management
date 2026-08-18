@@ -15,6 +15,7 @@ import { formatAUD, formatNumber } from "../lib/format";
 import { useAuth } from "../contexts/AuthContext";
 import { Toaster, toast } from "sonner";
 import StockPickerModal from "../components/StockPickerModal";
+import ProjectCombobox from "../components/ProjectCombobox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
 
 const REINFORCEMENT_OPTIONS = [
@@ -215,13 +216,16 @@ export default function QuoteEditor() {
               </div>
               <div>
                 <Label className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">Project (optional)</Label>
-                <Select value={projectId || "_none"} onValueChange={(v) => setProjectId(v === "_none" ? "" : v)} disabled={!customerId}>
-                  <SelectTrigger className="mt-1 h-11" data-testid="quote-project-select"><SelectValue placeholder="—"/></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="_none">— No project —</SelectItem>
-                    {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.project_name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <div className="mt-1">
+                  <ProjectCombobox
+                    projects={projects}
+                    selectedId={projectId}
+                    onSelect={(id) => setProjectId(id)}
+                    onCreated={(p) => setProjects(prev => [...prev, p])}
+                    customerId={customerId}
+                    disabled={!customerId}
+                  />
+                </div>
               </div>
               <div>
                 <Label className="text-xs uppercase tracking-wider text-[#3A6B8C] font-bold">Valid until</Label>

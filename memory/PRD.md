@@ -728,3 +728,40 @@ Picker modal:    'Ramset™ FaceLifters4 items'
 (no "Reid"/"Ramset" between the category name and the item count).
 
 **Not touched**: user's Simpro PAT. No `testing_agent_v3`.
+
+### Phase 12.13 — Project combobox (typable, inline-create) on Quote editor (2026-08-18)
+Manual curl + screenshot. Simpro PAT untouched. No testing_agent.
+
+**Backend** — `/app/backend/server.py`
+- `ProjectCreate` gains `code`, `location`, `notes` optional fields and switches to `extra="ignore"`. `ProjectUpdate` mirrors those + drops `extra="forbid"`.
+- `POST /api/projects` now writes an audit event `project_created` with metadata `{project_id, project_name, customer_id, customer_name}`. Retained the existing `require_permission("projects.create")` RBAC gate.
+- Endpoint still returns the fully-populated project doc so the frontend can set it as selected without a refetch.
+
+**Frontend**
+- **NEW** `/app/frontend/src/components/ProjectCombobox.jsx` — typable dropdown that mirrors the Reid "combobox with create" pattern:
+  - Input filters `projects[]` by case-insensitive substring on `project_name` OR `code`.
+  - When the trimmed input has no exact match, a bottom **`Create "<typed>"`** row appears (green folder icon).
+  - Clicking Create → `POST /api/projects` with `{customer_id, project_name}` → toast + auto-select the new project + push it into the parent's `projects` array via `onCreated`.
+  - Existing selection is preserved while the user edits ("dirty" flag) — only replaced when they pick from the menu or hit Enter/Create.
+  - `Enter` on an exact match picks; `Enter` when Create is offered creates.
+  - Guards: Create disabled with tooltip "Select a customer first" when `customerId` is empty; Create disabled with tooltip "Ask an admin to create the project first" when the user lacks `projects.create` (chip `no perm` shown).
+  - Clear (X) button when a project is currently selected.
+- `/app/frontend/src/pages/QuoteEditor.jsx` — replaced the `<Select>` on the Project field with `<ProjectCombobox …/>`. `onCreated` pushes the new project into the local `projects` array so subsequent lookups find it without a fresh network hit.
+
+**Curl verification (fresh customer)**
+```
+POST /api/projects  {customer_id: <cust>, project_name: "Peltzer Yard Extension <ts>"}
+  → 201 {id, project_name, status: "planning", customer_id: <cust>}
+GET  /api/customers/<cust>/projects  → new project appears in the list  ✓
+```
+
+**Screenshot flow captured (three states)**
+1. Combobox open with `Create "Marina Precinct Stage 3"` as the only option.
+2. Toast `Project "Marina Precinct Stage 3" created.` after clicking Create; the project is now the selected value.
+3. Reopening the combobox and typing `Marina` shows the just-created project (highlighted with the yellow selection border, PLANNING status pill) AND a bottom `Create "Marina"` option for a different new name — proves the new project is now discoverable in subsequent lookups without a refresh.
+
+**Not touched**
+- Backend Simpro / Stock / any unrelated modules.
+- User's Simpro PAT (the current test customer has no Simpro settings doc; PAT persistence path unchanged).
+- Deployment/env files.
+- No `testing_agent_v3`.

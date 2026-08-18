@@ -17,12 +17,23 @@ import DeleteRowActions from "../components/DeleteRowActions";
 import { useAuth } from "../contexts/AuthContext";
 
 const AU_STATES = ["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"];
+const PAYMENT_TERMS = ["Net 14 days", "Net 30 days", "Net 60 days", "COD"];
+const STATUSES = ["Active", "Inactive", "Prospect", "On Hold"];
 
 const EMPTY_ADDR = { street: "", suburb: "", state: "", postcode: "" };
 const EMPTY = {
-  company_name: "", abn: "", contact_name: "", contact_email: "", contact_phone: "",
-  billing_address: { ...EMPTY_ADDR }, site_address: { ...EMPTY_ADDR }, site_same_as_billing: true,
-  account_terms: "30 days", notes: "",
+  company_name: "", trading_name: "", abn: "",
+  contact_name: "", contact_email: "", contact_phone: "",
+  secondary_contact_name: "", secondary_contact_email: "", secondary_contact_phone: "",
+  billing_address: { ...EMPTY_ADDR, state: "TAS" },
+  site_address:    { ...EMPTY_ADDR },
+  site_same_as_billing: true,
+  account_terms: "30 days",
+  payment_terms: "Net 30 days",
+  tax_exempt: false,
+  status: "Active",
+  simpro_customer_id: "",
+  notes: "",
 };
 
 export default function CustomerForm() {
@@ -73,6 +84,10 @@ export default function CustomerForm() {
   const onSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    if (!(form.contact_email || (form.contact_phone || "").trim())) {
+      setError("Provide at least one primary contact method — email or phone.");
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = { ...form };
@@ -135,25 +150,64 @@ export default function CustomerForm() {
       </div>
 
       <form onSubmit={onSubmit} className="space-y-6">
-        <Section title="Company">
-          <Field label="Company name" required>
+        <Section title="Business">
+          <Field label="Business name" required>
             <Input value={form.company_name} onChange={(e) => update("company_name", e.target.value)} required
               data-testid="cust-company-input" className="h-11"/>
+          </Field>
+          <Field label="Trading name">
+            <Input value={form.trading_name || ""} onChange={(e) => update("trading_name", e.target.value)}
+              data-testid="cust-trading-name" className="h-11" placeholder="If different from business name"/>
           </Field>
           <Field label="ABN (11 digits, spaces allowed)">
             <Input value={form.abn || ""} onChange={(e) => update("abn", e.target.value)}
               data-testid="cust-abn-input" className="h-11 tabular-nums" placeholder="e.g. 53 004 085 616"/>
           </Field>
-          <Field label="Account terms">
-            <Input value={form.account_terms} onChange={(e) => update("account_terms", e.target.value)}
-              data-testid="cust-terms-input" className="h-11"/>
+          <Field label="Status">
+            <Select value={form.status} onValueChange={(v) => update("status", v)}>
+              <SelectTrigger data-testid="cust-status" className="h-11"><SelectValue/></SelectTrigger>
+              <SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+            </Select>
+          </Field>
+          <Field label="Simpro customer ID">
+            <Input value={form.simpro_customer_id || ""} onChange={(e) => update("simpro_customer_id", e.target.value)}
+              data-testid="cust-simpro-id" className="h-11 tabular-nums" placeholder="Optional — links to Simpro"/>
           </Field>
         </Section>
 
         <Section title="Primary contact">
-          <Field label="Contact name"><Input value={form.contact_name} onChange={(e) => update("contact_name", e.target.value)} data-testid="cust-contact-name" className="h-11"/></Field>
-          <Field label="Contact email" required><Input type="email" required value={form.contact_email} onChange={(e) => update("contact_email", e.target.value)} data-testid="cust-contact-email" className="h-11"/></Field>
-          <Field label="Contact phone"><Input value={form.contact_phone} onChange={(e) => update("contact_phone", e.target.value)} data-testid="cust-contact-phone" className="h-11"/></Field>
+          <Field label="Contact name" required>
+            <Input value={form.contact_name} onChange={(e) => update("contact_name", e.target.value)} required
+              data-testid="cust-contact-name" className="h-11"/>
+          </Field>
+          <Field label="Contact email">
+            <Input type="email" value={form.contact_email || ""} onChange={(e) => update("contact_email", e.target.value)}
+              data-testid="cust-contact-email" className="h-11"
+              placeholder="Provide email or phone"/>
+          </Field>
+          <Field label="Contact phone">
+            <Input value={form.contact_phone || ""} onChange={(e) => update("contact_phone", e.target.value)}
+              data-testid="cust-contact-phone" className="h-11"
+              placeholder="Provide email or phone"/>
+          </Field>
+          <div className="col-span-full text-[11px] text-gray-500 italic -mt-2">
+            At least one contact method is required (email or phone).
+          </div>
+        </Section>
+
+        <Section title="Secondary contact (optional)">
+          <Field label="Name">
+            <Input value={form.secondary_contact_name || ""} onChange={(e) => update("secondary_contact_name", e.target.value)}
+              data-testid="cust-sec-name" className="h-11"/>
+          </Field>
+          <Field label="Email">
+            <Input type="email" value={form.secondary_contact_email || ""} onChange={(e) => update("secondary_contact_email", e.target.value)}
+              data-testid="cust-sec-email" className="h-11"/>
+          </Field>
+          <Field label="Phone">
+            <Input value={form.secondary_contact_phone || ""} onChange={(e) => update("secondary_contact_phone", e.target.value)}
+              data-testid="cust-sec-phone" className="h-11"/>
+          </Field>
         </Section>
 
         <Section title="Billing address">
@@ -171,6 +225,26 @@ export default function CustomerForm() {
           {!form.site_same_as_billing && (
             <AddressFields value={form.site_address} prefix="site" onChange={(k, v) => update(`site_address.${k}`, v)} />
           )}
+        </Section>
+
+        <Section title="Terms">
+          <Field label="Payment terms">
+            <Select value={form.payment_terms} onValueChange={(v) => update("payment_terms", v)}>
+              <SelectTrigger data-testid="cust-payment-terms" className="h-11"><SelectValue/></SelectTrigger>
+              <SelectContent>{PAYMENT_TERMS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+            </Select>
+          </Field>
+          <Field label="Legacy account terms (free text)">
+            <Input value={form.account_terms} onChange={(e) => update("account_terms", e.target.value)}
+              data-testid="cust-terms-input" className="h-11"/>
+          </Field>
+          <div className="flex items-end pb-2">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <Checkbox checked={form.tax_exempt} onCheckedChange={(v) => update("tax_exempt", !!v)}
+                         data-testid="cust-tax-exempt"/>
+              Tax exempt (GST not charged)
+            </label>
+          </div>
         </Section>
 
         <Section title="Notes">
@@ -192,7 +266,7 @@ export default function CustomerForm() {
       </form>
 
       {!isNew && (
-        <ProjectsCard customerId={id} projects={projects} onChanged={(p) => setProjects(p)} customerSiteAddress={form.site_address} reloadProjects={async () => { try { const { data } = await api.get(`/customers/${id}/projects`); setProjects(data); } catch (_) {} }} />
+        <ProjectsCard customerId={id} projects={projects} onChanged={(p) => setProjects(p)} customerSiteAddress={form.site_address} reloadProjects={async () => { try { const { data } = await api.get(`/customers/${id}/projects`); setProjects(data); } catch { /* ignore */ } }} />
       )}
 
       {!isNew && (
