@@ -623,11 +623,18 @@ export default function ReportDetail() {
                         if (!r.ok) throw new Error(`HTTP ${r.status}`);
                         const blob = await r.blob();
                         const fname = `paneltec_ncr_pack_${ncrDateFrom}_to_${ncrDateTo}.pdf`;
-                        const u = URL.createObjectURL(blob);
-                        const a = document.createElement("a"); a.href = u; a.download = fname; a.click();
-                        URL.revokeObjectURL(u);
+                        const pdfBlob = new Blob([blob], { type: "application/pdf" });
+                        const u = URL.createObjectURL(pdfBlob);
+                        const w = window.open(u, "_blank");
+                        if (!w) {
+                          // Popup blocked — fall back to download
+                          const a = document.createElement("a"); a.href = u; a.download = fname; document.body.appendChild(a); a.click(); a.remove();
+                          toast.error("Popup blocked — PDF downloaded instead. Allow popups from this site to view inline.");
+                        } else {
+                          toast.success(`Opened ${fname}`);
+                        }
+                        setTimeout(() => URL.revokeObjectURL(u), 5000);
                         setNcrResult({ mode: "download", filename: fname, count: probe.data.count });
-                        toast.success(`Downloaded ${fname}`);
                       }
                     }
                   } catch (e) {

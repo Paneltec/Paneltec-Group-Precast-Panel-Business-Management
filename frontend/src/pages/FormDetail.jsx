@@ -12,7 +12,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "../components/ui/select";
 import { toast } from "sonner";
-import { downloadPdf } from "../lib/print";
+import { openPdf } from "../lib/print";
 
 const STATUS_PILL = {
   draft:     "bg-gray-100 text-gray-700",
@@ -126,9 +126,10 @@ export default function FormDetail() {
             <Button variant="outline"
               onClick={async () => {
                 try {
-                  toast.loading("Generating PDF…", { id: "form-pdf" });
-                  await downloadPdf(`/compliance-forms/${id}/pdf`, `paneltec_form_${form.form_number || id}.pdf`);
-                  toast.success("Form PDF downloaded", { id: "form-pdf" });
+                  toast.loading("Opening PDF…", { id: "form-pdf" });
+                  const r = await openPdf(`/compliance-forms/${id}/pdf`, `paneltec_form_${form.form_number || id}.pdf`);
+                  if (r?.blocked) toast.error("Popup blocked — PDF downloaded instead. Allow popups from this site to view inline.", { id: "form-pdf" });
+                  else toast.success("Form PDF opened", { id: "form-pdf" });
                 } catch (err) {
                   toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF", { id: "form-pdf" });
                 }

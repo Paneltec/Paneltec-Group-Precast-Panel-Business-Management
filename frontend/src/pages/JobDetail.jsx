@@ -13,7 +13,7 @@ import { formatAUD, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
 import { useAuth } from "../contexts/AuthContext";
-import { downloadPdf } from "../lib/print";
+import { openPdf } from "../lib/print";
 import UserBadge from "../components/UserBadge";
 
 const ORDER = ["scheduled","in_production","ready_for_delivery","delivered","installed","completed"];
@@ -156,9 +156,10 @@ export default function JobDetail() {
           <Button variant="outline"
             onClick={async () => {
               try {
-                toast.loading("Generating PDF…", { id: "job-pdf" });
-                await downloadPdf(`/jobs/${id}/pdf`, `paneltec_job_${job.job_number || id}.pdf`);
-                toast.success("Job PDF downloaded", { id: "job-pdf" });
+                toast.loading("Opening PDF…", { id: "job-pdf" });
+                const r = await openPdf(`/jobs/${id}/pdf`, `paneltec_job_${job.job_number || id}.pdf`);
+                if (r?.blocked) toast.error("Popup blocked — PDF downloaded instead. Allow popups from this site to view inline.", { id: "job-pdf" });
+                else toast.success("Job PDF opened", { id: "job-pdf" });
               } catch (err) {
                 toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF", { id: "job-pdf" });
               }

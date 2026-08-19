@@ -58,3 +58,41 @@ export async function downloadPdf(path, fallbackFilename = "paneltec.pdf") {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
   return filename;
 }
+
+// Opens a PDF inline in a new browser tab. Fetches the PDF via authenticated
+// axios (so the JWT is attached by the interceptor), wraps as a blob, then
+// window.open()s a blob: URL. Browsers with a built-in PDF viewer will render
+// it inline; users can print / save from that viewer.
+//
+// Returns `{ url, blocked }`. If `blocked` is true, the caller receives a
+// downloaded copy of the PDF instead (fallback), and should surface a toast
+// telling the user to allow popups.
+export async function openPdf(path, fallbackFilename = "paneltec.pdf") {
+  const res = await api.get(path, { responseType: "blob" });
+  const blob = new Blob([res.data], { type: "application/pdf" });
+  const cd = res.headers?.["content-disposition"] || "";
+  const m = /filename="?([^"]+)"?/i.exec(cd);
+  const filename = m ? m[1] : fallbackFilename;
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, "_blank");
+  if (!w) {
+    // Popup blocked — download instead so the user still gets the PDF.
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return { url, filename, blocked: true };
+  }
+  // Some browsers preserve document.title as the suggested filename hint when
+  // the user hits Save from the viewer. Best-effort; ignore cross-origin errors.
+  try {
+    w.addEventListener?.("load", () => { try { w.document.title = filename; } catch (_e2) { /* cross-origin */ } });
+  } catch (_e) { /* addEventListener unavailable */ }
+  // Delay revocation so the new tab has time to load the blob URL.
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  return { url, filename, blocked: false };
+}
+

@@ -13,7 +13,7 @@ import { Checkbox } from "../components/ui/checkbox";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "../components/ui/dialog";
 import { toast } from "sonner";
-import { downloadPdf } from "../lib/print";
+import { openPdf } from "../lib/print";
 
 const CARDS = [
   { key:"customers", title:"Customers", desc:"Top accounts, growth, activity",      icon:Users,      perm:"customers.view",  kpi:(k)=>[`Active: ${k.active_customers}`, `Top: ${formatAUD(k.top_customer_revenue_aud||0)}`]},
@@ -184,12 +184,13 @@ function MarginAnalysisPdfModal({ open, onOpenChange }) {
   const onGenerate = async () => {
     setGenerating(true);
     try {
-      toast.loading("Generating margin analysis PDF…", { id: "margin-pdf" });
+      toast.loading("Opening margin analysis PDF…", { id: "margin-pdf" });
       const params = new URLSearchParams({ from, to });
       if (status && status !== "all") params.set("status", status);
-      await downloadPdf(`/reports/margin-analysis/pdf?${params.toString()}`,
+      const r = await openPdf(`/reports/margin-analysis/pdf?${params.toString()}`,
         `paneltec_margin_analysis_${from}_${to}.pdf`);
-      toast.success("Margin analysis PDF downloaded", { id: "margin-pdf" });
+      if (r?.blocked) toast.error("Popup blocked — PDF downloaded instead. Allow popups from this site to view inline.", { id: "margin-pdf" });
+      else toast.success("Margin analysis PDF opened", { id: "margin-pdf" });
       onOpenChange(false);
     } catch (err) {
       const detail = err?.response?.data?.detail || "Failed to generate PDF";

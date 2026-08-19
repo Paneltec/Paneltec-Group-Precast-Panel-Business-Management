@@ -11,7 +11,7 @@ import { formatAUD, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
 import { useAuth } from "../contexts/AuthContext";
-import { downloadPdf } from "../lib/print";
+import { openPdf } from "../lib/print";
 import UserBadge from "../components/UserBadge";
 
 const STATUS_ICON = {draft:"invoice_status_draft",issued:"invoice_status_issued",paid:"invoice_status_paid",overdue:"invoice_status_overdue",cancelled:"invoice_status_cancelled"};
@@ -94,9 +94,10 @@ export default function InvoiceDetail() {
           <Button variant="outline"
             onClick={async () => {
               try {
-                toast.loading("Generating PDF…", { id: "inv-pdf" });
-                await downloadPdf(`/invoices/${id}/pdf`, `paneltec_invoice_${inv.invoice_number || id}.pdf`);
-                toast.success("Invoice PDF downloaded", { id: "inv-pdf" });
+                toast.loading("Opening PDF…", { id: "inv-pdf" });
+                const r = await openPdf(`/invoices/${id}/pdf`, `paneltec_invoice_${inv.invoice_number || id}.pdf`);
+                if (r?.blocked) toast.error("Popup blocked — PDF downloaded instead. Allow popups from this site to view inline.", { id: "inv-pdf" });
+                else toast.success("Invoice PDF opened", { id: "inv-pdf" });
               } catch (err) {
                 toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF", { id: "inv-pdf" });
               }

@@ -1004,3 +1004,59 @@ New confidential internal report exportable from the Reports page. Aggregates co
 - Simpro PAT untouched (`api_token: '••••••••c74c'`).
 
 
+
+### Phase 12.19 — Margin date-filter timezone fix + inline PDF viewer (2026-08-18)
+
+**Landing #1 — Margin Analysis date filter now respects business timezone**
+
+Root cause (hypothesis #4 confirmed): `_date_range_iso` interpreted `2026-08-18` as `2026-08-18T00:00:00+00:00` UTC. But quotes are stored in UTC and Melbourne is UTC+10/11 — a quote created at 09:00 Melbourne on the 18th is `2026-08-17T22:00:00+00:00` in the DB, so it fell **outside** the naive UTC "day 18" window.
+
+- Added `_business_tz()` — reads `Australia/Melbourne` (default) from company settings.
+- Added `_date_range_iso_tz(from, to, tz_name, default_days)` — interprets YYYY-MM-DD as start-of-day / end-of-day INCLUSIVE in the business timezone, returns UTC-normalised ISO strings for MongoDB `$gte`/`$lte`.
+- `margin_analysis_pdf` now uses the timezone-aware helper and logs `[margin-analysis] from=… to=… (utc … → …) tz=Australia/Melbourne status=… quotes_matched=N` on every call.
+- Response headers surface `X-Margin-Quote-Count`, `X-Margin-From`, `X-Margin-To` for easy curl verification.
+
+**Curl verification (business TZ = Australia/Melbourne)**
+- `from=2026-08-18&to=2026-08-19` → **8 quotes**
+- `from=2026-08-18&to=2026-08-18` → **7 quotes** (correctly narrows to Melbourne day 18)
+- no params → **8 quotes** (default last 30 days)
+
+**Landing #2 — PDF opens inline in a new tab (no forced download)**
+
+- New helper `openPdf(path, fallbackFilename)` in `/app/frontend/src/lib/print.js`:
+  - Fetches the PDF via authenticated axios (JWT via interceptor)
+  - Wraps as `new Blob([data], { type: 'application/pdf' })`
+  - Creates a `blob:` URL and calls `window.open(url, '_blank')`
+  - Sets `document.title = filename` on the new tab as a best-effort filename hint (some browsers surface this on Save)
+  - `URL.revokeObjectURL` fires after **5 s** (not immediately) so the new tab has time to load the blob
+  - Returns `{ url, filename, blocked }`. If `blocked === true` (browser blocked the popup), the caller receives a downloaded copy AND surfaces a toast:
+    _"Popup blocked — PDF downloaded instead. Allow popups from this site to view inline."_
+- `downloadPdf` retained in the module for future callers that genuinely want a download (none currently).
+- Every Print / PDF button swapped from `downloadPdf` → `openPdf`:
+  - `QuoteDetail.jsx`, `InvoiceDetail.jsx`, `JobDetail.jsx`, `CustomerForm.jsx` (customer header + per-row project Print), `ProjectDetail.jsx`, `FormDetail.jsx`, `Reports.jsx` (Margin Analysis modal), `ReportDetail.jsx` (NCR pack), `FormsList.jsx` (bulk Combined PDF).
+- `FormsList.jsx` bulk **ZIP** download is left as a real download (ZIPs are not inline-viewable). Combined PDF opens inline.
+
+**Verified end-to-end**
+- Playwright: click Print on Quote 0024 (Draft) → `context.pages` grew by 1 (a new tab was created with `blob:…` URL) → origin tab still on `/quotes/…` with no login redirect and no browser download prompt.
+- Chromium's headless PDF plugin can't be screenshotted (browser-native), but the flow is confirmed by the new-page event and the curl-verified 200 on `/api/quotes/:id/pdf` returning 25,828 bytes of `%PDF-1.7`.
+- Popup-blocked fallback path: code checks `if (!w) { … downloads … toast.error(…) }`. Toast copy matches the request.
+
+**Files changed**
+- `/app/backend/server.py` — timezone-aware date helper, updated margin endpoint + debug logging + response headers
+- `/app/frontend/src/lib/print.js` — new `openPdf` helper
+- `/app/frontend/src/pages/QuoteDetail.jsx`
+- `/app/frontend/src/pages/InvoiceDetail.jsx`
+- `/app/frontend/src/pages/JobDetail.jsx`
+- `/app/frontend/src/pages/CustomerForm.jsx`
+- `/app/frontend/src/pages/ProjectDetail.jsx`
+- `/app/frontend/src/pages/FormDetail.jsx`
+- `/app/frontend/src/pages/Reports.jsx`
+- `/app/frontend/src/pages/ReportDetail.jsx` (NCR pack)
+- `/app/frontend/src/pages/FormsList.jsx` (bulk Combined PDF)
+
+**Guardrails**
+- Simpro PAT untouched (masked as `••••••••c74c`).
+- No side effects on any PDF endpoint.
+- No `testing_agent_v3`.
+
+

@@ -6,7 +6,7 @@ import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { formatAUD, formatNumber, formatDateTime } from "../lib/format";
 import { Toaster, toast } from "sonner";
-import { openCustomerPreviewPopup, downloadPdf } from "../lib/print";
+import { openCustomerPreviewPopup, openPdf } from "../lib/print";
 import UserBadge from "../components/UserBadge";
 import { useAuth } from "../contexts/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
@@ -135,9 +135,10 @@ export default function QuoteDetail() {
           <Button variant="outline"
             onClick={async () => {
               try {
-                toast.loading("Generating PDF…", { id: "quote-pdf" });
-                await downloadPdf(`/quotes/${id}/pdf`, `paneltec_quote_${quote.quote_number || id}.pdf`);
-                toast.success("Quote PDF downloaded", { id: "quote-pdf" });
+                toast.loading("Opening PDF…", { id: "quote-pdf" });
+                const r = await openPdf(`/quotes/${id}/pdf`, `paneltec_quote_${quote.quote_number || id}.pdf`);
+                if (r?.blocked) toast.error("Popup blocked — PDF downloaded instead. Allow popups from this site to view inline.", { id: "quote-pdf" });
+                else toast.success("Quote PDF opened", { id: "quote-pdf" });
               } catch (err) {
                 toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF", { id: "quote-pdf" });
               }

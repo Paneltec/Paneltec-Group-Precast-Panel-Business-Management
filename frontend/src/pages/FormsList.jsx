@@ -152,10 +152,20 @@ export default function FormsList() {
             const r = await fetch(`${API_BASE}/compliance-forms/batch-pdf`, {
               method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${tokenStore.get()}` },
               body: JSON.stringify({ form_ids: Array.from(selected), mode: "combined" }) });
-            if (!r.ok) { toast.error("Download failed"); return; }
-            const blob = await r.blob(); const url = URL.createObjectURL(blob);
-            const a = document.createElement("a"); a.href = url; a.download = `paneltec_forms_${new Date().toISOString().slice(0,10)}.pdf`;
-            document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+            if (!r.ok) { toast.error("Open failed"); return; }
+            const blob = await r.blob();
+            const pdfBlob = new Blob([blob], { type: "application/pdf" });
+            const url = URL.createObjectURL(pdfBlob);
+            const w = window.open(url, "_blank");
+            if (!w) {
+              const fname = `paneltec_forms_${new Date().toISOString().slice(0,10)}.pdf`;
+              const a = document.createElement("a"); a.href = url; a.download = fname;
+              document.body.appendChild(a); a.click(); a.remove();
+              toast.error("Popup blocked — PDF downloaded instead. Allow popups from this site to view inline.");
+            } else {
+              toast.success("Combined PDF opened");
+            }
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
           }} variant="outline" className="bg-white text-[#1F2A33]" data-testid="bulk-combined-btn">
             <AppIcon name="quotes" size={16} className="mr-1" decorative/> Combined PDF
           </Button>

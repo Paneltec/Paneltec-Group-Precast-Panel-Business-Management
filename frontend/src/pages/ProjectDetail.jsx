@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "../components/ui/dialog";
 import { Toaster, toast } from "sonner";
 import { formatAUD, formatDateTime } from "../lib/format";
-import { downloadPdf } from "../lib/print";
+import { openPdf } from "../lib/print";
 import { useAuth } from "../contexts/AuthContext";
 
 const STATUSES = ["planning", "quoted", "won", "lost", "completed"];
@@ -124,9 +124,10 @@ export default function ProjectDetail() {
   const onDownloadPdf = async () => {
     setDownloading(true);
     try {
-      toast.loading("Generating PDF…", { id: "proj-pdf" });
-      await downloadPdf(`/projects/${id}/pdf`, `paneltec_project_${id}.pdf`);
-      toast.success("Project PDF downloaded", { id: "proj-pdf" });
+      toast.loading("Opening PDF…", { id: "proj-pdf" });
+      const r = await openPdf(`/projects/${id}/pdf`, `paneltec_project_${id}.pdf`);
+      if (r?.blocked) toast.error("Popup blocked — PDF downloaded instead. Allow popups from this site to view inline.", { id: "proj-pdf" });
+      else toast.success("Project PDF opened", { id: "proj-pdf" });
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF",
         { id: "proj-pdf" });

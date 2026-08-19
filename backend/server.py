@@ -6867,18 +6867,66 @@ def _line_label(l: dict) -> str:
     return f"{label}{dims}"
 
 
+async def _business_tz() -> str:
+    """Business timezone from company settings — falls back to Australia/Melbourne."""
+    doc = await db.settings.find_one({"key": "company"}, {"_id": 0, "timezone": 1}) or {}
+    return doc.get("timezone") or "Australia/Melbourne"
+
+
+def _date_range_iso_tz(date_from: Optional[str], date_to: Optional[str],
+                        tz_name: str, default_days: int = 30) -> Tuple[str, str, str, str]:
+    """Timezone-aware date range → UTC ISO strings for MongoDB comparison.
+
+    Interprets `from` as start-of-day INCLUSIVE and `to` as end-of-day INCLUSIVE
+    in the supplied business timezone, then returns UTC-normalised ISO strings
+    matching the format used by `now_iso()` (e.g. `2026-08-17T14:00:00+00:00`).
+
+    Returns (from_utc_iso, to_utc_iso, from_local, to_local) — the last two are
+    the user-facing YYYY-MM-DD strings for display/audit metadata.
+    """
+    from zoneinfo import ZoneInfo
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("Australia/Melbourne")
+    now_local = now_utc().astimezone(tz)
+    if date_from:
+        try: df_date = datetime.strptime(date_from[:10], "%Y-%m-%d").date()
+        except ValueError: df_date = (now_local - timedelta(days=default_days)).date()
+    else:
+        df_date = (now_local - timedelta(days=default_days)).date()
+    if date_to:
+        try: dt_date = datetime.strptime(date_to[:10], "%Y-%m-%d").date()
+        except ValueError: dt_date = now_local.date()
+    else:
+        dt_date = now_local.date()
+    if dt_date < df_date:
+        df_date, dt_date = dt_date, df_date
+    from_local = datetime(df_date.year, df_date.month, df_date.day, 0, 0, 0, tzinfo=tz)
+    to_local   = datetime(dt_date.year, dt_date.month, dt_date.day, 23, 59, 59, 999_999, tzinfo=tz)
+    return (from_local.astimezone(timezone.utc).isoformat(),
+            to_local.astimezone(timezone.utc).isoformat(),
+            df_date.isoformat(), dt_date.isoformat())
+
+
 async def _build_margin_analysis_pdf(date_from: str, date_to: str,
                                       status_filter: Optional[str],
-                                      actor: dict) -> bytes:
+                                      actor: dict) -> Tuple[bytes, dict]:
     from weasyprint import HTML
-    df_iso, dt_iso = _date_range_iso(date_from, date_to, default_days=30)
+    tz_name = await _business_tz()
+    df_utc, dt_utc, df_local, dt_local = _date_range_iso_tz(
+        date_from, date_to, tz_name, default_days=30)
     q: Dict[str, Any] = {
         "deleted_at": {"$in": [None]},
-        "created_at": {"$gte": df_iso, "$lte": dt_iso},
+        "created_at": {"$gte": df_utc, "$lte": dt_utc},
     }
     if status_filter and status_filter != "all":
         q["status"] = status_filter
     docs = await db.quotes.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    logger.info(
+        "[margin-analysis] from=%s to=%s (utc %s → %s) tz=%s status=%s quotes_matched=%d",
+        df_local, dt_local, df_utc, dt_utc, tz_name, status_filter or "all", len(docs),
+    )
 
     # Preload customer/project names for the header of each block
     cust_ids = {d.get("customer_id") for d in docs if d.get("customer_id")}
@@ -6926,14 +6974,19 @@ async def _build_margin_analysis_pdf(date_from: str, date_to: str,
         quotes=quotes_render,
         agg={"total_sell": agg_sell, "total_cost": agg_cost,
              "total_margin": agg_margin, "margin_pct": agg_pct},
-        date_from=(df_iso or "")[:10],
-        date_to=(dt_iso or "")[:10],
+        date_from=df_local, date_to=dt_local,
         status_filter=(status_filter if status_filter and status_filter != "all" else None),
         company=company,
         generated_at=_fmt_generated_at(),
         generated_by=actor.get("email") or actor.get("name"),
     )
-    return HTML(string=html, base_url=str(ROOT_DIR)).write_pdf()
+    pdf_bytes = HTML(string=html, base_url=str(ROOT_DIR)).write_pdf()
+    return pdf_bytes, {
+        "from_local": df_local, "to_local": dt_local,
+        "from_utc": df_utc, "to_utc": dt_utc, "tz": tz_name,
+        "quote_count": len(docs),
+        "total_margin_aud": round(agg_margin, 2),
+    }
 
 
 @_records_pdf_router.get("/reports/margin-analysis/pdf")
@@ -6944,32 +6997,27 @@ async def margin_analysis_pdf(
     user: dict = Depends(require_permission("pricing.view_costs")),
 ):
     """Internal margin-analysis PDF. Gated on `pricing.view_costs`.
-    Read-only export — no side effects. Default window: last 30 days."""
-    pdf_bytes = await _build_margin_analysis_pdf(date_from or "", date_to or "", status, user)
-    df_iso, dt_iso = _date_range_iso(date_from or "", date_to or "", default_days=30)
-    fname = f"paneltec_margin_analysis_{df_iso[:10]}_{dt_iso[:10]}.pdf"
-    # Compute quote count + margin for audit metadata (cheap re-query)
-    q: Dict[str, Any] = {
-        "deleted_at": {"$in": [None]},
-        "created_at": {"$gte": df_iso, "$lte": dt_iso},
-    }
-    if status and status != "all":
-        q["status"] = status
-    qc = await db.quotes.count_documents(q)
-    total_margin = 0.0
-    async for d in db.quotes.find(q, {"_id": 0, "subtotal": 1, "total_cost_aud": 1}):
-        total_margin += float(d.get("subtotal") or 0) - float(d.get("total_cost_aud") or 0)
+    Read-only export — no side effects. Default window: last 30 days.
+    Date filter interprets `from`/`to` as YYYY-MM-DD in the company business
+    timezone (Australia/Melbourne by default), inclusive on both ends."""
+    pdf_bytes, meta = await _build_margin_analysis_pdf(
+        date_from or "", date_to or "", status, user)
+    fname = f"paneltec_margin_analysis_{meta['from_local']}_{meta['to_local']}.pdf"
     await record_audit(
         user, "margin_analysis_pdf_exported", "report", "margin-analysis", fname,
-        metadata={"from": df_iso[:10], "to": dt_iso[:10],
+        metadata={"from": meta["from_local"], "to": meta["to_local"],
+                  "tz": meta["tz"],
                   "status": status or "all",
-                  "quote_count": qc,
-                  "total_margin_aud": round(total_margin, 2),
+                  "quote_count": meta["quote_count"],
+                  "total_margin_aud": meta["total_margin_aud"],
                   "generated_by": user.get("id"), "filename": fname},
     )
     return Response(
         content=pdf_bytes, media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{fname}"'},
+        headers={"Content-Disposition": f'inline; filename="{fname}"',
+                 "X-Margin-Quote-Count": str(meta["quote_count"]),
+                 "X-Margin-From": meta["from_local"],
+                 "X-Margin-To": meta["to_local"]},
     )
 
 

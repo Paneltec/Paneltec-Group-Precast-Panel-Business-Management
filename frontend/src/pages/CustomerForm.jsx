@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { toast, Toaster } from "sonner";
 import { formatDateTime } from "../lib/format";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
-import { downloadPdf } from "../lib/print";
+import { openPdf } from "../lib/print";
 import DeleteRowActions from "../components/DeleteRowActions";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -138,9 +138,10 @@ export default function CustomerForm() {
             <Button variant="outline"
               onClick={async () => {
                 try {
-                  toast.loading("Generating PDF…", { id: "cust-pdf" });
-                  await downloadPdf(`/customers/${id}/pdf`, `paneltec_customer_${id}.pdf`);
-                  toast.success("Customer PDF downloaded", { id: "cust-pdf" });
+                  toast.loading("Opening PDF…", { id: "cust-pdf" });
+                  const r = await openPdf(`/customers/${id}/pdf`, `paneltec_customer_${id}.pdf`);
+                  if (r?.blocked) toast.error("Popup blocked — PDF downloaded instead. Allow popups from this site to view inline.", { id: "cust-pdf" });
+                  else toast.success("Customer PDF opened", { id: "cust-pdf" });
                 } catch (err) {
                   toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF", { id: "cust-pdf" });
                 }
@@ -396,9 +397,10 @@ function ProjectsCard({ customerId, projects, onChanged, customerSiteAddress, re
                   <button type="button"
                     onClick={async () => {
                       try {
-                        toast.loading("Generating PDF…", { id: `proj-pdf-${p.id}` });
-                        await downloadPdf(`/projects/${p.id}/pdf`, `paneltec_project_${p.id}.pdf`);
-                        toast.success("Project PDF downloaded", { id: `proj-pdf-${p.id}` });
+                        toast.loading("Opening PDF…", { id: `proj-pdf-${p.id}` });
+                        const r = await openPdf(`/projects/${p.id}/pdf`, `paneltec_project_${p.id}.pdf`);
+                        if (r?.blocked) toast.error("Popup blocked — PDF downloaded instead.", { id: `proj-pdf-${p.id}` });
+                        else toast.success("Project PDF opened", { id: `proj-pdf-${p.id}` });
                       } catch (err) {
                         toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to generate PDF", { id: `proj-pdf-${p.id}` });
                       }
