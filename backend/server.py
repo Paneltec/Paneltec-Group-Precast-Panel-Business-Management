@@ -6916,6 +6916,15 @@ async def _build_margin_analysis_pdf(date_from: str, date_to: str,
     tz_name = await _business_tz()
     df_utc, dt_utc, df_local, dt_local = _date_range_iso_tz(
         date_from, date_to, tz_name, default_days=30)
+
+    # GST rate — read from Admin Settings → Tax tab, default 10%
+    admin = await _load_admin_settings()
+    try:
+        gst_rate_pct = float(((admin.get("tax") or {}).get("gst_rate_pct")) or 10.0)
+    except (TypeError, ValueError):
+        gst_rate_pct = 10.0
+    gst_mul = gst_rate_pct / 100.0
+
     q: Dict[str, Any] = {
         "deleted_at": {"$in": [None]},
         "created_at": {"$gte": df_utc, "$lte": dt_utc},
@@ -6924,8 +6933,9 @@ async def _build_margin_analysis_pdf(date_from: str, date_to: str,
         q["status"] = status_filter
     docs = await db.quotes.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     logger.info(
-        "[margin-analysis] from=%s to=%s (utc %s → %s) tz=%s status=%s quotes_matched=%d",
-        df_local, dt_local, df_utc, dt_utc, tz_name, status_filter or "all", len(docs),
+        "[margin-analysis] from=%s to=%s (utc %s → %s) tz=%s status=%s gst_rate=%.2f%% quotes_matched=%d",
+        df_local, dt_local, df_utc, dt_utc, tz_name, status_filter or "all",
+        gst_rate_pct, len(docs),
     )
 
     # Preload customer/project names for the header of each block
@@ -6944,14 +6954,18 @@ async def _build_margin_analysis_pdf(date_from: str, date_to: str,
         for l in (d.get("line_items") or []):
             sell = float(l.get("subtotal_aud") or 0.0)
             cost = float(l.get("total_cost_aud") or 0.0)
+            sell_gst = sell * gst_mul
+            sell_inc = sell + sell_gst
             margin = sell - cost
             mpct = (margin / sell * 100.0) if sell > 0 else 0.0
             lines_out.append({
                 "label": _line_label(l),
-                "sell": sell, "cost": cost,
-                "margin": margin, "margin_pct": mpct,
+                "sell": sell, "sell_gst": sell_gst, "sell_inc_gst": sell_inc,
+                "cost": cost, "margin": margin, "margin_pct": mpct,
             })
             q_sell += sell; q_cost += cost
+        q_gst = q_sell * gst_mul
+        q_inc = q_sell + q_gst
         q_margin = q_sell - q_cost
         q_mpct = (q_margin / q_sell * 100.0) if q_sell > 0 else 0.0
         quotes_render.append({
@@ -6960,11 +6974,13 @@ async def _build_margin_analysis_pdf(date_from: str, date_to: str,
             "customer_name": (customers.get(d.get("customer_id")) or {}).get("company_name"),
             "project_name":  (projects.get(d.get("project_id")) or {}).get("project_name"),
             "lines": lines_out,
-            "total_sell": q_sell, "total_cost": q_cost,
-            "total_margin": q_margin, "margin_pct": q_mpct,
+            "total_sell": q_sell, "total_sell_gst": q_gst, "total_sell_inc_gst": q_inc,
+            "total_cost": q_cost, "total_margin": q_margin, "margin_pct": q_mpct,
         })
         agg_sell += q_sell; agg_cost += q_cost
 
+    agg_gst = agg_sell * gst_mul
+    agg_inc = agg_sell + agg_gst
     agg_margin = agg_sell - agg_cost
     agg_pct = (agg_margin / agg_sell * 100.0) if agg_sell > 0 else 0.0
     company = await _load_company_settings()
@@ -6972,8 +6988,10 @@ async def _build_margin_analysis_pdf(date_from: str, date_to: str,
     tpl = _get_jinja_env().get_template("margin_analysis.html")
     html = tpl.render(
         quotes=quotes_render,
-        agg={"total_sell": agg_sell, "total_cost": agg_cost,
+        agg={"total_sell": agg_sell, "total_sell_gst": agg_gst,
+             "total_sell_inc_gst": agg_inc, "total_cost": agg_cost,
              "total_margin": agg_margin, "margin_pct": agg_pct},
+        gst_rate_pct=gst_rate_pct,
         date_from=df_local, date_to=dt_local,
         status_filter=(status_filter if status_filter and status_filter != "all" else None),
         company=company,
@@ -6986,6 +7004,7 @@ async def _build_margin_analysis_pdf(date_from: str, date_to: str,
         "from_utc": df_utc, "to_utc": dt_utc, "tz": tz_name,
         "quote_count": len(docs),
         "total_margin_aud": round(agg_margin, 2),
+        "gst_rate_pct": gst_rate_pct,
     }
 
 

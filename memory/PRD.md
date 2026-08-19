@@ -1060,3 +1060,30 @@ Root cause (hypothesis #4 confirmed): `_date_range_iso` interpreted `2026-08-18`
 - No `testing_agent_v3`.
 
 
+
+### Phase 12.20 — Margin Analysis PDF: GST workings (2026-08-18)
+
+Margin Analysis PDF now shows the GST workings alongside the ex-GST sell / cost / margin flow.
+
+**Backend** (`_build_margin_analysis_pdf`)
+- Reads `admin_settings.tax.gst_rate_pct` (default 10.0). Rate flows into all line-, quote-, and aggregate-level GST math.
+- Per-line context adds `sell_gst`, `sell_inc_gst`.
+- Per-quote totals add `total_sell_gst`, `total_sell_inc_gst`.
+- Grand `agg` block adds `total_sell_gst`, `total_sell_inc_gst`.
+- **Margin still calculated on ex-GST sell** (`sell − cost`), never on inc-GST. GST is pass-through and never affects profit.
+
+**Template** (`margin_analysis.html`)
+- Grand summary card widened to 7 cells: Quotes · Total sell (ex GST) · GST (10%) · Total inc GST · Total cost · Margin AUD · Margin %.
+- Muted italic note under the summary: *"GST calculated at 10% (AU standard). Margin is calculated on ex-GST sell price — GST is pass-through and does not affect profit."*
+- Per-line table now 7 columns: Line · Sell · Sell GST · Sell inc GST · Cost · Margin · Margin %. GST columns render in muted grey (`--pt-muted`) so the Sell/Cost/Margin flow remains primary.
+- Per-quote totals card widened to 6 cells: Total sell (ex GST) · GST (10%) · Total inc GST · Total cost · Margin AUD · Margin %. Walks the reader net-sell → +GST → total the customer pays → cost → margin.
+
+**Curl verification**
+- `GET /api/reports/margin-analysis/pdf?from=2026-08-18&to=2026-08-18` → 200 · application/pdf · 38,294 bytes.
+- Grand summary rendered: Total sell (ex GST) $113,097.94 · GST $11,309.79 · Total inc GST $124,407.73 · Total cost $45,431.74 · Margin $67,666.20 (59.8%). GST is 10% of ex-GST sell as expected.
+
+**Guardrails**
+- Simpro PAT untouched (`api_token: '••••••••c74c'`).
+- No other reports or PDF layouts touched.
+- No `testing_agent_v3`.
+

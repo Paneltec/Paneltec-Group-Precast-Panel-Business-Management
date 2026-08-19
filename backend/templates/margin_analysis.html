@@ -70,8 +70,8 @@
       background: var(--pt-emerald-tint);
       border-left: 4px solid var(--pt-emerald);
       border-radius: 4px; padding: 14px 16px;
-      margin-bottom: 18px;
-      display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px;
+      margin-bottom: 8px;
+      display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px;
     }
     .summary .cell .k {
       font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.14em;
@@ -79,10 +79,15 @@
     }
     .summary .cell .v {
       font-family: 'Menlo', 'Consolas', monospace;
-      font-size: 16px; font-weight: 900; color: var(--pt-text);
+      font-size: 15px; font-weight: 900; color: var(--pt-text);
       letter-spacing: -0.01em;
     }
+    .summary .cell.muted .v { color: var(--pt-muted); font-weight: 700; }
     .summary .cell.margin .v { color: var(--pt-emerald); }
+    .gst-note {
+      font-size: 9.5px; font-style: italic; color: var(--pt-muted);
+      margin: 4px 2px 14px 2px; letter-spacing: 0.01em;
+    }
 
     /* Per-quote block */
     .quote-block { margin-bottom: 16px; page-break-inside: avoid; }
@@ -123,6 +128,10 @@
     table.margin-table td.right {
       text-align: right; font-family: 'Menlo', 'Consolas', monospace;
     }
+    table.margin-table td.gst-col,
+    table.margin-table td.inc-col {
+      color: #6b7280; font-weight: 500;
+    }
     table.margin-table td.margin,
     table.margin-table td.margin-pct {
       color: var(--pt-emerald); font-weight: 700;
@@ -132,7 +141,7 @@
       border: 1px solid var(--pt-emerald);
       border-radius: 0 0 3px 3px;
       padding: 8px 12px;
-      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+      display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
       margin-top: 0;
     }
     .qt-totals .cell .k {
@@ -144,6 +153,7 @@
       font-size: 12px; font-weight: 800; color: var(--pt-text);
       margin-top: 1px;
     }
+    .qt-totals .cell.muted .v { color: var(--pt-muted); font-weight: 600; }
     .qt-totals .cell.margin .v { color: var(--pt-emerald); }
 
     .no-data {
@@ -185,8 +195,16 @@
       <div class="v">{{ quotes | length }}</div>
     </div>
     <div class="cell">
-      <div class="k">Total sell</div>
+      <div class="k">Total sell (ex GST)</div>
       <div class="v">{{ agg.total_sell | aud }}</div>
+    </div>
+    <div class="cell muted">
+      <div class="k">GST ({{ '%.0f' % gst_rate_pct }}%)</div>
+      <div class="v">{{ agg.total_sell_gst | aud }}</div>
+    </div>
+    <div class="cell muted">
+      <div class="k">Total inc GST</div>
+      <div class="v">{{ agg.total_sell_inc_gst | aud }}</div>
     </div>
     <div class="cell">
       <div class="k">Total cost</div>
@@ -200,6 +218,9 @@
       <div class="k">Margin %</div>
       <div class="v">{{ '%.1f' % agg.margin_pct }}%</div>
     </div>
+  </div>
+  <div class="gst-note">
+    GST calculated at {{ '%.0f' % gst_rate_pct }}% (AU standard). Margin is calculated on ex-GST sell price — GST is pass-through and does not affect profit.
   </div>
 
   {% if not quotes %}
@@ -219,10 +240,12 @@
       <table class="margin-table">
         <thead>
           <tr>
-            <th style="width:45%">Line</th>
-            <th class="right" style="width:14%">Sell</th>
-            <th class="right" style="width:14%">Cost</th>
-            <th class="right" style="width:14%">Margin</th>
+            <th style="width:32%">Line</th>
+            <th class="right" style="width:11%">Sell</th>
+            <th class="right" style="width:9%">Sell GST</th>
+            <th class="right" style="width:12%">Sell inc GST</th>
+            <th class="right" style="width:11%">Cost</th>
+            <th class="right" style="width:12%">Margin</th>
             <th class="right" style="width:13%">Margin %</th>
           </tr>
         </thead>
@@ -231,6 +254,8 @@
             <tr>
               <td>{{ l.label }}</td>
               <td class="right">{{ l.sell | aud }}</td>
+              <td class="right gst-col">{{ l.sell_gst | aud }}</td>
+              <td class="right inc-col">{{ l.sell_inc_gst | aud }}</td>
               <td class="right">{{ l.cost | aud }}</td>
               <td class="right margin">{{ l.margin | aud }}</td>
               <td class="right margin-pct">{{ '%.1f' % l.margin_pct }}%</td>
@@ -239,7 +264,9 @@
         </tbody>
       </table>
       <div class="qt-totals">
-        <div class="cell"><div class="k">Total sell</div><div class="v">{{ q.total_sell | aud }}</div></div>
+        <div class="cell"><div class="k">Total sell (ex GST)</div><div class="v">{{ q.total_sell | aud }}</div></div>
+        <div class="cell muted"><div class="k">GST ({{ '%.0f' % gst_rate_pct }}%)</div><div class="v">{{ q.total_sell_gst | aud }}</div></div>
+        <div class="cell muted"><div class="k">Total inc GST</div><div class="v">{{ q.total_sell_inc_gst | aud }}</div></div>
         <div class="cell"><div class="k">Total cost</div><div class="v">{{ q.total_cost | aud }}</div></div>
         <div class="cell margin"><div class="k">Margin AUD</div><div class="v">{{ q.total_margin | aud }}</div></div>
         <div class="cell margin"><div class="k">Margin %</div><div class="v">{{ '%.1f' % q.margin_pct }}%</div></div>
