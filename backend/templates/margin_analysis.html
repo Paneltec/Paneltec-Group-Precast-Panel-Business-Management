@@ -141,7 +141,14 @@
       display: block; margin-top: 2px;
       font-family: 'Menlo', 'Consolas', monospace;
       font-size: 8px; color: var(--pt-muted); letter-spacing: 0.01em;
+      white-space: pre;
     }
+    table.margin-table .formula .lbl {
+      display: inline-block; width: 32px;
+      font-weight: 700; color: var(--pt-muted);
+    }
+    table.margin-table .formula.sell .lbl { color: #3A6B8C; }
+    table.margin-table .formula.cost .lbl { color: #6B7280; }
     .qt-totals {
       background: var(--pt-emerald-tint);
       border: 1px solid var(--pt-emerald);
@@ -261,7 +268,8 @@
             <tr>
               <td>
                 {{ l.label }}
-                <span class="formula">{{ '%g' % l.qty }} × {{ l.unit_sell | aud }} = {{ l.sell | aud }}</span>
+                <span class="formula sell"><span class="lbl">Sell:</span>{{ '%g' % l.qty }} × {{ l.unit_sell | aud }} = {{ l.sell | aud }}</span>
+                <span class="formula cost"><span class="lbl">Cost:</span>{{ '%g' % l.qty }} × {{ l.unit_cost | aud }} = {{ l.cost | aud }}</span>
               </td>
               <td class="right">{{ '%g' % l.qty }}</td>
               <td class="right muted-col">{{ l.unit_sell | aud }}</td>
