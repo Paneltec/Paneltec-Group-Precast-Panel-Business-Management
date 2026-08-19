@@ -129,12 +129,18 @@
       text-align: right; font-family: 'Menlo', 'Consolas', monospace;
     }
     table.margin-table td.gst-col,
-    table.margin-table td.inc-col {
+    table.margin-table td.inc-col,
+    table.margin-table td.muted-col {
       color: #6b7280; font-weight: 500;
     }
     table.margin-table td.margin,
     table.margin-table td.margin-pct {
       color: var(--pt-emerald); font-weight: 700;
+    }
+    table.margin-table .formula {
+      display: block; margin-top: 2px;
+      font-family: 'Menlo', 'Consolas', monospace;
+      font-size: 8px; color: var(--pt-muted); letter-spacing: 0.01em;
     }
     .qt-totals {
       background: var(--pt-emerald-tint);
@@ -240,22 +246,27 @@
       <table class="margin-table">
         <thead>
           <tr>
-            <th style="width:32%">Line</th>
-            <th class="right" style="width:11%">Sell</th>
-            <th class="right" style="width:9%">Sell GST</th>
-            <th class="right" style="width:12%">Sell inc GST</th>
-            <th class="right" style="width:11%">Cost</th>
-            <th class="right" style="width:12%">Margin</th>
-            <th class="right" style="width:13%">Margin %</th>
+            <th style="width:24%">Line</th>
+            <th class="right" style="width:5%">Qty</th>
+            <th class="right" style="width:10%">Unit sell</th>
+            <th class="right" style="width:11%">Subtotal</th>
+            <th class="right" style="width:10%">Unit cost</th>
+            <th class="right" style="width:11%">Subtotal cost</th>
+            <th class="right" style="width:11%">Margin</th>
+            <th class="right" style="width:8%">Margin %</th>
           </tr>
         </thead>
         <tbody>
           {% for l in q.lines %}
             <tr>
-              <td>{{ l.label }}</td>
+              <td>
+                {{ l.label }}
+                <span class="formula">{{ '%g' % l.qty }} × {{ l.unit_sell | aud }} = {{ l.sell | aud }}</span>
+              </td>
+              <td class="right">{{ '%g' % l.qty }}</td>
+              <td class="right muted-col">{{ l.unit_sell | aud }}</td>
               <td class="right">{{ l.sell | aud }}</td>
-              <td class="right gst-col">{{ l.sell_gst | aud }}</td>
-              <td class="right inc-col">{{ l.sell_inc_gst | aud }}</td>
+              <td class="right muted-col">{{ l.unit_cost | aud }}</td>
               <td class="right">{{ l.cost | aud }}</td>
               <td class="right margin">{{ l.margin | aud }}</td>
               <td class="right margin-pct">{{ '%.1f' % l.margin_pct }}%</td>

@@ -6954,12 +6954,16 @@ async def _build_margin_analysis_pdf(date_from: str, date_to: str,
         for l in (d.get("line_items") or []):
             sell = float(l.get("subtotal_aud") or 0.0)
             cost = float(l.get("total_cost_aud") or 0.0)
+            qty  = float(l.get("quantity") or 0.0)
+            unit_sell = (sell / qty) if qty > 0 else 0.0
+            unit_cost = (cost / qty) if qty > 0 else 0.0
             sell_gst = sell * gst_mul
             sell_inc = sell + sell_gst
             margin = sell - cost
             mpct = (margin / sell * 100.0) if sell > 0 else 0.0
             lines_out.append({
                 "label": _line_label(l),
+                "qty": qty, "unit_sell": unit_sell, "unit_cost": unit_cost,
                 "sell": sell, "sell_gst": sell_gst, "sell_inc_gst": sell_inc,
                 "cost": cost, "margin": margin, "margin_pct": mpct,
             })

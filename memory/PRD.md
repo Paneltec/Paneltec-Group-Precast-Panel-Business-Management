@@ -1087,3 +1087,28 @@ Margin Analysis PDF now shows the GST workings alongside the ex-GST sell / cost 
 - No other reports or PDF layouts touched.
 - No `testing_agent_v3`.
 
+
+### Phase 12.21 — Margin Analysis PDF: qty workings (2026-08-18)
+
+Per-line table now surfaces the qty × unit = subtotal maths so anyone reading the report can see how each Sell figure was reached.
+
+**Backend** (`_build_margin_analysis_pdf`)
+- Each line's context now carries `qty`, `unit_sell`, `unit_cost` alongside the existing `sell`, `cost`, GST, margin fields. `unit_sell = subtotal_aud / qty`, `unit_cost = total_cost_aud / qty` (safe divide).
+
+**Template** (`margin_analysis.html`)
+- Per-line columns updated to: `LINE (desc + formula subtitle) · QTY · UNIT SELL · SUBTOTAL · UNIT COST · SUBTOTAL COST · MARGIN · MARGIN %` — 8 columns, still fits A4 portrait.
+- Formula subtitle in muted monospace directly under the description, mirroring Quote-page style: `20 × $4,447.44 = $88,948.80`.
+- Per-line `SELL GST` / `SELL INC GST` intentionally dropped (per fallback rule in the task) — they remain in the per-quote totals block, which is the appropriate zoom level for GST.
+- Unit sell / unit cost render in `--pt-muted` grey so the SUBTOTAL / SUBTOTAL COST / MARGIN flow remains primary.
+
+**Verified**
+- `GET /api/reports/margin-analysis/pdf?from=2026-08-18&to=2026-08-18` → 200 · application/pdf · 39,477 bytes.
+- Q-2026-0024 line renders: qty 20, unit sell $4,447.44, subtotal $88,948.80, unit cost $1,791.19, subtotal cost $35,823.82, margin $53,124.98 (59.7%). Formula subtitle `20 × $4,447.44 = $88,948.80` visible.
+- Q-2026-0022 (multi-line quote) shows all four lines with independent qty/unit/subtotal breakdowns and matching formula subtitles.
+
+**Guardrails**
+- Aggregate math unchanged — this is purely a display enrichment.
+- No other reports touched.
+- Simpro PAT untouched (`api_token: '••••••••c74c'`).
+- No `testing_agent_v3`.
+
