@@ -1156,6 +1156,10 @@ async def seed_database():
     if await db.customers.count_documents({}) == 0:
         await _seed_phase2()
 
+    # Phase 12.22 — seed Firmus 2026 pricing rates catalogue if empty
+    if await db.pricing_rates.count_documents({}) == 0:
+        await _seed_firmus_pricing_rates()
+
     # Phase 3 demo: auto-progress one accepted-flow if no jobs yet exist
     if await db.jobs.count_documents({}) == 0:
         await _seed_phase3_demo()
@@ -4035,6 +4039,19 @@ async def admin_settings_get(user: dict = Depends(require_super_admin)):
     return _mask_admin_settings(await _load_admin_settings())
 
 
+@api_router.put("/admin/settings/compliance-standards")
+async def put_compliance_standards(payload: List[Dict[str, Any]] = Body(...),
+                                     user: dict = Depends(require_super_admin)):
+    clean = [{"name": (s.get("name") or "").strip(),
+              "url": (s.get("url") or "").strip()}
+             for s in payload if (s.get("name") or "").strip()]
+    await db.settings.update_one({"key":"admin_settings"},
+        {"$set": {"compliance_standards": clean, "updated_at": now_iso()}}, upsert=True)
+    await record_audit(user, "settings_changed", "admin_settings", "compliance_standards",
+                       "compliance_standards", metadata={"count": len(clean)})
+    return clean
+
+
 @api_router.put("/admin/settings/{tab}")
 async def admin_settings_put(tab: str, payload: Any = Body(...),
                               user: dict = Depends(require_super_admin)):
@@ -5028,18 +5045,6 @@ async def tavily_disconnect(user: dict = Depends(require_super_admin)):
 async def get_compliance_standards(user: dict = Depends(require_super_admin)):
     return (await _load_admin_settings()).get("compliance_standards", [])
 
-
-@api_router.put("/admin/settings/compliance-standards")
-async def put_compliance_standards(payload: List[Dict[str, Any]] = Body(...),
-                                     user: dict = Depends(require_super_admin)):
-    clean = [{"name": (s.get("name") or "").strip(),
-              "url": (s.get("url") or "").strip()}
-             for s in payload if (s.get("name") or "").strip()]
-    await db.settings.update_one({"key":"admin_settings"},
-        {"$set": {"compliance_standards": clean, "updated_at": now_iso()}}, upsert=True)
-    await record_audit(user, "settings_changed", "admin_settings", "compliance_standards",
-                       "compliance_standards", metadata={"count": len(clean)})
-    return clean
 
 
 class AICheckPayload(BaseModel):
@@ -7047,6 +7052,88 @@ async def margin_analysis_pdf(
 
 
 app.include_router(_records_pdf_router)
+
+
+# ===========================================================================
+# Phase 12.22 — Firmus 2026 pricing rates catalogue (reference, not calculator)
+# ===========================================================================
+_pricing_rates_router = APIRouter(prefix="/api")
+_FIRMUS_SEED_PATH = ROOT_DIR / "seeds" / "firmus_2026_rates.json"
+
+async def _seed_firmus_pricing_rates() -> None:
+    """Load bundled Firmus 2026 rates JSON and insert one doc per row.
+    Idempotent — only runs when the collection is empty."""
+    try:
+        import json as _json_seed
+        with open(_FIRMUS_SEED_PATH, "r") as fh:
+            rows = _json_seed.load(fh)
+    except FileNotFoundError:
+        logger.warning("[firmus-seed] seed file not found: %s", _FIRMUS_SEED_PATH)
+        return
+    now = now_iso()
+    docs = []
+    for r in rows:
+        docs.append({
+            "id": str(uuid.uuid4()),
+            "section": r.get("section"),
+            "key": r.get("key"),
+            "label": r.get("label"),
+            "unit": r.get("unit"),
+            "value": r.get("value"),
+            "value_slow": r.get("value_slow"),
+            "value_ave": r.get("value_ave"),
+            "value_fast": r.get("value_fast"),
+            "rate_aud_per_sqm": r.get("rate_aud_per_sqm"),
+            "sqm_per_panel": r.get("sqm_per_panel"),
+            "offer_per_panel": r.get("offer_per_panel"),
+            "source": r.get("source") or "Firmus 2026",
+            "created_at": now, "updated_at": now, "deleted_at": None,
+        })
+    if docs:
+        await db.pricing_rates.insert_many(docs)
+    logger.info("[firmus-seed] inserted %d pricing rate rows across sections %s",
+                len(docs), sorted({r.get("section") for r in rows}))
+
+
+@_pricing_rates_router.get("/pricing-rates")
+async def pricing_rates_list(
+    section: Optional[str] = None,
+    _user: dict = Depends(require_permission("pricing.view")),
+):
+    """Read-only catalogue of Firmus 2026 reference rates. Grouped by section."""
+    q: Dict[str, Any] = {"deleted_at": {"$in": [None]}}
+    if section: q["section"] = section
+    docs = await db.pricing_rates.find(q, {"_id": 0}).sort([("section", 1), ("label", 1)]).to_list(2000)
+    grouped: Dict[str, List[dict]] = {}
+    for d in docs:
+        grouped.setdefault(d.get("section") or "other", []).append(d)
+    return {"total": len(docs), "grouped": grouped, "sections": list(grouped.keys())}
+
+
+@_pricing_rates_router.patch("/pricing-rates/{rid}")
+async def pricing_rate_update(
+    rid: str, payload: Dict[str, Any] = Body(...),
+    actor: dict = Depends(require_super_admin),
+):
+    allow = {"label", "unit", "value", "value_slow", "value_ave", "value_fast",
+             "rate_aud_per_sqm", "sqm_per_panel", "offer_per_panel", "source"}
+    updates = {k: v for k, v in payload.items() if k in allow}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No editable fields in payload")
+    updates["updated_at"] = now_iso()
+    r = await db.pricing_rates.update_one({"id": rid, "deleted_at": None}, {"$set": updates})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Rate not found")
+    doc = await db.pricing_rates.find_one({"id": rid}, {"_id": 0})
+    await record_audit(
+        actor, "pricing_rate_updated", "pricing_rate", rid, doc.get("label") or rid,
+        metadata={"section": doc.get("section"), "key": doc.get("key"),
+                  "updated_fields": list(updates.keys())},
+    )
+    return doc
+
+
+app.include_router(_pricing_rates_router)
 
 
 

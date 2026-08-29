@@ -304,6 +304,20 @@ Phase 4 Part 2 wires **Simpro live**. The other three are still MOCKED until the
 - Soft / hard delete, restore
 - Last-admin safety: you can't deactivate or delete the only remaining super admin.
 
+### 11.5 Labour & Productivity Rates (Firmus 2026)
+
+Reference catalogue at `/settings/pricing/rates`, linked from the Pricing Settings header.
+
+- **Source**: 2026 CCC / Firmus rate book, seeded on first startup from `/app/backend/seeds/firmus_2026_rates.json`.
+- **Sections**:
+  - **Panel Supply Rates** (3 rows) — per-sqm rate + offer-per-panel for the two standard panel sizes (side and end wall) plus a combined summary with 20% margin.
+  - **Formwork Labour** (55 rows) — hrs/m² for beams, columns, slabs, walls at Slow / Ave / Fast rates.
+  - **Reinforcement Labour** (37 rows) — hrs/tonne for bar sizes 6–50mm and different element types.
+  - **Logistics** (5 rows) — labour rate $/hr, panels/day erection productivity, delivery cost per truck load, panels/truck capacity, standard margin %.
+- **This is a lookup, not a calculator override**. The panel calculator continues to use `pricing_settings`. Estimators compare Firmus rates alongside calculator outputs to sense-check quotes.
+- **Editing**: super admin only. Any change is logged as `pricing_rate_updated` in the audit trail.
+- **Updating the seed**: replace `/app/backend/seeds/firmus_2026_rates.json` and clear the `pricing_rates` collection to force re-seed on next startup, or PATCH `/api/pricing-rates/{id}` per row.
+
 ---
 
 ## 12. Audit Trail (`/admin/audit`)

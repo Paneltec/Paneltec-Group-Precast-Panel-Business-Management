@@ -103,6 +103,10 @@ export default function PricingSettings() {
           <div className="overline">Admin</div>
           <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-[#1F2A33]">Pricing Settings</h1>
           <p className="text-sm text-gray-500 mt-1">All values editable. Saved values flow into the calculator immediately.</p>
+          <a href="/settings/pricing/rates" data-testid="labour-rates-link"
+             className="inline-flex items-center gap-1 mt-2 text-xs font-bold text-[#3A6B8C] hover:text-[#1F2A33] uppercase tracking-wider">
+             Labour & Productivity Rates (Firmus 2026) →
+          </a>
         </div>
         <Button
           onClick={onSave}

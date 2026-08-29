@@ -7,6 +7,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import CalculatorPage from "./pages/Calculator";
 import PricingSettings from "./pages/PricingSettings";
+import LabourRates from "./pages/LabourRates";
 import CompanySettings from "./pages/CompanySettings";
 import UsersPage from "./pages/Users";
 import CustomersList from "./pages/CustomersList";
@@ -91,6 +92,7 @@ function App() {
                   <Route path="/employees/:id" element={<ProtectedRoute permission="employees.view"><EmployeeForm /></ProtectedRoute>} />
                   <Route path="/stock" element={<ProtectedRoute permission="stock.view"><Stock /></ProtectedRoute>} />
                   <Route path="/settings/pricing" element={<ProtectedRoute permission="pricing.view"><PricingSettings /></ProtectedRoute>} />
+                  <Route path="/settings/pricing/rates" element={<ProtectedRoute permission="pricing.view"><LabourRates /></ProtectedRoute>} />
                   <Route path="/settings/company" element={<ProtectedRoute permission="company.view"><CompanySettings /></ProtectedRoute>} />
                   <Route path="/settings/integrations" element={<ProtectedRoute permission="integrations.view"><IntegrationSettings /></ProtectedRoute>} />
                   <Route path="/users" element={<ProtectedRoute permission="users.view"><UsersPage /></ProtectedRoute>} />

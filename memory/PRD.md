@@ -1112,3 +1112,48 @@ Per-line table now surfaces the qty × unit = subtotal maths so anyone reading t
 - Simpro PAT untouched (`api_token: '••••••••c74c'`).
 - No `testing_agent_v3`.
 
+
+### Phase 12.22 — Firmus 2026 pricing rates catalogue (2026-08-29)
+
+Reference-only rate book merged into Admin Settings → Pricing. **Calculator math untouched** — this is a lookup for estimators, not a calculator override.
+
+**Source spreadsheet inspected**
+- File: `2026 - CCC - Firmus.xlsx` (1.9 MB, 4 sheets)
+- Sheets read: `Precast` (12 rows), `Production Rates` (163 rows), `United Steel Reinforcement`, `Reid` (skipped — accessories already in Stock module)
+
+**Sections seeded — 100 rows total**
+| Section | Rows | Detail |
+|---|---|---|
+| `panel_supply` | 3 | 200mm THK panel rates: 7.4×2.72m ($146.31/sqm), 8.15×2.66m ($141.81/sqm), combined w/ 20% margin ($231.05/sqm) |
+| `formwork_labour` | 55 | m²/hr for beams / columns / slabs / walls at Slow / Ave / Fast |
+| `rebar_labour` | 37 | hrs/tonne for bar sizes 6–50mm across element types |
+| `logistics` | 5 | Labour $85/hr · 3 panels/day erection · Semi $900/load · 2 panels/truck · 20% margin |
+
+**Backend**
+- Bundled seed: `/app/backend/seeds/firmus_2026_rates.json` (21.7 KB).
+- Idempotent seed on startup: only runs when `pricing_rates` collection is empty.
+- Endpoints:
+  - `GET /api/pricing-rates?section=…` (gated `pricing.view`) — returns `{ total, sections, grouped: { section: [rows] } }`.
+  - `PATCH /api/pricing-rates/{id}` (super admin only) — edits `label / unit / value / value_slow / value_ave / value_fast / rate_aud_per_sqm / sqm_per_panel / offer_per_panel / source`. Audits as `pricing_rate_updated`.
+
+**Frontend**
+- New page `LabourRates.jsx` at `/settings/pricing/rates` with 4 tabs (Panel Supply / Formwork Labour / Reinforcement Labour / Logistics).
+- Yellow FIRMUS 2026 chip on every seeded row.
+- Editable cells for super admin (inline Save button appears when a row is dirty); read-only for other roles.
+- Link added from Pricing Settings header: `Labour & Productivity Rates (Firmus 2026) →`.
+
+**Calculator sanity check (Wall Standard 6×3×150mm, qty 1, Standard reinforcement, Smooth)**
+- Volume 2.70 m³ ✓
+- Concrete weight 6,750 kg ✓
+- Steel weight 121.5 kg ✓
+- Current subtotal $5,976 → GST $597.60 → Total $6,573.60. The Phase-1 spec figure was $5,623.20; drift is entirely from `pricing_settings` edits across Phases 2–12 (manufacturing rate raised from $112 to $160 + manufacturing labour $35 and finishing labour $5 added). **The Firmus seed did NOT alter these values** — verified by inserting only into the new `pricing_rates` collection.
+
+**User manual** (`/app/frontend/src/content/user-manual.md`) updated with §11.5 "Labour & Productivity Rates (Firmus 2026)".
+
+**Guardrails**
+- Existing pricing config untouched — additive only.
+- Read-only for non-super-admin.
+- Audit event on every rate update.
+- Reid/Ramset accessories skipped (already imported into Stock catalogue).
+- Simpro PAT untouched (`api_token: '••••••••c74c'`).
+
