@@ -386,6 +386,7 @@ class CustomerCreate(BaseModel):
     account_terms: str = "30 days"
     payment_terms: Literal["Net 14 days","Net 30 days","Net 60 days","COD"] = "Net 30 days"
     tax_exempt: bool = False
+    gst_registered: bool = False
     status: Literal["Active","Inactive","Prospect","On Hold"] = "Active"
     simpro_customer_id: Optional[str] = None
     notes: str = ""
@@ -421,6 +422,7 @@ class CustomerUpdate(BaseModel):
     account_terms: Optional[str] = None
     payment_terms: Optional[Literal["Net 14 days","Net 30 days","Net 60 days","COD"]] = None
     tax_exempt: Optional[bool] = None
+    gst_registered: Optional[bool] = None
     status: Optional[Literal["Active","Inactive","Prospect","On Hold"]] = None
     simpro_customer_id: Optional[str] = None
     notes: Optional[str] = None
@@ -7134,6 +7136,64 @@ async def pricing_rate_update(
 
 
 app.include_router(_pricing_rates_router)
+
+
+# ===========================================================================
+# Phase 12.23 — Australian Business Register (ABR) name lookup proxy
+# ===========================================================================
+_abn_router = APIRouter(prefix="/api")
+
+_ABR_ENDPOINT = "https://abr.business.gov.au/json/MatchingNames.aspx"
+_ABR_JSONP_RE = re.compile(r"^[A-Za-z_]+\((.*)\)\s*;?\s*$", re.DOTALL)
+
+
+def _abr_configured() -> bool:
+    return bool((os.environ.get("ABR_LOOKUP_GUID") or "").strip())
+
+
+@_abn_router.get("/abn-lookup")
+async def abn_lookup(q: str = Query(..., min_length=2, max_length=120),
+                     user: dict = Depends(get_current_user)):
+    """Proxy to ABR MatchingNames JSON endpoint. Returns a compact list of
+    matches for the customer autocomplete. Gracefully degrades to an empty
+    payload with `configured: false` when the ABR_LOOKUP_GUID env is unset."""
+    if not _abr_configured():
+        return {"configured": False, "results": [],
+                "message": "ABN lookup not configured — set the ABR_LOOKUP_GUID env var."}
+    guid = os.environ["ABR_LOOKUP_GUID"].strip()
+    try:
+        import httpx, json as _json_abr
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            r = await client.get(_ABR_ENDPOINT, params={
+                "name": q, "maxResults": "10", "guid": guid,
+            })
+        raw = r.text.strip()
+        # ABR returns JSONP by default — unwrap the "callback(...)" envelope
+        m = _ABR_JSONP_RE.match(raw)
+        if m:
+            payload = _json_abr.loads(m.group(1))
+        else:
+            payload = _json_abr.loads(raw)
+    except Exception as e:  # network / parse
+        logger.warning("[abn-lookup] q=%r error=%s", q, e)
+        raise HTTPException(status_code=502, detail=f"ABR lookup failed: {e}")
+
+    results: List[dict] = []
+    for item in (payload.get("Names") or []):
+        results.append({
+            "abn": str(item.get("Abn") or "").strip(),
+            "entity_name": (item.get("Name") or "").strip(),
+            "entity_type": (item.get("NameType") or "").strip(),  # e.g. "Main Name" / "Trading Name"
+            "gst_registered": bool(item.get("IsCurrentIndicator") == "Y"
+                                    and (item.get("AbnStatus") or "").lower() == "active"),
+            "state": (item.get("State") or "").strip(),
+            "postcode": (item.get("Postcode") or "").strip(),
+            "score": item.get("Score"),
+        })
+    return {"configured": True, "results": results[:10]}
+
+
+app.include_router(_abn_router)
 
 
 

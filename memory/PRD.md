@@ -1157,3 +1157,46 @@ Reference-only rate book merged into Admin Settings → Pricing. **Calculator ma
 - Reid/Ramset accessories skipped (already imported into Stock catalogue).
 - Simpro PAT untouched (`api_token: '••••••••c74c'`).
 
+
+### Phase 12.23 — ABR lookup, GST-registered field, Quote-page Project fix (2026-08-29)
+
+**1. ABR lookup by company name**
+- New endpoint `GET /api/abn-lookup?q=<name>` proxies the free Australian Business Register MatchingNames endpoint (`https://abr.business.gov.au/json/MatchingNames.aspx`). JSONP envelope unwrapped server-side. Requires `ABR_LOOKUP_GUID` env var; if unset, returns `{configured: false, results: [], message: "ABN lookup not configured — set the ABR_LOOKUP_GUID env var."}` so the frontend can degrade gracefully. Non-2xx / network / parse errors surface as HTTP 502 with a diagnostic.
+- Compact result shape: `{ abn, entity_name, entity_type, gst_registered, state, postcode, score }`.
+- **Note**: this is a public government API (no SDK, no keys apart from the free registration GUID). Implemented directly rather than via `integration_playbook_expert_v2`.
+
+**2. `gst_registered` field on Customer**
+- Added `gst_registered: bool` to `CustomerCreate`/`CustomerUpdate` (Pydantic — default `False` on create, `None` on update). Persisted as-is on the doc.
+- Frontend `CustomerForm.jsx`: new "Registered for GST" checkbox next to Tax exempt; auto-set when a customer is picked from ABR results.
+- Header pill: green **GST ✓** when registered, muted **Not registered** otherwise; ABN mono chip alongside.
+
+**3. Quote Project field blank / not typable**
+- Root cause: `QuoteEditor.jsx` disabled the ProjectCombobox when no customer selected. On the `/quotes/new` path (create flow), no customer is preselected → the field appeared blank and unresponsive.
+- Fix: removed the `disabled={!customerId}` gate. The Combobox is always typable; a small italic helper below reads *"Pick a customer first — you can then search or create a project."* The internal "Create new" action still guards on `customerId` (its own logic in `ProjectCombobox.jsx`).
+- Affects both `/quotes/new` and `/quotes/:id/edit` since they share `QuoteEditor.jsx`.
+
+**Frontend files added / changed**
+- `AbnLookupCombobox.jsx` — new debounced (400ms) typable combobox with dropdown of top-10 ABR matches. Shows `Business name · ABN · GST ✓/✗ · State/postcode`. Handles unconfigured branch with muted tooltip.
+- `CustomerForm.jsx` — Business Name field now uses `AbnLookupCombobox`; picking a result auto-fills `company_name`, `abn`, `gst_registered`, and address state/postcode. Added GST-Registered checkbox and header pill.
+- `QuoteEditor.jsx` — removed disabled gate on the ProjectCombobox; added helper text.
+
+**Verified via screenshots**
+- **Customer form** (`/customers/new`): typed "BHP" → muted note **"ABN lookup not configured — set the ABR_LOOKUP_GUID env var."** appears. GST-Registered checkbox present.
+- **New Quote** (`/quotes/new`): Project field placeholder **"Type a project name..."** and helper text visible; field is typable.
+- Live ABR results screenshot is deferred until `ABR_LOOKUP_GUID` is provisioned by the user (env var not yet set on this deployment).
+
+**Curl verification (unconfigured branch)**
+```
+GET /api/abn-lookup?q=BHP
+→ 200 {"configured": false, "results": [], "message": "ABN lookup not configured — set the ABR_LOOKUP_GUID env var."}
+```
+
+**Guardrails**
+- Field falls back to plain typable text with tooltip when `ABR_LOOKUP_GUID` unset — no crash.
+- Backwards-compatible: `gst_registered` optional on update, defaults `False` on create so existing customer records show "Not registered" until edited.
+- Simpro PAT untouched (`api_token: '••••••••c74c'`).
+- No `testing_agent_v3` invoked.
+
+**Follow-up requiring user action**
+- Provide `ABR_LOOKUP_GUID` (register free at abr.business.gov.au → "Web Services") and set it in `/app/backend/.env`. Restart backend. Frontend needs no changes — the combobox picks it up automatically.
+

@@ -256,8 +256,12 @@ export default function QuoteEditor() {
                     onSelect={(id) => setProjectId(id)}
                     onCreated={(p) => setProjects(prev => [...prev, p])}
                     customerId={customerId}
-                    disabled={!customerId}
                   />
+                  {!customerId && (
+                    <div className="mt-1 text-[10px] text-gray-500 italic">
+                      Pick a customer first — you can then search or create a project.
+                    </div>
+                  )}
                 </div>
               </div>
               <div>

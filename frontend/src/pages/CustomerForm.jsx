@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { toast, Toaster } from "sonner";
 import { formatDateTime } from "../lib/format";
 import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
+import AbnLookupCombobox from "../components/AbnLookupCombobox";
 import { openPdf } from "../lib/print";
 import DeleteRowActions from "../components/DeleteRowActions";
 import { useAuth } from "../contexts/AuthContext";
@@ -22,7 +23,7 @@ const STATUSES = ["Active", "Inactive", "Prospect", "On Hold"];
 
 const EMPTY_ADDR = { street: "", suburb: "", state: "", postcode: "" };
 const EMPTY = {
-  company_name: "", trading_name: "", abn: "",
+  company_name: "", trading_name: "", abn: "", gst_registered: false,
   contact_name: "", contact_email: "", contact_phone: "",
   secondary_contact_name: "", secondary_contact_email: "", secondary_contact_phone: "",
   billing_address: { ...EMPTY_ADDR, state: "TAS" },
@@ -130,6 +131,22 @@ export default function CustomerForm() {
           <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-[#1F2A33]">
             {isNew ? "New customer" : form.company_name}
           </h1>
+          {!isNew && (
+            <div className="flex items-center gap-2 mt-2">
+              {form.gst_registered ? (
+                <span data-testid="gst-pill-registered"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider
+                             bg-[#E4F2E4] text-[#1F5F1F] border border-[#B7D9B7]">GST ✓</span>
+              ) : (
+                <span data-testid="gst-pill-none"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider
+                             bg-gray-100 text-gray-500 border border-gray-200">Not registered</span>
+              )}
+              {form.abn && (
+                <span className="text-[10px] tabular-nums font-mono text-gray-500">ABN {form.abn}</span>
+              )}
+            </div>
+          )}
           {!isNew && <p className="text-xs text-gray-500 mt-1">Updated {formatDateTime(form.updated_at)}</p>}
           {!isNew && <LastEmailedLabel at={form.last_email_sent_at} subject={form.last_email_subject}/>}
         </div>
@@ -163,8 +180,22 @@ export default function CustomerForm() {
       <form onSubmit={onSubmit} className="space-y-6">
         <Section title="Business">
           <Field label="Business name" required>
-            <Input value={form.company_name} onChange={(e) => update("company_name", e.target.value)} required
-              data-testid="cust-company-input" className="h-11"/>
+            <AbnLookupCombobox
+              value={form.company_name}
+              onChange={(name) => update("company_name", name)}
+              onPick={(m) => {
+                setForm(f => ({ ...f, company_name: m.entity_name,
+                                     abn: m.abn || f.abn,
+                                     gst_registered: !!m.gst_registered,
+                                     billing_address: {
+                                       ...(f.billing_address || {}),
+                                       state: m.state || f.billing_address?.state || "TAS",
+                                       postcode: m.postcode || f.billing_address?.postcode || "",
+                                     }}));
+              }}
+              dataTestId="cust-company-input"
+              className="h-11"
+            />
           </Field>
           <Field label="Trading name">
             <Input value={form.trading_name || ""} onChange={(e) => update("trading_name", e.target.value)}
@@ -254,6 +285,13 @@ export default function CustomerForm() {
               <Checkbox checked={form.tax_exempt} onCheckedChange={(v) => update("tax_exempt", !!v)}
                          data-testid="cust-tax-exempt"/>
               Tax exempt (GST not charged)
+            </label>
+          </div>
+          <div className="flex items-end pb-2">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <Checkbox checked={form.gst_registered} onCheckedChange={(v) => update("gst_registered", !!v)}
+                         data-testid="cust-gst-registered"/>
+              Registered for GST
             </label>
           </div>
         </Section>
