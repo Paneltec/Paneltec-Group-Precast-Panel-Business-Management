@@ -51,18 +51,30 @@ export default function CustomerForm() {
   const [abnLookupError, setAbnLookupError] = useState(false);
 
   // Shared auto-fill applied by BOTH the name-search combobox AND the ABN Lookup button
-  const applyAbrMatch = (m) => {
-    setForm(f => ({
-      ...f,
-      company_name: m.entity_name || f.company_name,
-      abn: (m.abn || f.abn || "").replace(/\D/g, ""),
-      gst_registered: !!m.gst_registered,
-      billing_address: {
+  // `source` ∈ {"business","trading","abn"} — controls whether `trading_name` is
+  // written from the picked entry (trading-name search) or left alone.
+  const applyAbrMatch = (m, source = "business") => {
+    const isTradingLikePick = /trading|business/i.test(m.entity_type || "");
+    setForm(f => {
+      const next = { ...f };
+      // Legal / entity name → company_name unless the pick is clearly a trading-name match
+      if (source === "trading" && isTradingLikePick) {
+        next.trading_name = m.entity_name || f.trading_name;
+        // Keep existing company_name unless it's empty
+        if (!f.company_name) next.company_name = m.entity_name;
+      } else {
+        next.company_name = m.entity_name || f.company_name;
+        if (source === "trading") next.trading_name = m.entity_name || f.trading_name;
+      }
+      next.abn = (m.abn || f.abn || "").replace(/\D/g, "");
+      next.gst_registered = !!m.gst_registered;
+      next.billing_address = {
         ...(f.billing_address || {}),
         state: m.state || f.billing_address?.state || "TAS",
         postcode: m.postcode || f.billing_address?.postcode || "",
-      },
-    }));
+      };
+      return next;
+    });
   };
 
   const onAbnLookup = async () => {
@@ -82,7 +94,7 @@ export default function CustomerForm() {
         return;
       }
       if (data.result) {
-        applyAbrMatch(data.result);
+        applyAbrMatch(data.result, "abn");
         setAbnLookupNote(`Matched: ${data.result.entity_name} · ${data.result.gst_registered ? "GST registered" : "Not GST registered"}`);
       }
     } catch (e) {
@@ -229,14 +241,20 @@ export default function CustomerForm() {
             <AbnLookupCombobox
               value={form.company_name}
               onChange={(name) => update("company_name", name)}
-              onPick={applyAbrMatch}
+              onPick={(m) => applyAbrMatch(m, "business")}
               dataTestId="cust-company-input"
               className="h-11"
             />
           </Field>
           <Field label="Trading name">
-            <Input value={form.trading_name || ""} onChange={(e) => update("trading_name", e.target.value)}
-              data-testid="cust-trading-name" className="h-11" placeholder="If different from business name"/>
+            <AbnLookupCombobox
+              value={form.trading_name || ""}
+              onChange={(name) => update("trading_name", name)}
+              onPick={(m) => applyAbrMatch(m, "trading")}
+              placeholder="If different from business name — type to search ABR"
+              dataTestId="cust-trading-name"
+              className="h-11"
+            />
           </Field>
           <Field label="ABN (11 digits, spaces allowed)">
             <div className="flex gap-2">

@@ -90,7 +90,16 @@ export default function AbnLookupCombobox({ value, onChange, onPick,
               data-testid={`abn-result-${i}`}>
               <Building2 className="w-4 h-4 text-[#3A6B8C] mt-0.5 shrink-0"/>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-[#1F2A33] truncate">{r.entity_name}</div>
+                <div className="text-sm font-semibold text-[#1F2A33] truncate flex items-center gap-2">
+                  <span className="truncate">{r.entity_name}</span>
+                  {r.entity_type && (
+                    <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded
+                      ${/trading|business/i.test(r.entity_type)
+                          ? "bg-[#FFF4CC] text-[#7a5b00] border border-[#F5C518]"
+                          : "bg-[#EEF3F8] text-[#3A6B8C] border border-[#cfdcea]"}`}
+                      data-testid={`abn-nametype-${i}`}>{r.entity_type}</span>
+                  )}
+                </div>
                 <div className="text-[10px] text-gray-500 flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
                   <span className="font-mono">ABN {r.abn}</span>
                   {r.gst_registered
