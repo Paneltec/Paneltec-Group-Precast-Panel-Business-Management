@@ -46,6 +46,52 @@ export default function CustomerForm() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
+  const [abnLoading, setAbnLoading] = useState(false);
+  const [abnLookupNote, setAbnLookupNote] = useState("");
+  const [abnLookupError, setAbnLookupError] = useState(false);
+
+  // Shared auto-fill applied by BOTH the name-search combobox AND the ABN Lookup button
+  const applyAbrMatch = (m) => {
+    setForm(f => ({
+      ...f,
+      company_name: m.entity_name || f.company_name,
+      abn: (m.abn || f.abn || "").replace(/\D/g, ""),
+      gst_registered: !!m.gst_registered,
+      billing_address: {
+        ...(f.billing_address || {}),
+        state: m.state || f.billing_address?.state || "TAS",
+        postcode: m.postcode || f.billing_address?.postcode || "",
+      },
+    }));
+  };
+
+  const onAbnLookup = async () => {
+    setAbnLookupError(false);
+    const digits = (form.abn || "").replace(/\D/g, "");
+    if (digits.length !== 11) {
+      setAbnLookupError(true);
+      setAbnLookupNote("ABN must be 11 digits.");
+      return;
+    }
+    setAbnLoading(true);
+    try {
+      const { data } = await api.get(`/lookup/abn/${digits}`);
+      if (!data.configured) {
+        setAbnLookupError(false);
+        setAbnLookupNote(data.message || "ABN lookup not configured — set ABR_LOOKUP_GUID env var.");
+        return;
+      }
+      if (data.result) {
+        applyAbrMatch(data.result);
+        setAbnLookupNote(`Matched: ${data.result.entity_name} · ${data.result.gst_registered ? "GST registered" : "Not GST registered"}`);
+      }
+    } catch (e) {
+      setAbnLookupError(true);
+      setAbnLookupNote(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally {
+      setAbnLoading(false);
+    }
+  };
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -183,16 +229,7 @@ export default function CustomerForm() {
             <AbnLookupCombobox
               value={form.company_name}
               onChange={(name) => update("company_name", name)}
-              onPick={(m) => {
-                setForm(f => ({ ...f, company_name: m.entity_name,
-                                     abn: m.abn || f.abn,
-                                     gst_registered: !!m.gst_registered,
-                                     billing_address: {
-                                       ...(f.billing_address || {}),
-                                       state: m.state || f.billing_address?.state || "TAS",
-                                       postcode: m.postcode || f.billing_address?.postcode || "",
-                                     }}));
-              }}
+              onPick={applyAbrMatch}
               dataTestId="cust-company-input"
               className="h-11"
             />
@@ -202,8 +239,22 @@ export default function CustomerForm() {
               data-testid="cust-trading-name" className="h-11" placeholder="If different from business name"/>
           </Field>
           <Field label="ABN (11 digits, spaces allowed)">
-            <Input value={form.abn || ""} onChange={(e) => update("abn", e.target.value)}
-              data-testid="cust-abn-input" className="h-11 tabular-nums" placeholder="e.g. 53 004 085 616"/>
+            <div className="flex gap-2">
+              <Input value={form.abn || ""} onChange={(e) => update("abn", e.target.value)}
+                data-testid="cust-abn-input" className="h-11 tabular-nums flex-1" placeholder="e.g. 53 004 085 616"/>
+              <Button type="button" variant="outline"
+                onClick={onAbnLookup} disabled={abnLoading}
+                className="h-11 border-[#3A6B8C] text-[#3A6B8C] font-semibold"
+                data-testid="cust-abn-lookup-btn">
+                {abnLoading ? "…" : "Lookup"}
+              </Button>
+            </div>
+            {abnLookupNote && (
+              <div className={`mt-1 text-[10px] italic ${abnLookupError ? "text-red-600" : "text-gray-500"}`}
+                   data-testid="cust-abn-lookup-note">
+                {abnLookupNote}
+              </div>
+            )}
           </Field>
           <Field label="Status">
             <Select value={form.status} onValueChange={(v) => update("status", v)}>

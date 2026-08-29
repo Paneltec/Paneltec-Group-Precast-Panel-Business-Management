@@ -96,6 +96,12 @@
       <div class="name">{{ customer.company_name }}</div>
       {% if customer.contact_name %}<div class="line">{{ customer.contact_name }}</div>{% endif %}
       {% if customer.abn %}<div class="line">ABN {{ customer.abn }}</div>{% endif %}
+      {% if show_gst_chip %}
+        <div class="line" style="margin-top:4px; font-size:9px; color:#059669; font-weight:600; letter-spacing:0.02em;"
+             data-block="gst-registered">
+          Customer GST-registered · ABN {{ formatted_abn }}
+        </div>
+      {% endif %}
       {% if customer.billing_address and customer.billing_address.street %}
         <div class="line" style="margin-top:4px;">
           {{ customer.billing_address.street }}<br/>

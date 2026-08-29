@@ -6766,10 +6766,16 @@ async def _build_invoice_pdf(invoice_id: str) -> Tuple[bytes, dict]:
     ) or {"company_name": "Unknown customer"}
     company = await _load_company_settings()
 
+    # Phase 12.24 — GST-registered chip for the Bill-to block.
+    # Only present when customer explicitly flagged AND ABN present.
+    show_gst_chip = bool(customer.get("gst_registered")) and bool(customer.get("abn"))
+    formatted_abn = _abn_format(customer.get("abn") or "") if show_gst_chip else ""
+
     tpl = _get_jinja_env().get_template("invoice_record.html")
     html = tpl.render(
         invoice=invoice, customer=customer, company=company,
         generated_at=_fmt_generated_at(),
+        show_gst_chip=show_gst_chip, formatted_abn=formatted_abn,
     )
     pdf_bytes = HTML(string=html, base_url=str(ROOT_DIR)).write_pdf()
     return pdf_bytes, invoice
@@ -7193,8 +7199,81 @@ async def abn_lookup(q: str = Query(..., min_length=2, max_length=120),
     return {"configured": True, "results": results[:10]}
 
 
-app.include_router(_abn_router)
+# app.include_router(_abn_router) moved below the /lookup/abn/{abn} route def
 
+
+def _abn_is_valid_checksum(abn_digits: str) -> bool:
+    """ATO mod-89 ABN checksum. `abn_digits` must be 11 numeric chars."""
+    if not (abn_digits.isdigit() and len(abn_digits) == 11):
+        return False
+    weights = [10, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19]
+    digits = [int(c) for c in abn_digits]
+    digits[0] -= 1  # subtract 1 from the first digit before weighting
+    total = sum(d * w for d, w in zip(digits, weights))
+    return total % 89 == 0
+
+
+def _abn_format(abn_digits: str) -> str:
+    """Format 11-digit ABN as `NN NNN NNN NNN` (2-3-3-3)."""
+    s = "".join(ch for ch in (abn_digits or "") if ch.isdigit())
+    if len(s) != 11:
+        return abn_digits or ""
+    return f"{s[0:2]} {s[2:5]} {s[5:8]} {s[8:11]}"
+
+
+@_abn_router.get("/lookup/abn/{abn}")
+async def lookup_abn(abn: str, user: dict = Depends(get_current_user)):
+    """Look up a single ABN via ABR SearchByABNv202001. Strips spaces, validates
+    mod-89 checksum locally, then proxies. Same graceful `configured: false`
+    fallback as the name-search endpoint when `ABR_LOOKUP_GUID` is unset."""
+    digits = "".join(ch for ch in (abn or "") if ch.isdigit())
+    if not (digits.isdigit() and len(digits) == 11):
+        raise HTTPException(status_code=400,
+            detail="ABN must be 11 digits (spaces allowed).")
+    if not _abn_is_valid_checksum(digits):
+        raise HTTPException(status_code=400,
+            detail="Invalid ABN checksum — please re-check the digits.")
+    if not _abr_configured():
+        return {"configured": False, "abn": digits, "result": None,
+                "message": "ABN lookup not configured — set the ABR_LOOKUP_GUID env var."}
+    guid = os.environ["ABR_LOOKUP_GUID"].strip()
+    try:
+        import httpx, json as _json_abn
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            r = await client.get(
+                "https://abr.business.gov.au/json/AbnDetails.aspx",
+                params={"abn": digits, "guid": guid, "callback": "cb"},
+            )
+        raw = r.text.strip()
+        m = _ABR_JSONP_RE.match(raw)
+        payload = _json_abn.loads(m.group(1) if m else raw)
+    except Exception as e:
+        logger.warning("[abn-lookup] abn=%s error=%s", digits, e)
+        raise HTTPException(status_code=502, detail=f"ABR lookup failed: {e}")
+
+    # ABR SearchByABN payload shape (as of 2025):
+    #   { Abn, AbnStatus, EntityName, EntityTypeCode, EntityTypeName,
+    #     Gst, BusinessName[], AddressState, AddressPostcode, ... }
+    name = (payload.get("EntityName") or "").strip()
+    trading = ""
+    biz = payload.get("BusinessName") or []
+    if isinstance(biz, list) and biz:
+        trading = str(biz[0]).strip()
+    gst_registered = bool(payload.get("Gst"))
+    result = {
+        "abn": (payload.get("Abn") or digits).strip(),
+        "abn_status": (payload.get("AbnStatus") or "").strip(),
+        "entity_name": name,
+        "entity_type": (payload.get("EntityTypeName") or "").strip(),
+        "trading_name": trading,
+        "gst_registered": gst_registered,
+        "state": (payload.get("AddressState") or "").strip(),
+        "postcode": (payload.get("AddressPostcode") or "").strip(),
+    }
+    return {"configured": True, "abn": digits, "result": result}
+
+
+app.include_router(_abn_router)
 
 
 # ===========================================================================
