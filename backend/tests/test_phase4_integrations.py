@@ -9,7 +9,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://concrete-panel-app.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001").rstrip("/")
 API = f"{BASE_URL}/api"
 
 ADMIN_EMAIL = "admin@paneltec.com.au"
@@ -167,7 +167,7 @@ class TestEmailSent:
 # --------------------- Mock guarantee ---------------------
 class TestNoRealVendorCalls:
     def test_server_source_has_no_vendor_libs(self):
-        with open("/app/backend/server.py", "r") as f:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "server.py"), "r") as f:
             src = f.read()
         forbidden = ["import msal", "from msal", "xero_python", "graph.microsoft.com",
                      "login.microsoftonline.com", "api.xero.com"]

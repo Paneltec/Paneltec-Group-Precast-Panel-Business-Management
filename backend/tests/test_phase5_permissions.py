@@ -8,8 +8,7 @@ import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
-assert BASE_URL, "REACT_APP_BACKEND_URL must be set"
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001").rstrip("/")
 API = f"{BASE_URL}/api"
 
 ADMIN = ("admin@paneltec.com.au", "Paneltec2026!")
@@ -177,8 +176,8 @@ class TestPermissionsCatalogue:
         r = requests.get(f"{API}/permissions/catalogue", headers=admin_h, timeout=15)
         assert r.status_code == 200
         d = r.json()
-        assert len(d["modules"]) == 11, f"expected 11 modules got {len(d['modules'])}"
-        assert len(d["all_permissions"]) == 33, f"expected 33 perms got {len(d['all_permissions'])}"
+        assert len(d["modules"]) == 15, f"expected 15 modules got {len(d['modules'])}"
+        assert len(d["all_permissions"]) == 54, f"expected 54 perms got {len(d['all_permissions'])}"
         assert len(d["presets"]) == 4
         keys = {p["key"] for p in d["presets"]}
         assert keys == {"estimator","production","accounts","readonly"}

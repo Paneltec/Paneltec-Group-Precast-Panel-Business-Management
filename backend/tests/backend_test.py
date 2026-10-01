@@ -9,7 +9,7 @@ import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://concrete-panel-app.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001").rstrip("/")
 API = f"{BASE_URL}/api"
 
 ADMIN_EMAIL = "admin@paneltec.com.au"
@@ -139,11 +139,12 @@ class TestUsers:
         r2 = session.post(f"{API}/users", headers=admin_headers, json=payload)
         assert r2.status_code == 409
 
-        # PATCH name + role
+        # PATCH name + promote to super admin (legacy "role" stays in sync)
         r3 = session.patch(f"{API}/users/{user_id}", headers=admin_headers,
-                           json={"name": "Updated Name", "role": "admin"})
-        assert r3.status_code == 200
+                           json={"name": "Updated Name", "is_super_admin": True})
+        assert r3.status_code == 200, r3.text
         assert r3.json()["name"] == "Updated Name"
+        assert r3.json()["is_super_admin"] is True
         assert r3.json()["role"] == "admin"
 
         # PATCH deactivate
