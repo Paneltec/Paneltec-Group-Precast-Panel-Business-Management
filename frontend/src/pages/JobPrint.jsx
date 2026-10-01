@@ -22,8 +22,10 @@ export default function JobPrint() {
       if (job.project_id) {
         try { const { data: p } = await api.get(`/projects/${job.project_id}`); project = p; } catch {}
       }
-      const vehicle = vehResp.items.find(v => v.id === job.assigned_vehicle_id);
-      const crew = empResp.items.filter(e => (job.assigned_employee_ids || []).includes(e.id));
+      const vehicles = Array.isArray(vehResp) ? vehResp : (vehResp?.items ?? []);
+      const employees = Array.isArray(empResp) ? empResp : (empResp?.items ?? []);
+      const vehicle = vehicles.find(v => v.id === job.assigned_vehicle_id);
+      const crew = employees.filter(e => (job.assigned_employee_ids || []).includes(e.id));
       setData({ job, company, c, project, vehicle, crew });
       setTimeout(() => window.print(), 400);
     })();
