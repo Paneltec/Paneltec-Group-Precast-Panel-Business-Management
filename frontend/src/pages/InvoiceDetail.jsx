@@ -41,7 +41,7 @@ export default function InvoiceDetail() {
       setCustomer(c);
     } catch (e) { setError(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+  useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const issue = async () => {
     try { await api.post(`/invoices/${id}/issue`); await load(); toast.success("Invoice issued"); }

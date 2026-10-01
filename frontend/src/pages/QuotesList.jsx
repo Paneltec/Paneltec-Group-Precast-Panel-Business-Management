@@ -46,7 +46,7 @@ export default function QuotesList() {
       setError(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, statusFilter, lifecycleFilter]);
+  useEffect(() => { load(); }, [page, statusFilter, lifecycleFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="max-w-6xl space-y-6" data-testid="quotes-page">

@@ -129,7 +129,7 @@ export default function Stock() {
   useEffect(() => { loadSuppliers(); }, []);
 
   const supplierName = (sid) => suppliers.find(s => s.id === sid)?.name || "";
-  const items = data?.items || [];
+  const items = useMemo(() => data?.items || [], [data]);
   const total = data?.total ?? 0;
   const cats = data?.categories || [];
   const allSelected = items.length > 0 && items.every(i => selected.has(i.id));
@@ -510,7 +510,7 @@ function StockAddModal({ open, onOpenChange, suppliers, onCreated }) {
   const empty = { part_number: "", description: "", category: "", unit_price: "", supplier_id: "", on_hand_qty: 0, unit_of_measure: "EA" };
   const [f, setF] = useState(empty);
   const [saving, setSaving] = useState(false);
-  useEffect(() => { if (!open) setF(empty); }, [open]);
+  useEffect(() => { if (!open) setF(empty); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = async () => {
     if (!f.part_number.trim()) { toast.error("Part number is required."); return; }
     setSaving(true);

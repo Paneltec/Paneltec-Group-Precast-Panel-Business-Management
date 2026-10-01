@@ -325,7 +325,7 @@ function SimproCard({ section, onSave }) {
     enabled: false,
   };
   const [s, setS] = useState({ ...defaults, ...(section || {}) });
-  useEffect(() => { setS({ ...defaults, ...(section || {}) }); /* eslint-disable-next-line */ }, [section]);
+  useEffect(() => { setS({ ...defaults, ...(section || {}) }); }, [section]); // eslint-disable-line react-hooks/exhaustive-deps
   const [testState, setTestState] = useState(null); // {kind, results}
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);

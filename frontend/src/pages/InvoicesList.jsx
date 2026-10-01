@@ -74,7 +74,7 @@ export default function InvoicesList() {
       });
     } catch (e) { setError(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, statusFilter, lifecycleFilter, xeroFilter]);
+  useEffect(() => { load(); }, [page, statusFilter, lifecycleFilter, xeroFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectableRows = useMemo(
     () => (data?.items || []).filter(i => !i.deleted_at),

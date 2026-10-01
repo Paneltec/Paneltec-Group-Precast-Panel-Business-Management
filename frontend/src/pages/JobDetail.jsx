@@ -62,7 +62,7 @@ export default function JobDetail() {
       } catch {}
     } catch (e) { setError(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+  useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const patch = async (updates) => {
     try {

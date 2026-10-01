@@ -35,7 +35,7 @@ export function VehiclesList() {
       setItems(data);
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [statusFilter]);
+  useEffect(() => { load(); }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-5" data-testid="vehicles-page">

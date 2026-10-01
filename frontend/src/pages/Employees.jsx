@@ -66,8 +66,8 @@ export function EmployeesList() {
     try { const { data } = await api.get("/settings/integrations"); setSimpro(data?.simpro || { enabled: false }); }
     catch (_e) { setSimpro({ enabled: false }); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [statusFilter]);
-  useEffect(() => { loadSimpro(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { load(); }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadSimpro(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeItems = useMemo(() => (items || []).filter(e => !e.deleted_at), [items]);
 

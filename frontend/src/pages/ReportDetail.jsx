@@ -123,7 +123,7 @@ export default function ReportDetail() {
       }
     } catch (e) { setErr(e.response?.data?.detail || e.message); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [key, dateFrom, dateTo]);
+  useEffect(() => { load(); }, [key, dateFrom, dateTo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const csvUrl = `${process.env.REACT_APP_BACKEND_URL}/api/reports/${key}/export.csv?date_from=${dateFrom}&date_to=${dateTo}`;
   const downloadCsv = async () => {

@@ -49,7 +49,7 @@ export default function FormsList() {
     const r = await api.get(`/compliance-forms?${params.toString()}`);
     setItems(r.data.items || []);
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [typeFilter, statusFilter]);
+  useEffect(() => { load(); }, [typeFilter, statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="max-w-7xl" data-testid="forms-list-page">

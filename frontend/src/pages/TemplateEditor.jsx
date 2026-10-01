@@ -39,7 +39,7 @@ export default function TemplateEditor() {
       setTpl(r.data); setDirty(false);
     } catch (e) { toast.error(e.response?.data?.detail || "Load failed"); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+  useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!hasPerm("forms.template_manage")) {
     return <div className="p-12 text-center text-sm text-gray-500">forms.template_manage permission required.</div>;

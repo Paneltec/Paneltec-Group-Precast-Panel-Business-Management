@@ -29,7 +29,7 @@ export default function PublicQuote() {
       setError(e.response?.data?.detail || "Quote not found");
     }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
+  useEffect(() => { load(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const act = async (kind) => {
     setSubmitting(true);

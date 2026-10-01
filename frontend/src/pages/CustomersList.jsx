@@ -47,8 +47,8 @@ export default function CustomersList() {
     try { const { data } = await api.get("/settings/integrations"); setSimpro(data?.simpro || { enabled: false }); }
     catch (_e) { setSimpro({ enabled: false }); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, statusFilter]);
-  useEffect(() => { loadSimpro(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { load(); }, [page, statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadSimpro(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onSearchSubmit = (e) => { e.preventDefault(); setPage(1); load(); };
 

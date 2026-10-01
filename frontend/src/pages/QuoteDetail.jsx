@@ -69,7 +69,7 @@ export default function QuoteDetail() {
       setError(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+  useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onSend = async () => {
     try {
