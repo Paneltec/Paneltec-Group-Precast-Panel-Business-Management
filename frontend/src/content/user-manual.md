@@ -515,6 +515,28 @@ Override events are visible on the job's status history (with a red OVERRIDE fla
 ### 19.4 Compliance health on the dashboard
 The "Compliance health · last 30 days" tile shows the percentage of hold-points satisfied across active jobs touched in the rolling 30-day window. Click through to drill into the Compliance report. Colour bands: ≥95 green, 80-94 amber, <80 red.
 
+## 20. Panels & Shop Drawings (on each Job)
+
+Every Job has a **Panels & shop drawings** card. Each panel mark (P01, S-02…) holds its shape, openings, calculated weight and centre of gravity, and the engineer's lifting record.
+
+**Getting panels in — three ways**
+- **Start from the quoted panels** — one rectangular panel per quoted line, quantity carried over. Openings on quotes are only an area, so draw them in afterwards.
+- **Import DXF** — closed outlines become panels, closed shapes inside them become openings, and text inside a panel becomes its mark. You choose thickness, grade and reinforcement for the batch, check the preview, then import. Works with AutoCAD, BricsCAD, Revit and free tools such as CADCraft.
+- **Add panel** — draw it yourself.
+
+**Drawing tools (Draw (CAD) tab)**
+- Select / move — drag corners, openings or lifters; double-click an edge to add a corner; Delete removes the selection.
+- Draw panel outline — click each corner, click the first corner (or press Enter) to close. Hold Shift for straight lines.
+- Rectangular panel, Opening, Round penetration — drag on the canvas.
+- Place lifter — click where the engineer specified; near an edge it snaps on as an edge lifter.
+- Snap (grid + corners), grid size, zoom (mouse wheel), pan, fit, undo / redo (Ctrl+Z / Ctrl+Y). The status bar shows x / y in mm.
+
+**Calculations** — net area, volume, estimated mass (concrete + reinforcement allowance from Pricing settings) and centre of gravity update as you draw.
+
+**Lifting — record only.** Enter lifters exactly as your structural engineer specified, with the engineer's name and drawing/certificate reference. The app does not calculate lifter positions, loads or capacities. Sheets without an engineer and reference print a red **DO NOT LIFT** warning.
+
+**Shop drawings** — print one panel, ticked panels, or the whole job as one PDF (one sheet per panel). Change the title block, paper size, notes and what's shown under **Shop Drawings** in the sidebar. **Export DXF** sends every panel back to CAD.
+
 ## 17. Reports & Data Export
 
 Where to find it: **Reports** in the sidebar (the green chart icon). Available to every user who has any of the report `*.view` permissions; the Data Export and Power BI Integration tabs are super-admin only.

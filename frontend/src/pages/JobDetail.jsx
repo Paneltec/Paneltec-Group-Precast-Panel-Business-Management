@@ -15,6 +15,7 @@ import EmailModal, { LastEmailedLabel } from "../components/EmailModal";
 import { useAuth } from "../contexts/AuthContext";
 import { openPdf } from "../lib/print";
 import UserBadge from "../components/UserBadge";
+import JobPanelsCard from "../components/JobPanelsCard";
 
 const ORDER = ["scheduled","in_production","ready_for_delivery","delivered","installed","completed"];
 const STATUS_ICON = {scheduled:"job_status_scheduled",in_production:"job_status_in_production",ready_for_delivery:"job_status_ready_for_delivery",delivered:"job_status_delivered",installed:"job_status_installed",completed:"job_status_completed",cancelled:"job_status_cancelled"};
@@ -288,6 +289,8 @@ export default function JobDetail() {
           <div className="text-lg">Total <span className="font-black tabular-nums ml-2 text-[#1F2A33]">{formatAUD(job.total)}</span></div>
         </div>
       </section>
+
+      <JobPanelsCard job={job} canEdit={hasPerm("jobs.edit")}/>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <NotesCard title="Production notes" value={job.production_notes} field="production_notes" patch={patch} testid="job-prod-notes"/>

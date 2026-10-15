@@ -19,6 +19,8 @@ import QuotePrint from "./pages/QuotePrint";
 import PublicQuote from "./pages/PublicQuote";
 import JobsList from "./pages/JobsList";
 import JobDetail from "./pages/JobDetail";
+import PanelEditor from "./pages/PanelEditor";
+import ShopDrawingSettings from "./pages/ShopDrawingSettings";
 import InvoicesList from "./pages/InvoicesList";
 import FormsList from "./pages/FormsList";
 import FormDetail from "./pages/FormDetail";
@@ -79,6 +81,8 @@ function App() {
                   <Route path="/quotes/:id/edit" element={<ProtectedRoute permission="quotes.edit"><QuoteEditor /></ProtectedRoute>} />
                   <Route path="/jobs" element={<ProtectedRoute permission="jobs.view"><JobsList /></ProtectedRoute>} />
                   <Route path="/jobs/:id" element={<ProtectedRoute permission="jobs.view"><JobDetail /></ProtectedRoute>} />
+                  <Route path="/jobs/:jobId/panels/new" element={<ProtectedRoute permission="jobs.edit"><PanelEditor /></ProtectedRoute>} />
+                  <Route path="/panels/:pid" element={<ProtectedRoute permission="jobs.view"><PanelEditor /></ProtectedRoute>} />
                   <Route path="/invoices" element={<ProtectedRoute permission="invoices.view"><InvoicesList /></ProtectedRoute>} />
                   <Route path="/invoices/:id" element={<ProtectedRoute permission="invoices.view"><InvoiceDetail /></ProtectedRoute>} />
                   <Route path="/forms" element={<ProtectedRoute permission="forms.view"><FormsList /></ProtectedRoute>} />
@@ -93,6 +97,7 @@ function App() {
                   <Route path="/stock" element={<ProtectedRoute permission="stock.view"><Stock /></ProtectedRoute>} />
                   <Route path="/settings/pricing" element={<ProtectedRoute permission="pricing.view"><PricingSettings /></ProtectedRoute>} />
                   <Route path="/settings/pricing/rates" element={<ProtectedRoute permission="pricing.view"><LabourRates /></ProtectedRoute>} />
+                  <Route path="/settings/shop-drawing" element={<ProtectedRoute permission="company.view"><ShopDrawingSettings /></ProtectedRoute>} />
                   <Route path="/settings/company" element={<ProtectedRoute permission="company.view"><CompanySettings /></ProtectedRoute>} />
                   <Route path="/settings/integrations" element={<ProtectedRoute permission="integrations.view"><IntegrationSettings /></ProtectedRoute>} />
                   <Route path="/users" element={<ProtectedRoute permission="users.view"><UsersPage /></ProtectedRoute>} />

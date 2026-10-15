@@ -521,8 +521,11 @@ def render_svg(outline: Sequence, openings: Sequence, calc: Optional[Dict[str, A
                          f'{_fmt(bx1-bx0)} × {_fmt(by1-by0)}</text>')
 
     if show_dimensions:
-        xs = [p[0] for p in o] + [p[0] for op in ops for p in op]
-        ys = [p[1] for p in o] + [p[1] for op in ops for p in op]
+        # chain = panel corners + each opening's extents (round/shaped openings
+        # contribute their bounding box, not every facet point)
+        oboxes = [bbox(op) for op in ops]
+        xs = [p[0] for p in o] + [v for b in oboxes for v in (b[0], b[2])]
+        ys = [p[1] for p in o] + [v for b in oboxes for v in (b[1], b[3])]
         xv = _chain_values(xs, x0, x1)
         yv = _chain_values(ys, y0, y1)
         # bottom: running chain + overall
