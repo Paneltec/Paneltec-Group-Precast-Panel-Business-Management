@@ -1,0 +1,155 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Shop drawings — {{ job.job_number }}</title>
+  <style>
+    @page {
+      size: {{ tpl.paper }} landscape;
+      margin: 8mm;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: 'Helvetica', 'Arial', sans-serif; color: #1F2A33; font-size: {{ '9px' if tpl.paper == 'A3' else '7.5px' }}; line-height: 1.3; margin: 0; }
+    .sheet { page-break-after: always; border: 2px solid #1F2A33; height: {{ '281mm' if tpl.paper == 'A3' else '194mm' }}; display: flex; }
+    .sheet:last-child { page-break-after: auto; }
+    .main { flex: 1; display: flex; flex-direction: column; border-right: 2px solid #1F2A33; min-width: 0; }
+    .drawing { flex: 1; padding: 6mm 6mm 2mm 6mm; display: flex; align-items: center; justify-content: center; }
+    .drawing svg { width: 100%; height: auto; }
+    .legend { padding: 0 6mm 3mm 6mm; font-size: 0.9em; color: #4b5563; }
+    .legend span { margin-right: 14px; }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #F5C518; border: 1px solid #1F2A33; vertical-align: -1px; }
+    .tri { display: inline-block; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid #F5C518; vertical-align: -1px; }
+    .cog { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid #C0392B; background: linear-gradient(90deg, #C0392B 50%, #fff 50%); vertical-align: -1px; }
+    .bottom { display: flex; border-top: 2px solid #1F2A33; min-height: {{ '62mm' if tpl.paper == 'A3' else '50mm' }}; }
+    .bottom > div { padding: 3mm 4mm; border-right: 1px solid #1F2A33; }
+    .bottom > div:last-child { border-right: 0; }
+    .notes { flex: 1.3; white-space: pre-wrap; }
+    .lifting { flex: 1.7; }
+    .side { width: {{ '92mm' if tpl.paper == 'A3' else '72mm' }}; display: flex; flex-direction: column; }
+    .box { border-bottom: 1px solid #1F2A33; padding: 3mm 4mm; }
+    .k { font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.12em; color: #6b7280; font-weight: 700; margin-bottom: 1.5mm; }
+    .brand { font-size: 1.9em; font-weight: 900; letter-spacing: -0.02em; line-height: 1; }
+    .strap { color: #6b7280; font-style: italic; margin-top: 1mm; }
+    .mark { font-size: 3.6em; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
+    .title { font-size: 1.2em; font-weight: 900; letter-spacing: 0.04em; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { padding: 0.6mm 0; vertical-align: top; text-align: left; }
+    td.v { text-align: right; font-family: 'Menlo', 'Consolas', monospace; font-weight: 700; }
+    table.grid th, table.grid td { border: 1px solid #9AA5AE; padding: 0.8mm 1.2mm; }
+    table.grid th { background: #1F2A33; color: #fff; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; }
+    table.grid td.n { text-align: right; font-family: 'Menlo', 'Consolas', monospace; }
+    .warn { background: #FDECEA; border: 2px solid #C0392B; color: #C0392B; font-weight: 900; padding: 2mm 3mm; margin-bottom: 2mm; letter-spacing: 0.02em; }
+    .caution { color: #8a6d00; background: #FFF8DC; border: 1px solid #E0B416; padding: 1.5mm 2mm; margin-top: 1.5mm; }
+    .disclaimer { font-size: 0.85em; color: #4b5563; margin-top: 2mm; font-style: italic; }
+    .titleblock { margin-top: auto; border-top: 2px solid #1F2A33; }
+    table.tb td { width: 50%; padding: 1.5mm 4mm; border-bottom: 1px solid #C9D2D9; }
+    table.tb td + td { border-left: 1px solid #C9D2D9; }
+    table.tb .k { margin-bottom: 0.5mm; }
+    table.tb .val { font-weight: 700; min-height: 3.5mm; }
+    .foot { padding: 1.5mm 4mm; font-size: 0.85em; color: #6b7280; }
+  </style>
+</head>
+<body>
+{% for s in sheets %}
+  <section class="sheet">
+    <div class="main">
+      <div class="drawing">{{ s.svg | safe }}</div>
+      <div class="legend">
+        ELEVATION — VIEWED FROM CASTING FACE · DIMENSIONS IN mm · NOT TO SCALE
+        {% if tpl.show_lifters %} &nbsp; <span><i class="tri"></i> Edge lifter</span><span><i class="dot"></i> Face lifter</span>{% endif %}
+        {% if tpl.show_cog %}<span><i class="cog"></i> Centre of gravity</span>{% endif %}
+      </div>
+      <div class="bottom">
+        <div class="notes">
+          <div class="k">General notes</div>{{ s.notes }}</div>
+        {% if tpl.show_opening_schedule %}
+        <div style="flex: 1;">
+          <div class="k">Opening schedule</div>
+          {% if s.openings %}
+          <table class="grid">
+            <tr><th>#</th><th>X</th><th>Y</th><th>W</th><th>H</th><th>Type</th></tr>
+            {% for o in s.openings[:12] %}
+            <tr><td>{{ o.n }}</td><td class="n">{{ o.x }}</td><td class="n">{{ o.y }}</td><td class="n">{{ o.w }}</td><td class="n">{{ o.h }}</td><td>{{ o.shape }}</td></tr>
+            {% endfor %}
+          </table>
+          {% if s.openings|length > 12 %}<div>+ {{ s.openings|length - 12 }} more (see drawing)</div>{% endif %}
+          <div style="margin-top:1mm; color:#6b7280;">X / Y to bottom-left corner of opening from bottom-left of panel.</div>
+          {% else %}<div>No openings.</div>{% endif %}
+        </div>
+        {% endif %}
+        <div class="lifting">
+          <div class="k">Lifting (as specified by engineer)</div>
+          {% if s.lifting_status == 'missing' %}
+            <div class="warn">{{ missing }}</div>
+          {% else %}
+            {% if s.lifting_status == 'incomplete' %}
+              <div class="warn">ENGINEER NAME / REFERENCE NOT RECORDED — DO NOT LIFT</div>
+            {% endif %}
+            <table class="grid">
+              <tr><th>Lifter</th><th>Type</th><th>X</th><th>Y</th><th>WLL (t)</th><th>Product</th></tr>
+              {% for l in s.lifting.lifters[:10] %}
+              <tr><td>{{ l.label }}</td><td>{{ l.type | capitalize }}</td><td class="n">{{ '%.0f' % l.x_mm }}</td><td class="n">{{ '%.0f' % l.y_mm }}</td>
+                  <td class="n">{{ ('%.1f' % l.capacity_t) if l.capacity_t is not none else '—' }}</td><td>{{ l.product or '—' }}</td></tr>
+              {% endfor %}
+            </table>
+            <div style="margin-top:1.5mm;">
+              Engineer: <strong>{{ s.lifting.engineer_name or '—' }}</strong>{% if s.lifting.engineer_company %} ({{ s.lifting.engineer_company }}){% endif %}
+              · Ref: <strong>{{ s.lifting.reference or '—' }}</strong>
+              {% if s.lifting.design_date %} · Dated {{ s.lifting.design_date }}{% endif %}
+            </div>
+            {% if s.lifting.notes %}<div style="white-space:pre-wrap; margin-top:1mm;">{{ s.lifting.notes }}</div>{% endif %}
+            {% for w in s.lifter_warnings %}<div class="caution">{{ w }}</div>{% endfor %}
+          {% endif %}
+          <div class="disclaimer">{{ disclaimer }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="box">
+        <div class="brand">{{ (company.business_name or 'PANELTEC GROUP') | upper }}</div>
+        <div class="strap">{{ tpl.title }}</div>
+      </div>
+      <div class="box">
+        <div class="k">Panel mark</div>
+        <div class="mark">{{ s.panel.mark }}</div>
+        {% if s.panel.description %}<div style="margin-top:1.5mm;">{{ s.panel.description }}</div>{% endif %}
+        <div style="margin-top:1.5mm;">Quantity: <strong>{{ s.panel.quantity or 1 }}</strong> off</div>
+      </div>
+      <div class="box">
+        <div class="k">Panel data</div>
+        <table>
+          <tr><td>Overall width</td><td class="v">{{ s.v.width_mm }} mm</td></tr>
+          <tr><td>Overall height</td><td class="v">{{ s.v.height_mm }} mm</td></tr>
+          <tr><td>Thickness</td><td class="v">{{ s.v.thickness_mm }} mm</td></tr>
+          <tr><td>Concrete grade</td><td class="v">{{ s.v.concrete_grade }}</td></tr>
+          {% if s.panel.finish %}<tr><td>Finish</td><td class="v">{{ s.panel.finish }}</td></tr>{% endif %}
+          <tr><td>Net face area</td><td class="v">{{ s.v.area_m2 }} m²</td></tr>
+          {% if tpl.show_weights %}
+          <tr><td>Concrete volume</td><td class="v">{{ s.v.volume_m3 }} m³</td></tr>
+          <tr><td>Est. mass</td><td class="v">{{ s.v.weight_kg }} kg</td></tr>
+          {% endif %}
+          {% if tpl.show_cog %}
+          <tr><td>CoG from bottom-left</td><td class="v">{{ '%.0f' % s.calc.cog_x_mm }}, {{ '%.0f' % s.calc.cog_y_mm }}</td></tr>
+          {% endif %}
+        </table>
+        {% if tpl.show_weights %}<div style="margin-top:1mm; color:#6b7280; font-size:0.85em;">Mass = volume × ({{ '%.0f' % s.calc.concrete_density_kg_m3 }} kg/m³ concrete + {{ '%.0f' % s.calc.reinforcement_kg_m3 }} kg/m³ steel allowance). Estimate only.</div>{% endif %}
+      </div>
+      <div class="titleblock">
+        <table class="tb">
+          <tr><td colspan="2"><div class="k">Customer</div><div class="val">{{ ctx.customer or '—' }}</div></td></tr>
+          <tr><td colspan="2"><div class="k">Project</div><div class="val">{{ ctx.project or '—' }}</div></td></tr>
+          <tr><td><div class="k">Job</div><div class="val">{{ job.job_number }}</div></td>
+              <td><div class="k">Revision</div><div class="val">{{ s.v.revision }}</div></td></tr>
+          <tr><td><div class="k">Drawn</div><div class="val">{{ tpl.drawn_by }}</div></td>
+              <td><div class="k">Checked</div><div class="val">{{ tpl.checked_by }}</div></td></tr>
+          <tr><td><div class="k">Date</div><div class="val">{{ s.v.date }}</div></td>
+              <td><div class="k">Sheet</div><div class="val">{{ loop.index }} of {{ total }}</div></td></tr>
+        </table>
+        <div class="foot">{% if s.footer_note %}{{ s.footer_note }}<br>{% endif %}Generated {{ generated_at }}</div>
+      </div>
+    </div>
+  </section>
+{% endfor %}
+</body>
+</html>

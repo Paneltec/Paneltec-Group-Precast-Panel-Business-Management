@@ -25,6 +25,7 @@ const NAV_ITEMS = [
   { to: "/stock", label: "Stock", icon: "package", perm: "stock.view", testid: "nav-stock" },
   { to: "/settings/pricing", label: "Pricing", icon: "pricing", perm: "pricing.view", testid: "nav-settings" },
   { to: "/settings/company", label: "Company", icon: "company", perm: "company.view", testid: "nav-company-settings" },
+  { to: "/settings/shop-drawing", label: "Shop Drawings", icon: "straight_ruler", perm: "company.view", testid: "nav-shop-drawing-settings" },
   { to: "/settings/integrations", label: "Integrations", icon: "integrations", perm: "integrations.view", testid: "nav-integrations" },
   { to: "/users", label: "Users", icon: "users", perm: "users.view", testid: "nav-users" },
   { to: "/admin/audit", label: "Audit Trail", icon: "audit", perm: "audit.view", testid: "nav-audit" },

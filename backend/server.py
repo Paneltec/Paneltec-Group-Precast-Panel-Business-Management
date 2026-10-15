@@ -7831,3 +7831,10 @@ async def _migrate_simpro_company_id():
 
 @app.on_event("shutdown")
 async def on_shutdown(): client.close()
+
+
+# ---------------------------------------------------------------------------
+# Panels register + shop drawings (see panels_api.py). Imported last so every
+# helper above already exists; registering the routes is the only side effect.
+# ---------------------------------------------------------------------------
+import panels_api  # noqa: E402,F401
