@@ -1,6 +1,6 @@
 # Paneltec Group — web app. Builds the React app, then serves it with nginx,
 # which also forwards /api to the backend container (so one address does everything).
-FROM node:22-bookworm-slim AS build
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package.json yarn.lock ./
 RUN yarn install --frozen-lockfile --network-timeout 600000
