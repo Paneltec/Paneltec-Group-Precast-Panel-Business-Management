@@ -205,3 +205,22 @@ def test_delete_is_soft_and_cancelled_job_locked(env):
     assert c.post(f"/api/jobs/{j}/panels", json=_panel(), headers=a).status_code == 201
     _run(db.jobs.update_one({"id": j}, {"$set": {"status": "cancelled"}}))
     assert c.post(f"/api/jobs/{j}/panels", json=_panel("P09"), headers=a).status_code == 400
+
+
+def test_elevation_split_preview_and_create(env):
+    c, a, j = env["c"], env["admin"], env["job"]
+    wall = {"outline": [[0, 0], [12000, 0], [12000, 3000], [6000, 4200], [0, 3000]],
+            "openings": [[list(p) for p in g.rectangle(1000, 800, 1500, 1200)], [list(p) for p in g.rectangle(5500, 0, 1200, 2400)]],
+            "cuts": [4000, 6000, 8000], "thickness_mm": 175, "mark_prefix": "S-", "start_no": 1}
+    r = c.post(f"/api/jobs/{j}/panels/elevation-preview", json=wall, headers=a)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [p["mark"] for p in body["panels"]] == ["S-01", "S-02", "S-03", "S-04"]
+    assert [p["width_mm"] for p in body["panels"]] == [4000, 2000, 2000, 4000]
+    assert body["panels"][1]["split_openings"] == [2] and any("cut by a joint" in w for w in body["warnings"])
+    assert all(p["valid"] for p in body["panels"])
+    # create them through the normal bulk endpoint
+    payload = {"panels": [{"mark": p["mark"], "thickness_mm": 175, "outline": p["outline"], "openings": p["openings"], "source": "elevation"} for p in body["panels"]]}
+    assert c.post(f"/api/jobs/{j}/panels/bulk", json=payload, headers=a).status_code == 201
+    r = c.post(f"/api/jobs/{j}/panels/elevation-preview", json=wall, headers=a).json()
+    assert all(p["mark_taken"] for p in r["panels"])

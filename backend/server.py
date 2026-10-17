@@ -6120,7 +6120,11 @@ async def cf_upload_photo(fid: str, file: UploadFile = File(...), caption: str =
 
 
 @_cf_router.get("/compliance-forms/{fid}/photos/{pid}")
-async def cf_get_photo(fid: str, pid: str, _u: dict = Depends(require_permission("forms.view"))):
+async def cf_get_photo(fid: str, pid: str):
+    """Serve a form photo. No auth header: <img> tags can't send one, and both
+    ids are unguessable UUIDs (same approach as stock and panel-unit images)."""
+    if not (re.fullmatch(r"[0-9a-f-]{36}", fid) and re.fullmatch(r"[0-9a-f-]{36}", pid)):
+        raise HTTPException(status_code=404, detail="Photo not found")
     d = await db.compliance_forms.find_one({"id": fid}, {"_id": 0, "photos": 1})
     if not d: raise HTTPException(status_code=404, detail="Form not found")
     for p in d.get("photos", []):

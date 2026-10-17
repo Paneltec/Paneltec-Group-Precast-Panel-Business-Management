@@ -17,6 +17,7 @@ import { openPdf } from "../lib/print";
 import UserBadge from "../components/UserBadge";
 import JobPanelsCard from "../components/JobPanelsCard";
 import JobDeliveriesCard from "../components/JobDeliveriesCard";
+import JobTrackingCard from "../components/JobTrackingCard";
 
 const ORDER = ["scheduled","in_production","ready_for_delivery","delivered","installed","completed"];
 const STATUS_ICON = {scheduled:"job_status_scheduled",in_production:"job_status_in_production",ready_for_delivery:"job_status_ready_for_delivery",delivered:"job_status_delivered",installed:"job_status_installed",completed:"job_status_completed",cancelled:"job_status_cancelled"};
@@ -294,6 +295,8 @@ export default function JobDetail() {
       <JobPanelsCard job={job} canEdit={hasPerm("jobs.edit")}/>
 
       <JobDeliveriesCard job={job}/>
+
+      <JobTrackingCard job={job}/>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <NotesCard title="Production notes" value={job.production_notes} field="production_notes" patch={patch} testid="job-prod-notes"/>

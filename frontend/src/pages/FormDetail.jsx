@@ -396,7 +396,7 @@ function PhotoZone({ formId, photos, locked, onChange }) {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {photos.map(p => (
             <div key={p.id} className="border border-gray-200 rounded overflow-hidden" data-testid={`photo-${p.id}`}>
-              <img src={p.url} alt={p.caption || p.filename} className="w-full h-32 object-cover bg-gray-100"/>
+              <img src={`${process.env.REACT_APP_BACKEND_URL || ""}${p.url}`} alt={p.caption || p.filename} className="w-full h-32 object-cover bg-gray-100"/>
               <div className="p-2 text-xs">
                 <div className="font-mono text-[10px] text-gray-500 truncate">{p.filename}</div>
                 {(p.gps_lat || p.gps_lng || p.taken_at) ? (

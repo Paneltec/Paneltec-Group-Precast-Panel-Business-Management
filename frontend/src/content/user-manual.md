@@ -551,6 +551,11 @@ Each panel mark becomes one or more **physical panels** (P01-1, P01-2 …) with 
 - **Defects** — record on any panel with a severity; mark repaired or accepted. Open defects show on the Production dashboard.
 - **Production** dashboard — panels by status, cast this week/month with m³, yard contents, loads to go, overdue casts.
 
+## 22. Elevation → panels, and the customer tracking link
+
+- **Draw elevation** (Job → Panels card) — draw the whole wall once, add its openings, then use the **Panel joint** tool to click each joint position. The strips are previewed in colour with mark, width and mass; **Create N panels** adds them all (S-01, S-02 … with your prefix). A warning shows if a joint cuts through an opening.
+- **Customer tracking link** (bottom of a Job) — creates a read-only page (`/track/…`) the builder can open without logging in. It shows each panel's stage (Scheduled / Cast / Ready in yard / On its way / Delivered / Installed), cast and delivery dates and booked loads — never prices, notes, staff names, lifting data or yard locations. **Turn off** disables it instantly.
+
 ## 17. Reports & Data Export
 
 Where to find it: **Reports** in the sidebar (the green chart icon). Available to every user who has any of the report `*.view` permissions; the Data Export and Power BI Integration tabs are super-admin only.
