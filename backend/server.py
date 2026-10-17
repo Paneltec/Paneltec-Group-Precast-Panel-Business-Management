@@ -160,6 +160,7 @@ PERMISSION_MODULES = [
     {"key": "forms",     "label": "Compliance Forms", "permissions": ["forms.view", "forms.create", "forms.edit", "forms.sign", "forms.delete", "forms.template_manage"]},
     {"key": "stock",     "label": "Stock",     "permissions": ["stock.view", "stock.edit"]},
     {"key": "suppliers", "label": "Suppliers", "permissions": ["suppliers.view", "suppliers.edit"]},
+    {"key": "production","label": "Production", "permissions": ["production.view", "production.edit", "production.transition"]},
 ]
 ALL_PERMISSIONS: List[str] = [p for m in PERMISSION_MODULES for p in m["permissions"]]
 # These permissions are reserved for super-admins. Non-super-admins cannot hold them.
@@ -173,7 +174,7 @@ PERMISSION_PRESETS = {
             "projects.view","projects.create","projects.edit","projects.delete",
             "quotes.view","quotes.create","quotes.edit","quotes.send","quotes.mark_decision","quotes.revise",
             "jobs.view","invoices.view","vehicles.view","employees.view","customers.delete","projects.delete","quotes.delete",
-            "stock.view","stock.edit","suppliers.view",
+            "stock.view","stock.edit","suppliers.view","production.view",
         ],
     },
     "production": {
@@ -186,6 +187,7 @@ PERMISSION_PRESETS = {
             "employees.view","employees.edit","employees.delete",
             "forms.view","forms.create","forms.edit","forms.delete",
             "stock.view",
+            "production.view","production.edit","production.transition",
         ],
     },
     "accounts": {
@@ -194,7 +196,7 @@ PERMISSION_PRESETS = {
             "customers.view","projects.view","quotes.view","jobs.view",
             "invoices.view","invoices.create","invoices.issue","invoices.mark_paid","invoices.push_xero","invoices.delete",
             "company.view","forms.view",
-            "stock.view","suppliers.view",
+            "stock.view","suppliers.view","production.view",
         ],
     },
     "readonly": {
@@ -7838,3 +7840,4 @@ async def on_shutdown(): client.close()
 # helper above already exists; registering the routes is the only side effect.
 # ---------------------------------------------------------------------------
 import panels_api  # noqa: E402,F401
+import production_api  # noqa: E402,F401

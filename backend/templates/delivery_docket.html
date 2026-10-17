@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Delivery docket {{ load.docket_number }}</title>
+  <style>
+    @page {
+      size: A4; margin: 14mm 12mm 18mm 12mm;
+      @bottom-center { content: "{{ company.business_name }} · ABN {{ company.abn or '—' }} · Page " counter(page) " of " counter(pages);
+        font-family: 'Helvetica', 'Arial', sans-serif; font-size: 8px; color: #6b7280; letter-spacing: 0.05em; }
+    }
+    * { box-sizing: border-box; }
+    body { font-family: 'Helvetica', 'Arial', sans-serif; color: #1F2A33; font-size: 10px; line-height: 1.35; margin: 0; }
+    header.hdr { border-bottom: 4px solid #1F2A33; padding-bottom: 6px; margin-bottom: 8px; }
+    .hdr-top { display: flex; justify-content: space-between; align-items: flex-start; }
+    .brand { font-size: 18px; font-weight: 900; letter-spacing: -0.02em; line-height: 1; }
+    .strapline { font-style: italic; color: #6b7280; font-size: 10px; margin-top: 3px; }
+    .meta-r { text-align: right; font-size: 9.5px; color: #4b5563; }
+    .meta-r strong { color: #1F2A33; }
+    h1 { font-size: 22px; font-weight: 900; margin: 8px 0 0 0; text-align: center; border-top: 2px solid #1F2A33; border-bottom: 2px solid #1F2A33; padding: 5px 0; letter-spacing: 0.02em; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+    .cell { border: 1px solid #1F2A33; padding: 6px 8px; }
+    .k { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.12em; color: #6b7280; font-weight: 700; margin-bottom: 2px; }
+    .v { font-weight: 700; font-size: 12px; }
+    table.items { width: 100%; border-collapse: collapse; border: 2px solid #1F2A33; margin-top: 8px; }
+    table.items th, table.items td { border: 1px solid #1F2A33; padding: 4px 5px; font-size: 9px; text-align: left; vertical-align: top; }
+    table.items th { background: #1F2A33; color: #fff; text-transform: uppercase; letter-spacing: 0.05em; font-size: 8px; }
+    td.n { text-align: right; font-family: 'Menlo', 'Consolas', monospace; }
+    tr.tot td { background: #e5e7eb; font-weight: 700; }
+    .warn { background: #FDECEA; border: 2px solid #C0392B; color: #C0392B; font-weight: 900; padding: 4px 8px; margin: 8px 0; }
+    .notes { border: 1px solid #1F2A33; padding: 8px 10px; margin: 8px 0; white-space: pre-wrap; min-height: 40px; }
+    .signoff { border-top: 2px solid #1F2A33; padding-top: 8px; margin-top: 14px; }
+    .signoff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin-top: 6px; font-size: 8.5px; }
+    .rule { border-bottom: 1px solid #1F2A33; height: 22px; }
+    .lbl { margin-top: 3px; text-transform: uppercase; letter-spacing: 0.08em; color: #4b5563; }
+    .tick { display: inline-block; width: 10px; height: 10px; border: 1px solid #1F2A33; }
+  </style>
+</head>
+<body>
+  <header class="hdr">
+    <div class="hdr-top">
+      <div><div class="brand">{{ (company.business_name or 'PANELTEC GROUP') | upper }}</div><div class="strapline">Precast panel delivery</div></div>
+      <div class="meta-r">
+        <div>Docket: <strong style="font-family:monospace;">{{ load.docket_number }}</strong></div>
+        <div>Job: <strong>{{ load.job_number }}</strong></div>
+        <div>Status: <strong>{{ load.status | upper }}</strong></div>
+        <div>Printed: {{ generated_at }}</div>
+      </div>
+    </div>
+    <h1>DELIVERY DOCKET</h1>
+  </header>
+
+  <div class="grid">
+    <div class="cell"><div class="k">Customer</div><div class="v">{{ load.customer_name or '—' }}</div>
+      <div style="margin-top:3px;">{{ load.project_name }}</div></div>
+    <div class="cell"><div class="k">Deliver to</div><div class="v">{{ load.site_address or '—' }}</div>
+      {% if load.site_contact %}<div style="margin-top:3px;">Site contact: {{ load.site_contact }}</div>{% endif %}</div>
+    <div class="cell"><div class="k">Delivery date</div><div class="v">{{ load.delivery_date or '—' }}</div></div>
+    <div class="cell"><div class="k">Vehicle / driver</div>
+      <div class="v">{{ (load.vehicle.make_model if load.vehicle else '—') }}{% if load.vehicle and load.vehicle.rego %} · {{ load.vehicle.rego }}{% endif %}</div>
+      <div style="margin-top:3px;">Driver: {{ load.driver or '—' }}{% if load.capacity_kg %} · Capacity {{ '%.1f' % (load.capacity_kg / 1000) }} t{% endif %}</div></div>
+  </div>
+
+  {% if load.over_capacity %}<div class="warn">LOAD EXCEEDS VEHICLE CAPACITY — {{ '%.2f' % (load.total_weight_kg / 1000) }} t on a {{ '%.1f' % (load.capacity_kg / 1000) }} t vehicle</div>{% endif %}
+
+  <table class="items">
+    <tr><th>#</th><th>Panel</th><th>Size W × H × T (mm)</th><th>Mass (t)</th><th>Erection seq</th><th>Yard loc.</th><th>Loaded</th><th>Received</th></tr>
+    {% for u in load.units %}
+    <tr>
+      <td class="n">{{ loop.index }}</td>
+      <td><strong>{{ u.label }}</strong></td>
+      <td>{{ u.size }}</td>
+      <td class="n">{{ u.mass_t }}</td>
+      <td class="n">{{ u.erection_seq if u.erection_seq is not none else '—' }}</td>
+      <td>{{ u.yard_location or '—' }}</td>
+      <td style="text-align:center;"><span class="tick"></span></td>
+      <td style="text-align:center;"><span class="tick"></span></td>
+    </tr>
+    {% endfor %}
+    <tr class="tot"><td colspan="3">Total — {{ load.unit_count }} panel{{ '' if load.unit_count == 1 else 's' }}</td>
+      <td class="n">{{ '%.2f' % (load.total_weight_kg / 1000) }}</td><td colspan="4"></td></tr>
+  </table>
+
+  <div class="k" style="margin-top:8px;">Notes</div>
+  <div class="notes">{{ load.notes }}</div>
+
+  <div class="signoff">
+    <div class="k">Sign-off</div>
+    <div class="signoff-grid">
+      <div><div class="rule"></div><div class="lbl">Loaded by (yard) · name &amp; signature</div></div>
+      <div><div class="rule"></div><div class="lbl">Driver · name &amp; signature</div></div>
+      <div><div class="rule"></div><div class="lbl">Received on site · name &amp; signature</div></div>
+      <div><div class="rule"></div><div class="lbl">Date / time received</div></div>
+    </div>
+    <p style="font-size:8px;color:#6b7280;margin-top:8px;">Panels must be lifted only in accordance with the engineer's lifting design on each shop drawing. Report transport damage on this docket before unloading.</p>
+  </div>
+</body>
+</html>

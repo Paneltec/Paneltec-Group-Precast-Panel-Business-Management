@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Loader2, Plus, Upload, FileDown, Layers, Trash2, Pencil, FileText } from "lucide-react";
+import { Loader2, Plus, Upload, FileDown, Layers, Trash2, Pencil, FileText, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { openPdf } from "../lib/print";
 import { LIFTING_STATUS, downloadFile, fmtMm, fmtT } from "../lib/panels";
+import { unitSummary } from "../lib/production";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "./ui/dialog";
 import DxfImportDialog from "./DxfImportDialog";
@@ -98,6 +99,14 @@ export default function JobPanelsCard({ job, canEdit }) {
                 {busy === "batch" ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <FileDown className="w-4 h-4 mr-1" />}
                 {selected.size && selected.size < data.items.length ? `Shop drawings (${selected.size} selected)` : "All shop drawings (PDF)"}
               </Button>
+              <Button variant="outline" disabled={!!busy} className="h-9" data-testid="panel-labels-btn"
+                onClick={() => {
+                  const ids = [...selected];
+                  const q = ids.length && ids.length < data.items.length ? `?ids=${ids.join(",")}` : "";
+                  pdf(`/jobs/${job.id}/units/labels.pdf${q}`, `qr_labels_${job.job_number}.pdf`, "labels");
+                }}>
+                {busy === "labels" ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <QrCode className="w-4 h-4 mr-1" />} QR labels
+              </Button>
               <Button variant="ghost" className="h-9 text-gray-600"
                 onClick={() => downloadFile(`/jobs/${job.id}/panels/export.dxf`, `panels_${job.job_number}.dxf`).catch(() => toast.error("Couldn't export DXF"))}>
                 Export DXF
@@ -151,6 +160,7 @@ export default function JobPanelsCard({ job, canEdit }) {
                   <th className="px-3 py-2 text-right">Net m²</th>
                   <th className="px-3 py-2 text-right">Mass each</th>
                   <th className="px-3 py-2 text-left">Lifting</th>
+                  <th className="px-3 py-2 text-left">Production</th>
                   <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
@@ -170,6 +180,7 @@ export default function JobPanelsCard({ job, canEdit }) {
                       <td className="px-3 py-2.5 text-right tabular-nums">{p.calc.net_area_m2.toFixed(2)}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums font-semibold">{fmtT(p.calc.total_weight_kg)}</td>
                       <td className="px-3 py-2.5"><span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded ${st.cls}`}>{st.label}</span></td>
+                      <td className="px-3 py-2.5 text-[11px] text-gray-600 whitespace-nowrap" data-testid={`panel-units-${p.mark}`}>{unitSummary(p.unit_status_counts) || "—"}</td>
                       <td className="px-3 py-2.5 text-right whitespace-nowrap">
                         <Button variant="ghost" size="sm" className="h-8 px-2" title="Shop drawing PDF" disabled={!!busy}
                           onClick={() => pdf(`/panels/${p.id}/shop-drawing.pdf`, `shop_drawing_${p.mark}.pdf`, p.id)}>

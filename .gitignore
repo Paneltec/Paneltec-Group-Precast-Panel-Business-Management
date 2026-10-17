@@ -116,3 +116,6 @@ frontend/node_modules/.cache/default-development/4.pack
 frontend/node_modules/.cache/default-development/7.pack
 frontend/node_modules/.cache/default-development/11.pack
 frontend/node_modules/.cache/default-development/15.pack
+
+# runtime uploads (photos, signatures) never belong in git
+backend/uploads/units/

@@ -21,6 +21,12 @@ import JobsList from "./pages/JobsList";
 import JobDetail from "./pages/JobDetail";
 import PanelEditor from "./pages/PanelEditor";
 import ShopDrawingSettings from "./pages/ShopDrawingSettings";
+import UnitPage from "./pages/UnitPage";
+import CastingSchedule from "./pages/CastingSchedule";
+import Yard from "./pages/Yard";
+import LoadsList, { LoadDetail } from "./pages/Loads";
+import ProductionDashboard from "./pages/ProductionDashboard";
+import ProductionSettings from "./pages/ProductionSettings";
 import InvoicesList from "./pages/InvoicesList";
 import FormsList from "./pages/FormsList";
 import FormDetail from "./pages/FormDetail";
@@ -83,6 +89,14 @@ function App() {
                   <Route path="/jobs/:id" element={<ProtectedRoute permission="jobs.view"><JobDetail /></ProtectedRoute>} />
                   <Route path="/jobs/:jobId/panels/new" element={<ProtectedRoute permission="jobs.edit"><PanelEditor /></ProtectedRoute>} />
                   <Route path="/panels/:pid" element={<ProtectedRoute permission="jobs.view"><PanelEditor /></ProtectedRoute>} />
+                  <Route path="/units/:id" element={<ProtectedRoute permission="jobs.view"><UnitPage /></ProtectedRoute>} />
+                  <Route path="/scan/:token" element={<ProtectedRoute permission="jobs.view"><UnitPage /></ProtectedRoute>} />
+                  <Route path="/production" element={<ProtectedRoute permission="production.view"><ProductionDashboard /></ProtectedRoute>} />
+                  <Route path="/production/schedule" element={<ProtectedRoute permission="production.view"><CastingSchedule /></ProtectedRoute>} />
+                  <Route path="/production/yard" element={<ProtectedRoute permission="production.view"><Yard /></ProtectedRoute>} />
+                  <Route path="/production/loads" element={<ProtectedRoute permission="production.view"><LoadsList /></ProtectedRoute>} />
+                  <Route path="/loads/:id" element={<ProtectedRoute permission="production.view"><LoadDetail /></ProtectedRoute>} />
+                  <Route path="/settings/production" element={<ProtectedRoute permission="production.view"><ProductionSettings /></ProtectedRoute>} />
                   <Route path="/invoices" element={<ProtectedRoute permission="invoices.view"><InvoicesList /></ProtectedRoute>} />
                   <Route path="/invoices/:id" element={<ProtectedRoute permission="invoices.view"><InvoiceDetail /></ProtectedRoute>} />
                   <Route path="/forms" element={<ProtectedRoute permission="forms.view"><FormsList /></ProtectedRoute>} />
