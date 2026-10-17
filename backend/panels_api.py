@@ -96,7 +96,7 @@ class PanelInput(BaseModel):
     revision: str = Field("A", max_length=10)
     outline: List[List[float]] = Field(..., min_length=3, max_length=2000)
     openings: List[List[List[float]]] = Field(default_factory=list, max_length=200)
-    source: Literal["manual", "dxf", "job_line"] = "manual"
+    source: Literal["manual", "dxf", "job_line", "elevation"] = "manual"
     source_file: str = Field("", max_length=200)
 
 
@@ -126,6 +126,22 @@ class PreviewInput(BaseModel):
 
 class BulkInput(BaseModel):
     panels: List[PanelInput] = Field(..., min_length=1, max_length=500)
+
+
+class ElevationInput(BaseModel):
+    """A whole wall drawn once, cut into panels at vertical joints."""
+    model_config = ConfigDict(extra="ignore")
+    outline: List[List[float]] = Field(..., min_length=3, max_length=2000)
+    openings: List[List[List[float]]] = Field(default_factory=list, max_length=200)
+    cuts: List[float] = Field(default_factory=list, max_length=200)
+    thickness_mm: float = Field(150, gt=0, le=2000)
+    concrete_grade: str = Field("", max_length=40)
+    reinforcement_key: str = "standard"
+    finish: str = Field("", max_length=80)
+    mark_prefix: str = Field("S-", max_length=20)
+    start_no: int = Field(1, ge=0, le=9999)
+    digits: int = Field(2, ge=1, le=4)
+    elevation_name: str = Field("", max_length=60)
 
 
 class ShopDrawingSettings(BaseModel):
@@ -446,6 +462,37 @@ async def dxf_preview(file: UploadFile = File(...), thickness_mm: float = Query(
         p["svg"] = geo.render_svg(p["outline"], p["openings"], p["calc"], None, width_px=360, height_px=220,
                                   show_dimensions=False, show_cog=False)
     return res
+
+
+@router.post("/jobs/{jid}/panels/elevation-preview")
+async def elevation_preview(jid: str, payload: ElevationInput, _u: dict = Depends(S.require_permission("jobs.view"))):
+    """Split a wall into panels at the given joints and show what would be
+    created (marks, shapes, weights). Nothing is saved — use /panels/bulk."""
+    await _job_or_404(jid)
+    try:
+        strips = geo.split_elevation(payload.outline, payload.openings, payload.cuts)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not strips:
+        raise HTTPException(status_code=400, detail="The wall outline has no area")
+    d = await _densities(payload.reinforcement_key)
+    taken = {p["mark"].lower() for p in await S.db.panels.find({"job_id": jid, "deleted_at": None}, {"_id": 0, "mark": 1}).to_list(5000)}
+    out, warnings = [], []
+    for i, st in enumerate(strips):
+        mark = f"{payload.mark_prefix}{payload.start_no + i:0{payload.digits}d}"
+        try:
+            calc = geo.calculate(st["outline"], st["openings"], payload.thickness_mm, d["concrete"], d["steel"])
+            problem = ""
+        except ValueError as e:
+            calc, problem = None, str(e)
+        if st["split_openings"]:
+            warnings.append(f"{mark}: opening {', '.join(str(n) for n in st['split_openings'])} is cut by a joint — move the joint or the opening unless that's intended.")
+        out.append({**st, "mark": mark, "calc": calc, "valid": calc is not None, "problem": problem,
+                    "mark_taken": mark.lower() in taken, "thickness_mm": payload.thickness_mm})
+    if any(p["mark_taken"] for p in out):
+        warnings.append("Some marks already exist on this job — change the prefix or start number.")
+    return {"panels": out, "warnings": warnings,
+            "total_weight_kg": round(sum((p["calc"] or {}).get("total_weight_kg", 0) for p in out), 1)}
 
 
 @router.get("/jobs/{jid}/panels/export.dxf")

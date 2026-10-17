@@ -961,6 +961,98 @@ async def load_docket_pdf(lid: str, user: dict = Depends(S.require_permission("p
 
 
 # ---------------------------------------------------------------------------
+# Customer tracking link — read-only progress page for the builder
+# ---------------------------------------------------------------------------
+PUBLIC_STAGE = {   # what the customer sees for each internal status
+    "planned": "Scheduled", "cast": "Cast", "stripped": "Cast", "in_yard": "Ready in yard",
+    "loaded": "On its way", "delivered": "Delivered", "installed": "Installed", "rejected": "Being remade",
+}
+
+
+@router.get("/jobs/{jid}/tracking-link")
+async def get_tracking_link(jid: str, request: Request, _u: dict = Depends(S.require_permission("jobs.view"))):
+    job = await S.db.jobs.find_one({"id": jid, "deleted_at": None}, {"_id": 0, "tracking_token": 1, "tracking_created_at": 1})
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    tok = job.get("tracking_token")
+    return {"enabled": bool(tok), "url": f"{await _app_url(request)}/track/{tok}" if tok else None,
+            "created_at": job.get("tracking_created_at")}
+
+
+@router.post("/jobs/{jid}/tracking-link")
+async def create_tracking_link(jid: str, request: Request, user: dict = Depends(S.require_permission("jobs.edit"))):
+    job = await S.db.jobs.find_one({"id": jid, "deleted_at": None}, {"_id": 0, "tracking_token": 1, "job_number": 1})
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.get("tracking_token"):
+        await S.db.jobs.update_one({"id": jid}, {"$set": {"tracking_token": secrets.token_urlsafe(18), "tracking_created_at": _now()}})
+        await S.record_audit(user, "tracking_link_created", "job", jid, job.get("job_number") or jid)
+    return await get_tracking_link(jid, request, user)
+
+
+@router.delete("/jobs/{jid}/tracking-link")
+async def revoke_tracking_link(jid: str, user: dict = Depends(S.require_permission("jobs.edit"))):
+    job = await S.db.jobs.find_one({"id": jid, "deleted_at": None}, {"_id": 0, "job_number": 1})
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await S.db.jobs.update_one({"id": jid}, {"$unset": {"tracking_token": "", "tracking_created_at": ""}})
+    await S.record_audit(user, "tracking_link_revoked", "job", jid, job.get("job_number") or jid)
+    return {"enabled": False, "url": None}
+
+
+@router.get("/public/track/{token}")
+async def public_track(token: str):
+    """No login. Shows a builder where their panels are — nothing internal
+    (no prices, notes, staff names, lifting data or yard locations)."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", token):
+        raise HTTPException(status_code=404, detail="Link not found")
+    job = await S.db.jobs.find_one({"tracking_token": token, "deleted_at": None}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="This tracking link is no longer active")
+    customer = await S.db.customers.find_one({"id": job.get("customer_id")}, {"_id": 0, "company_name": 1}) or {}
+    project = await S.db.projects.find_one({"id": job.get("project_id")}, {"_id": 0, "project_name": 1}) if job.get("project_id") else None
+    company = await S._load_company_settings()
+    panels = {p["id"]: p for p in await S.db.panels.find({"job_id": job["id"], "deleted_at": None}, {"_id": 0, "id": 1, "mark": 1, "description": 1}).to_list(5000)}
+    units = await S.db.panel_units.find({"job_id": job["id"], "deleted_at": None}, {"_id": 0}).to_list(10000)
+    units.sort(key=_sort_key)
+    loads = {l["id"]: l for l in await S.db.loads.find({"job_id": job["id"], "deleted_at": None}, {"_id": 0, "id": 1, "docket_number": 1, "delivery_date": 1, "status": 1, "unit_ids": 1}).to_list(500)}
+    counts: Dict[str, int] = {}
+    rows = []
+    for u in units:
+        stage = PUBLIC_STAGE.get(u["status"], "Scheduled")
+        counts[stage] = counts.get(stage, 0) + 1
+        d = u.get("dims") or {}
+        l = loads.get(u.get("load_id"))
+        rows.append({
+            "label": u["label"], "description": (panels.get(u["panel_id"]) or {}).get("description", ""),
+            "size": f"{geo._fmt(float(d.get('width_mm') or 0))} × {geo._fmt(float(d.get('height_mm') or 0))} × {geo._fmt(float(d.get('thickness_mm') or 0))} mm",
+            "stage": stage, "status": u["status"],
+            "planned_cast_date": u.get("planned_cast_date") if u["status"] == "planned" else None,
+            "cast_date": (u.get("cast_at") or "")[:10] or None,
+            "delivery_date": (l or {}).get("delivery_date") if l else None,
+            "delivered_date": (u.get("delivered_at") or "")[:10] or None,
+            "installed_date": (u.get("installed_at") or "")[:10] or None,
+            "erection_seq": u.get("erection_seq"),
+        })
+    load_rows = sorted([{
+        "docket_number": l["docket_number"], "delivery_date": l.get("delivery_date"), "status": l["status"],
+        "panel_count": len(l.get("unit_ids") or []),
+        "labels": [u["label"] for u in units if u.get("load_id") == l["id"]][:30],
+    } for l in loads.values()], key=lambda x: (x["delivery_date"] or "9999", x["docket_number"]))
+    total = len(rows)
+    done = sum(1 for r in rows if r["status"] in ("delivered", "installed"))
+    return {
+        "company": {"name": company.get("business_name"), "phone": company.get("phone"), "email": company.get("email")},
+        "job_number": job.get("job_number"), "customer": customer.get("company_name", ""),
+        "project": (project or {}).get("project_name", ""), "job_status": job.get("status"),
+        "scheduled_delivery_date": job.get("scheduled_delivery_date"),
+        "total_panels": total, "delivered_or_installed": done,
+        "progress_pct": round(100 * done / total) if total else 0,
+        "counts": counts, "panels": rows, "loads": load_rows, "generated_at": _now(),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
 @router.get("/production/summary")

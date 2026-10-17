@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MousePointer2, Pentagon, Square, SquareX, Circle, Anchor, Hand, Undo2, Redo2,
-  Maximize2, Magnet, ZoomIn, ZoomOut, Trash2,
+  Maximize2, Magnet, ZoomIn, ZoomOut, Trash2, SeparatorVertical,
 } from "lucide-react";
 
 /*
@@ -28,6 +28,7 @@ const TOOLS = [
   { key: "opening", label: "Opening", icon: SquareX, hint: "Drag a rectangle inside the panel." },
   { key: "round", label: "Round penetration", icon: Circle, hint: "Click the centre, drag out to the radius." },
   { key: "lifter", label: "Place lifter (engineer's position)", icon: Anchor, hint: "Click where the engineer specified. Near an edge it snaps on as an edge lifter." },
+  { key: "joint", label: "Panel joint (vertical cut)", icon: SeparatorVertical, hint: "Click where one panel ends and the next starts. Drag a joint to move it; Delete removes it." },
   { key: "pan", label: "Pan", icon: Hand, hint: "Drag to move the view. (Middle mouse button pans with any tool.)" },
 ];
 
@@ -68,7 +69,7 @@ const nearestOnEdges = (p, poly) => {
   return best;
 };
 
-export default function CadCanvas({ value, onChange, editable = true, cog = null, allowLifters = true, height = HEIGHT }) {
+export default function CadCanvas({ value, onChange, editable = true, cog = null, allowLifters = true, allowJoints = false, overlays = null, height = HEIGHT }) {
   const wrapRef = useRef(null);
   const svgRef = useRef(null);
   const [width, setWidth] = useState(800);
@@ -90,6 +91,7 @@ export default function CadCanvas({ value, onChange, editable = true, cog = null
   const outline = useMemo(() => geo.outline || [], [geo.outline]);
   const openings = useMemo(() => geo.openings || [], [geo.openings]);
   const lifters = useMemo(() => geo.lifters || [], [geo.lifters]);
+  const cuts = useMemo(() => geo.cuts || [], [geo.cuts]);
 
   // ---------- sizing + view ----------
   useEffect(() => {
@@ -149,6 +151,7 @@ export default function CadCanvas({ value, onChange, editable = true, cog = null
       outline: g.outline.map(sh),
       openings: g.openings.map((o) => o.map(sh)),
       lifters: (g.lifters || []).map((l) => ({ ...l, x_mm: Math.round((l.x_mm - x0) * 10) / 10, y_mm: Math.round((l.y_mm - y0) * 10) / 10 })),
+      ...(g.cuts ? { cuts: g.cuts.map((c) => Math.round((c - x0) * 10) / 10) } : {}),
     };
   }, []);
 
@@ -186,6 +189,7 @@ export default function CadCanvas({ value, onChange, editable = true, cog = null
     const px = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) * view.s;
     for (let i = 0; i < lifters.length; i++) if (px([lifters[i].x_mm, lifters[i].y_mm], w) < 10) return { type: "lifter", i };
     for (let i = 0; i < outline.length; i++) if (px(outline[i], w) < 8) return { type: "vertex", i };
+    if (allowJoints) for (let i = 0; i < cuts.length; i++) if (Math.abs(cuts[i] - w[0]) * view.s < 6) return { type: "joint", i };
     for (let i = 0; i < openings.length; i++) {
       for (let j = 0; j < openings[i].length; j++) if (openings[i].length === 4 && px(openings[i][j], w) < 8) return { type: "overtex", i, j };
     }
@@ -225,6 +229,13 @@ export default function CadCanvas({ value, onChange, editable = true, cog = null
       setDragRect({ a: p, b: p, kind: tool });
       return;
     }
+    if (tool === "joint" && allowJoints && outline.length >= 3) {
+      const [x0, , x1] = bboxOf(outline);
+      if (p[0] > x0 + 1 && p[0] < x1 - 1 && !cuts.some((c) => Math.abs(c - p[0]) < 1)) {
+        commit({ ...value, cuts: [...cuts, p[0]].sort((a, b) => a - b) });
+      }
+      return;
+    }
     if (tool === "lifter" && allowLifters && outline.length >= 3) {
       const near = nearestOnEdges(p, outline);
       const onEdge = near && near.dist * view.s < 14;
@@ -255,6 +266,11 @@ export default function CadCanvas({ value, onChange, editable = true, cog = null
       const opp = o[(drag.j + 2) % 4];
       g.openings[drag.i] = rectPoly(opp, p);
     }
+    if (drag.kind === "joint") {
+      const [x0, , x1] = bboxOf(g.outline);
+      g.cuts = [...(g.cuts || [])];
+      g.cuts[drag.i] = Math.min(x1 - 1, Math.max(x0 + 1, p[0]));
+    }
     if (drag.kind === "lifter") {
       const l = g.lifters[drag.i];
       const near = nearestOnEdges(p, g.outline);
@@ -282,7 +298,11 @@ export default function CadCanvas({ value, onChange, editable = true, cog = null
     }
     if (drag && live) {
       const moved = JSON.stringify(live) !== JSON.stringify(drag.orig);
-      if (moved) commit(drag.kind === "vertex" ? normalise(live) : live);
+      if (moved) {
+        const next = drag.kind === "vertex" ? normalise(live) : live;
+        if (next.cuts) next.cuts = [...next.cuts].sort((a, b) => a - b);
+        commit(next);
+      }
     }
     setDrag(null); setLive(null);
   };
@@ -335,8 +355,9 @@ export default function CadCanvas({ value, onChange, editable = true, cog = null
     if (sel.type === "opening" || sel.type === "overtex") commit({ ...value, openings: openings.filter((_, i) => i !== sel.i) });
     else if (sel.type === "lifter") commit({ ...value, lifters: lifters.filter((_, i) => i !== sel.i).map((l, i) => (/^L\d+$/.test(l.label || "") ? { ...l, label: `L${i + 1}` } : l)) });
     else if (sel.type === "vertex" && outline.length > 3) commit(normalise({ ...value, outline: outline.filter((_, i) => i !== sel.i) }));
+    else if (sel.type === "joint") commit({ ...value, cuts: cuts.filter((_, i) => i !== sel.i) });
     setSel(null);
-  }, [sel, editable, value, openings, lifters, outline, commit, normalise]);
+  }, [sel, editable, value, openings, lifters, outline, cuts, commit, normalise]);
 
   const onKey = (e) => {
     if (e.key === "Shift") setShift(true);
@@ -371,7 +392,7 @@ export default function CadCanvas({ value, onChange, editable = true, cog = null
     <div ref={wrapRef} className="border border-gray-300 rounded overflow-hidden select-none" data-testid="cad-canvas">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-1 bg-[#F5F6F7] border-b border-gray-300 px-2 py-1.5">
-        {TOOLS.filter((t) => editable || t.key === "pan").filter((t) => allowLifters || t.key !== "lifter").map((t) => {
+        {TOOLS.filter((t) => editable || t.key === "pan").filter((t) => allowLifters || t.key !== "lifter").filter((t) => allowJoints || t.key !== "joint").map((t) => {
           const I = t.icon;
           return (
             <button key={t.key} type="button" title={t.label} aria-label={t.label} aria-pressed={tool === t.key}
@@ -418,6 +439,9 @@ export default function CadCanvas({ value, onChange, editable = true, cog = null
         </g>
         <text x={ox + 4} y={oy + 14} fontSize="10" fill="#3A6B8C">0,0</text>
 
+        {(overlays || []).map((ov, i) => (
+          <polygon key={`ov${i}`} points={pts(ov.outline)} fill={ov.color || "#3A6B8C"} fillOpacity={ov.valid === false ? 0.08 : 0.16} stroke={ov.color || "#3A6B8C"} strokeWidth="1" />
+        ))}
         {outline.length >= 3 && (
           <path fillRule="evenodd" fill="#FDECEA" fillOpacity="0.55" stroke="#C0392B" strokeWidth="2"
             d={`M ${pts(outline).replace(/ /g, " L ")} Z ${openings.map((o) => `M ${pts(o).replace(/ /g, " L ")} Z`).join(" ")}`} />
@@ -439,6 +463,29 @@ export default function CadCanvas({ value, onChange, editable = true, cog = null
           const s = toScreen(p);
           const isSel = sel?.type === "vertex" && sel.i === i;
           return <rect key={`v${i}`} x={s[0] - 4} y={s[1] - 4} width="8" height="8" fill={isSel ? "#3A6B8C" : "#fff"} stroke="#1F2A33" />;
+        })}
+        {(overlays || []).map((ov, i) => {
+          const [bx0, by0, bx1, by1] = bboxOf(ov.outline);
+          const [cx, cy] = toScreen([(bx0 + bx1) / 2, by0 + (by1 - by0) * 0.12]);
+          return (
+            <g key={`ovl${i}`} pointerEvents="none">
+              <rect x={cx - 34} y={cy - 24} width="68" height="30" rx="3" fill="#fff" opacity="0.85" />
+              <text x={cx} y={cy - 10} textAnchor="middle" fontSize="14" fontWeight="bold" fill={ov.color || "#1F2A33"}>{ov.label}</text>
+              {ov.sub && <text x={cx} y={cy + 2} textAnchor="middle" fontSize="9" fill="#4b5563">{ov.sub}</text>}
+            </g>
+          );
+        })}
+        {allowJoints && outline.length >= 3 && cuts.map((cx, i) => {
+          const [, y0, , y1] = bboxOf(outline);
+          const [sx, syTop] = toScreen([cx, y1]); const [, syBot] = toScreen([cx, y0]);
+          const isSel = sel?.type === "joint" && sel.i === i;
+          return (
+            <g key={`cut${i}`}>
+              <line x1={sx} y1={syTop - 14} x2={sx} y2={syBot + 14} stroke={isSel ? "#3A6B8C" : "#1F2A33"} strokeWidth={isSel ? 2.5 : 1.5} strokeDasharray="8 4" />
+              <rect x={sx - 5} y={syTop - 24} width="10" height="10" fill={isSel ? "#3A6B8C" : "#fff"} stroke="#1F2A33" />
+              <text x={sx} y={syBot + 26} textAnchor="middle" fontSize="10" fill="#1F2A33">{fmt(cx)}</text>
+            </g>
+          );
         })}
         {cog && outline.length >= 3 && (() => {
           const [cx, cy] = toScreen([cog[0], cog[1]]);

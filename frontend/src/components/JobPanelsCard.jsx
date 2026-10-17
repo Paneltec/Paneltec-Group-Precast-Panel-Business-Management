@@ -85,6 +85,9 @@ export default function JobPanelsCard({ job, canEdit }) {
               <Button variant="outline" onClick={() => setImportOpen(true)} className="border-[#3A6B8C] text-[#3A6B8C] h-9" data-testid="panel-import-btn">
                 <Upload className="w-4 h-4 mr-1" /> Import DXF
               </Button>
+              <Button variant="outline" onClick={() => navigate(`/jobs/${job.id}/elevation`)} className="border-[#3A6B8C] text-[#3A6B8C] h-9" data-testid="panel-elevation-btn">
+                <Layers className="w-4 h-4 mr-1" /> Draw elevation
+              </Button>
             </>
           )}
           {data?.items?.length > 0 && (
@@ -130,6 +133,7 @@ export default function JobPanelsCard({ job, canEdit }) {
                   {busy === "lines" && <Loader2 className="w-4 h-4 mr-1 animate-spin" />} Start from the quoted panels
                 </Button>
               )}
+              <Button variant="outline" onClick={() => navigate(`/jobs/${job.id}/elevation`)} className="h-9">Draw a whole elevation</Button>
               <Button variant="outline" onClick={() => setImportOpen(true)} className="h-9">Import from a DXF</Button>
               <Button variant="outline" onClick={() => navigate(`/jobs/${job.id}/panels/new`)} className="h-9">Draw one</Button>
             </div>

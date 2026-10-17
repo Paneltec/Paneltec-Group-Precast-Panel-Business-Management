@@ -580,3 +580,74 @@ def render_svg(outline: Sequence, openings: Sequence, calc: Optional[Dict[str, A
         parts.append(f'<text x="{width_px-12:.0f}" y="22" text-anchor="end" font-size="16" font-weight="bold" fill="{ink}">{escape(mark)}</text>')
     parts.append("</svg>")
     return "".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Elevation splitting — cut one wall outline into panels at vertical joints
+# ---------------------------------------------------------------------------
+
+def _clip_half_plane(poly: Polygon, keep_right_of: Optional[float] = None,
+                     keep_left_of: Optional[float] = None) -> Polygon:
+    """Sutherland–Hodgman clip of a polygon against x >= a and/or x <= b."""
+    def clip(pts: Polygon, inside, intersect) -> Polygon:
+        out: Polygon = []
+        n = len(pts)
+        for i in range(n):
+            cur, prev = pts[i], pts[i - 1]
+            ci, pi = inside(cur), inside(prev)
+            if ci:
+                if not pi:
+                    out.append(intersect(prev, cur))
+                out.append(cur)
+            elif pi:
+                out.append(intersect(prev, cur))
+        return out
+
+    def x_cross(a: Point, b: Point, x: float) -> Point:
+        t = (x - a[0]) / (b[0] - a[0]) if b[0] != a[0] else 0.0
+        return (x, a[1] + t * (b[1] - a[1]))
+
+    pts = list(poly)
+    if keep_right_of is not None and pts:
+        a = keep_right_of
+        pts = clip(pts, lambda p: p[0] >= a - 1e-9, lambda p, q: x_cross(p, q, a))
+    if keep_left_of is not None and pts:
+        b = keep_left_of
+        pts = clip(pts, lambda p: p[0] <= b + 1e-9, lambda p, q: x_cross(p, q, b))
+    return clean_polygon(pts)
+
+
+def split_elevation(outline: Sequence, openings: Sequence, cuts: Sequence[float]) -> List[Dict[str, Any]]:
+    """Cut a wall (outline + openings, mm) at vertical joint positions `cuts`
+    (x values from the wall's left edge). Returns one dict per strip, left to
+    right: {outline, openings, x_from, x_to, split_openings:[...]}; each strip
+    is re-based so its own bottom-left corner is (0, 0)."""
+    o, ops = validate_geometry(outline, openings)
+    x0, y0, x1, y1 = bbox(o)
+    xs = sorted({round(float(c), 1) for c in cuts if x0 + 1 < float(c) < x1 - 1})
+    edges = [x0] + xs + [x1]
+    strips: List[Dict[str, Any]] = []
+    for a, b in zip(edges, edges[1:]):
+        piece = _clip_half_plane(o, keep_right_of=a, keep_left_of=b)
+        if len(piece) < 3 or area(piece) < MIN_LOOP_AREA_MM2:
+            continue
+        px0, py0, _, _ = bbox(piece)
+        split_names: List[int] = []
+        piece_ops: List[Polygon] = []
+        for i, op in enumerate(ops, start=1):
+            ox0, _, ox1, _ = bbox(op)
+            if ox1 <= a + 1e-6 or ox0 >= b - 1e-6:
+                continue
+            if ox0 < a - 1e-6 or ox1 > b + 1e-6:
+                split_names.append(i)
+            clipped = _clip_half_plane(op, keep_right_of=a, keep_left_of=b)
+            if len(clipped) >= 3 and area(clipped) >= 1.0:
+                piece_ops.append(clipped)
+        def shift(poly):
+            return [[round(x - px0, 1), round(y - py0, 1)] for x, y in poly]
+        strips.append({
+            "outline": shift(piece), "openings": [shift(p) for p in piece_ops],
+            "x_from": round(a - x0, 1), "x_to": round(b - x0, 1), "origin": [round(px0, 1), round(py0, 1)],
+            "width_mm": round(b - a, 1), "split_openings": split_names,
+        })
+    return strips

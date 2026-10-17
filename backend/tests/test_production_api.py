@@ -245,3 +245,26 @@ def test_job_units_overview_and_panel_counts(env):
     assert r["total"] == 3 and r["counts"] == {"planned": 3}
     panels = c.get(f"/api/jobs/{env['job']}/panels", headers=a).json()["items"]
     assert panels[0]["unit_status_counts"] == {"planned": 2}
+
+
+def test_tracking_link_public_page(env):
+    c, a = env["c"], env["admin"]
+    pid = _mk(env, "S-01", 2)
+    units = c.get(f"/api/panels/{pid}/units", headers=a).json()["items"]
+    c.post(f"/api/units/{units[0]['id']}/transition", headers=a, json={"to": "delivered"})
+    assert c.get(f"/api/jobs/{env['job']}/tracking-link", headers=a).json()["enabled"] is False
+    r = c.post(f"/api/jobs/{env['job']}/tracking-link", headers=a)
+    assert r.status_code == 200 and r.json()["enabled"] and "/track/" in r.json()["url"]
+    token = r.json()["url"].rsplit("/", 1)[-1]
+    # same token on repeat
+    assert c.post(f"/api/jobs/{env['job']}/tracking-link", headers=a).json()["url"].endswith(token)
+    pub = c.get(f"/api/public/track/{token}")   # no auth
+    assert pub.status_code == 200
+    body = pub.json()
+    assert body["job_number"] == "J-2026-0007" and body["customer"] == "Harbour Construction"
+    assert body["total_panels"] == 2 and body["delivered_or_installed"] == 1 and body["progress_pct"] == 50
+    assert {p["stage"] for p in body["panels"]} == {"Scheduled", "Delivered"}
+    assert "yard_location" not in body["panels"][0] and "pour" not in body["panels"][0]
+    assert c.delete(f"/api/jobs/{env['job']}/tracking-link", headers=a).json()["enabled"] is False
+    assert c.get(f"/api/public/track/{token}").status_code == 404
+    assert c.get("/api/public/track/short").status_code == 404

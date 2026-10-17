@@ -27,6 +27,8 @@ import Yard from "./pages/Yard";
 import LoadsList, { LoadDetail } from "./pages/Loads";
 import ProductionDashboard from "./pages/ProductionDashboard";
 import ProductionSettings from "./pages/ProductionSettings";
+import ElevationEditor from "./pages/ElevationEditor";
+import TrackJob from "./pages/TrackJob";
 import InvoicesList from "./pages/InvoicesList";
 import FormsList from "./pages/FormsList";
 import FormDetail from "./pages/FormDetail";
@@ -60,6 +62,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/q/:token" element={<PublicQuote />} />
+          <Route path="/track/:token" element={<TrackJob />} />
           <Route path="*" element={
             <AuthProvider>
               <Routes>
@@ -88,6 +91,7 @@ function App() {
                   <Route path="/jobs" element={<ProtectedRoute permission="jobs.view"><JobsList /></ProtectedRoute>} />
                   <Route path="/jobs/:id" element={<ProtectedRoute permission="jobs.view"><JobDetail /></ProtectedRoute>} />
                   <Route path="/jobs/:jobId/panels/new" element={<ProtectedRoute permission="jobs.edit"><PanelEditor /></ProtectedRoute>} />
+                  <Route path="/jobs/:jobId/elevation" element={<ProtectedRoute permission="jobs.edit"><ElevationEditor /></ProtectedRoute>} />
                   <Route path="/panels/:pid" element={<ProtectedRoute permission="jobs.view"><PanelEditor /></ProtectedRoute>} />
                   <Route path="/units/:id" element={<ProtectedRoute permission="jobs.view"><UnitPage /></ProtectedRoute>} />
                   <Route path="/scan/:token" element={<ProtectedRoute permission="jobs.view"><UnitPage /></ProtectedRoute>} />
