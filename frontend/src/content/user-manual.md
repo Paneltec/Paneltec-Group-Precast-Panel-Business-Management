@@ -537,6 +537,20 @@ Every Job has a **Panels & shop drawings** card. Each panel mark (P01, S-02…) 
 
 **Shop drawings** — print one panel, ticked panels, or the whole job as one PDF (one sheet per panel). Change the title block, paper size, notes and what's shown under **Shop Drawings** in the sidebar. **Export DXF** sends every panel back to CAD.
 
+## 21. Production Tracking (Production, Casting Schedule, Yard, Deliveries)
+
+Each panel mark becomes one or more **physical panels** (P01-1, P01-2 …) with their own status:
+`planned → cast → stripped → in yard → loaded → delivered → installed` (or `rejected`). Every step records who, when and an optional note; **Undo last step** reverses a mistake.
+
+- **QR labels** — on a Job's Panels card (or one mark's page) print QR labels (8 or 2 per A4 sheet, see Production Setup). Scanning a label on a phone opens the panel: tap the big yellow button to move it to the next step, add a photo, or record a defect. Staff need **production.transition** to change status.
+- **Pour log** — when marking a panel cast you can record supplier, docket, batch, grade, slump, cylinders and m³.
+- **Casting Schedule** — a week board of beds × days. Click a panel in "To be scheduled" to give it a date and bed; the bar under each day warns when the panels won't fit the bed length (300 mm gap allowed per panel). Set beds up under **Production Setup**.
+- **Yard** — every stripped / in-yard panel grouped by bay. Type a bay against a panel to move it; suggestions come from the bay list in Production Setup.
+- **Deliveries** — on a Job click **New load**, add panels (cast / stripped / in yard), order them, pick a vehicle (mass is checked against its capacity), print the **delivery docket**, then **Mark as loaded** and **Mark as delivered** — the panels follow.
+- **Erection sequence** — a number per physical panel (on the panel mark's page, "Production" table). It prints on the docket and sorts the available list, so loads go out in install order.
+- **Defects** — record on any panel with a severity; mark repaired or accepted. Open defects show on the Production dashboard.
+- **Production** dashboard — panels by status, cast this week/month with m³, yard contents, loads to go, overdue casts.
+
 ## 17. Reports & Data Export
 
 Where to find it: **Reports** in the sidebar (the green chart icon). Available to every user who has any of the report `*.view` permissions; the Data Export and Power BI Integration tabs are super-admin only.

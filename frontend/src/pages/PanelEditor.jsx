@@ -12,6 +12,7 @@ import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import CadCanvas from "../components/CadCanvas";
+import PanelUnitsTable from "../components/PanelUnitsTable";
 
 const BLANK = { mark: "", description: "", quantity: 1, thickness_mm: 150, concrete_grade: "", reinforcement_key: "standard", finish: "", revision: "A" };
 const BLANK_LIFTING = { engineer_name: "", engineer_company: "", reference: "", design_date: "", notes: "", lifters: [] };
@@ -232,6 +233,12 @@ export default function PanelEditor() {
           : <div className="h-64 flex items-center justify-center text-gray-400"><Loader2 className="w-5 h-5 animate-spin" /></div>}
         {view === "draw" && isNew && editable && <p className="text-xs text-gray-500 mt-2">Lifters can be placed once the panel is saved.</p>}
       </section>
+
+      {!isNew && (
+        <Section title="Production — physical panels">
+          <PanelUnitsTable panel={panel} />
+        </Section>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
         {/* ---------- left: inputs ---------- */}

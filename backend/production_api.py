@@ -155,6 +155,9 @@ def _parse_when(at: Optional[str]) -> str:
     try:
         if len(s) == 10:
             d = date.fromisoformat(s)
+            now = S.now_utc()
+            if d == now.date():
+                return now.isoformat()          # "today" keeps the real time of day
             return datetime(d.year, d.month, d.day, 12, 0, tzinfo=timezone.utc).isoformat()
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
         if dt.tzinfo is None:

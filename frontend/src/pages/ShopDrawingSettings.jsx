@@ -17,6 +17,7 @@ const TOGGLES = [
   ["show_lifters", "Lifters", "Engineer's lifter positions on the drawing."],
   ["show_opening_schedule", "Opening schedule", "Table of every opening's position and size."],
   ["show_weights", "Volume & mass", "Concrete volume and estimated mass in the panel data."],
+  ["show_qr", "QR code", "Small QR code in the title block that opens the panel in the app."],
 ];
 
 // Shop drawing template: what every panel sheet looks like.
