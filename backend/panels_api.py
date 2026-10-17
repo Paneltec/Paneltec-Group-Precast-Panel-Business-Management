@@ -19,7 +19,7 @@ import re
 import uuid
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 import panel_geometry as geo
@@ -54,6 +54,7 @@ DEFAULT_SHOP_DRAWING = {
     "show_lifters": True,
     "show_opening_schedule": True,
     "show_weights": True,
+    "show_qr": True,
 }
 PLACEHOLDERS = ["mark", "job_number", "project", "customer", "thickness_mm", "concrete_grade",
                 "weight_t", "weight_kg", "volume_m3", "area_m2", "width_mm", "height_mm",
@@ -140,6 +141,7 @@ class ShopDrawingSettings(BaseModel):
     show_lifters: bool = True
     show_opening_schedule: bool = True
     show_weights: bool = True
+    show_qr: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +271,10 @@ async def _list_panels(jid: str) -> List[dict]:
 async def list_job_panels(jid: str, _u: dict = Depends(S.require_permission("jobs.view"))):
     await _job_or_404(jid)
     items = await _list_panels(jid)
+    import production_api as P
+    summary = await P.units_summary_for_panels([p["id"] for p in items])
+    for p in items:
+        p["unit_status_counts"] = summary.get(p["id"], {})
     return {"items": items, "totals": _totals(items)}
 
 
@@ -278,6 +284,8 @@ async def create_panel(jid: str, payload: PanelInput, user: dict = Depends(S.req
     await _ensure_unique_mark(jid, payload.mark)
     doc = await _build_panel_doc(job, payload, user)
     await S.db.panels.insert_one(dict(doc))
+    import production_api as P
+    await P.sync_units_for_panel(doc)
     await S.record_audit(user, "panel_created", "panel", doc["id"], f"{job.get('job_number')} {doc['mark']}",
                          metadata={"job_id": jid, "source": doc["source"]})
     return _decorate(doc)
@@ -300,6 +308,9 @@ async def create_panels_bulk(jid: str, payload: BulkInput, user: dict = Depends(
         except HTTPException as e:
             raise HTTPException(status_code=e.status_code, detail=f"Panel {p.mark}: {e.detail}")
     await S.db.panels.insert_many([dict(d) for d in docs])
+    import production_api as P
+    for d in docs:
+        await P.sync_units_for_panel(d)
     await S.record_audit(user, "panels_imported", "job", jid, job.get("job_number") or jid,
                          metadata={"count": len(docs), "source_file": payload.panels[0].source_file})
     return {"created": len(docs), "items": [_decorate(d) for d in docs]}
@@ -334,6 +345,9 @@ async def create_panels_from_job_lines(jid: str, user: dict = Depends(S.require_
         )
         docs.append(await _build_panel_doc(job, data, user))
     await S.db.panels.insert_many([dict(d) for d in docs])
+    import production_api as P
+    for d in docs:
+        await P.sync_units_for_panel(d)
     await S.record_audit(user, "panels_created_from_job", "job", jid, job.get("job_number") or jid,
                          metadata={"count": len(docs)})
     return {"created": len(docs)}
@@ -367,6 +381,8 @@ async def update_panel(pid: str, payload: PanelPatch, user: dict = Depends(S.req
                if k not in ("outline", "openings", "calc", "updated_at") and p.get(k) != v}
     if "outline" in upd or "openings" in upd:
         changes["geometry"] = {"from": "previous shape", "to": "new shape"}
+    import production_api as P
+    await P.sync_units_for_panel({**merged, **upd})   # refuses if cast units would be dropped
     await S.db.panels.update_one({"id": pid}, {"$set": upd})
     await S.record_audit(user, "panel_updated", "panel", pid, f"{p.get('job_number')} {merged['mark']}", changes=changes)
     return await get_panel(pid, user)
@@ -394,6 +410,8 @@ async def set_panel_lifting(pid: str, payload: LiftingRecord, user: dict = Depen
 async def delete_panel(pid: str, user: dict = Depends(S.require_permission("jobs.edit"))):
     p = await _panel_or_404(pid)
     await _editable_job(p["job_id"])
+    import production_api as P
+    await P.delete_units_for_panel(pid)
     await S.db.panels.update_one({"id": pid}, {"$set": {"deleted_at": S.now_iso(), "deleted_by": user.get("id")}})
     await S.record_audit(user, "panel_deleted", "panel", pid, f"{p.get('job_number')} {p['mark']}")
     return {"ok": True}
@@ -482,8 +500,12 @@ async def _context_for_job(job: dict) -> Dict[str, Any]:
     return {"customer": customer.get("company_name") or "", "project": (project or {}).get("project_name") or ""}
 
 
-def _sheet_for(panel: dict, job: dict, ctx: Dict[str, Any], tpl: Dict[str, Any]) -> Dict[str, Any]:
+def _sheet_for(panel: dict, job: dict, ctx: Dict[str, Any], tpl: Dict[str, Any], app_url: str = "") -> Dict[str, Any]:
     calc = panel.get("calc") or {}
+    qr = ""
+    if tpl.get("show_qr") and app_url and panel.get("id") and panel.get("id") != "sample":
+        import production_api as P
+        qr = P._qr_svg(f"{app_url}/panels/{panel['id']}", scale=2)
     lifting = panel.get("lifting") or {}
     a3 = tpl["paper"] == "A3"
     svg = geo.render_svg(panel["outline"], panel["openings"], calc, lifting.get("lifters") or [],
@@ -510,18 +532,18 @@ def _sheet_for(panel: dict, job: dict, ctx: Dict[str, Any], tpl: Dict[str, Any])
         openings.append({"n": i, "x": geo._fmt(x0), "y": geo._fmt(y0), "w": geo._fmt(x1 - x0), "h": geo._fmt(y1 - y0),
                          "shape": "Rect." if len(op) == 4 else ("Round" if len(op) > 16 else "Shaped")})
     return {
-        "panel": panel, "calc": calc, "svg": svg, "v": values,
+        "panel": panel, "calc": calc, "svg": svg, "v": values, "qr": qr,
         "notes": _fill(tpl["general_notes"], values), "footer_note": _fill(tpl["footer_note"], values),
         "openings": openings, "lifting": lifting, "lifting_status": _lifting_status(lifting),
         "lifter_warnings": _lifter_warnings(panel["outline"], lifting.get("lifters") or []),
     }
 
 
-async def _render_pdf(job: dict, panels: List[dict], tpl: Dict[str, Any]) -> bytes:
+async def _render_pdf(job: dict, panels: List[dict], tpl: Dict[str, Any], app_url: str = "") -> bytes:
     from weasyprint import HTML
     ctx = await _context_for_job(job)
     company = await S._load_company_settings()
-    sheets = [_sheet_for(p, job, ctx, tpl) for p in panels]
+    sheets = [_sheet_for(p, job, ctx, tpl, app_url) for p in panels]
     html = S._get_jinja_env().get_template("panel_shop_drawing.html").render(
         sheets=sheets, job=job, ctx=ctx, tpl=tpl, company=company,
         disclaimer=LIFTING_DISCLAIMER, missing=LIFTING_MISSING,
@@ -531,10 +553,11 @@ async def _render_pdf(job: dict, panels: List[dict], tpl: Dict[str, Any]) -> byt
 
 
 @router.get("/panels/{pid}/shop-drawing.pdf")
-async def panel_shop_drawing(pid: str, user: dict = Depends(S.require_permission("jobs.view"))):
+async def panel_shop_drawing(pid: str, request: Request, user: dict = Depends(S.require_permission("jobs.view"))):
+    import production_api as P
     p = _decorate(await _panel_or_404(pid))
     job = await _job_or_404(p["job_id"])
-    pdf = await _render_pdf(job, [p], await _load_shop_settings())
+    pdf = await _render_pdf(job, [p], await _load_shop_settings(), await P._app_url(request))
     fname = f"shop_drawing_{S._safe_filename(job.get('job_number') or '')}_{S._safe_filename(p['mark'])}_rev{S._safe_filename(p.get('revision') or 'A')}.pdf"
     await S.record_audit(user, "shop_drawing_exported", "panel", pid, f"{job.get('job_number')} {p['mark']}",
                          metadata={"filename": fname})
@@ -543,8 +566,9 @@ async def panel_shop_drawing(pid: str, user: dict = Depends(S.require_permission
 
 
 @router.get("/jobs/{jid}/panels/shop-drawings.pdf")
-async def job_shop_drawings(jid: str, ids: Optional[str] = Query(None, description="Comma-separated panel ids; all when omitted"),
+async def job_shop_drawings(jid: str, request: Request, ids: Optional[str] = Query(None, description="Comma-separated panel ids; all when omitted"),
                             user: dict = Depends(S.require_permission("jobs.view"))):
+    import production_api as P
     job = await _job_or_404(jid)
     panels = await _list_panels(jid)
     if ids:
@@ -552,7 +576,7 @@ async def job_shop_drawings(jid: str, ids: Optional[str] = Query(None, descripti
         panels = [p for p in panels if p["id"] in wanted]
     if not panels:
         raise HTTPException(status_code=400, detail="No panels to export")
-    pdf = await _render_pdf(job, panels, await _load_shop_settings())
+    pdf = await _render_pdf(job, panels, await _load_shop_settings(), await P._app_url(request))
     fname = f"shop_drawings_{S._safe_filename(job.get('job_number') or jid)}_{len(panels)}_panels.pdf"
     await S.record_audit(user, "shop_drawings_batch_exported", "job", jid, job.get("job_number") or jid,
                          metadata={"count": len(panels), "filename": fname})

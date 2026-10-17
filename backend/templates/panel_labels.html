@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Panel QR labels</title>
+  <style>
+    @page { size: A4 portrait; margin: 10mm; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Helvetica', 'Arial', sans-serif; color: #1F2A33; margin: 0; }
+    .sheet { width: 190mm; }
+    .sheet::after { content: ""; display: block; clear: both; }
+    /* a4_8: 2 x 4 labels of 95 x 67 mm — suits Avery L7165-style sheets */
+    .l8 { width: 95mm; height: 67mm; }
+    /* a4_2: 2 large labels per sheet, 190 x 135 mm — for weatherproof stickers */
+    .l2 { width: 190mm; height: 135mm; }
+    .label { float: left; border: 0.3mm dashed #9AA5AE; padding: 3mm; display: flex; gap: 3mm; page-break-inside: avoid; overflow: hidden; }
+    .l8 { height: 66mm; }
+    .l2 { height: 134mm; }
+    .l8 .qr { width: 42mm; } .l8 .qr svg { width: 42mm; height: 42mm; }
+    .l2 .qr { width: 90mm; } .l2 .qr svg { width: 90mm; height: 90mm; }
+    .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .mark { font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
+    .l8 .mark { font-size: 26px; margin: 1mm 0; } .l2 .mark { font-size: 64px; margin: 2mm 0; }
+    .job { font-family: 'Menlo', 'Consolas', monospace; font-weight: 700; }
+    .l8 .job { font-size: 11px; } .l2 .job { font-size: 24px; }
+    .small { color: #4b5563; }
+    .l8 .small { font-size: 8px; line-height: 1.3; } .l2 .small { font-size: 17px; line-height: 1.3; }
+    .l8 .size { font-size: 9.5px; } .l2 .size { font-size: 21px; }
+    .size { font-weight: 700; font-family: 'Menlo', 'Consolas', monospace; margin-top: 1.5mm; line-height: 1.3; }
+    .brand { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.12em; color: #6b7280; font-weight: 700; }
+    .l8 .brand { font-size: 7px; } .l2 .brand { font-size: 14px; }
+    .cast { border-top: 0.3mm solid #1F2A33; margin-top: auto; padding-top: 0.5mm; }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+  {% set cls = 'l2' if layout == 'a4_2' else 'l8' %}
+  {% for l in labels %}
+    <div class="label {{ cls }}">
+      <div class="qr">{{ l.qr | safe }}</div>
+      <div class="txt">
+        <div class="brand">{{ company.business_name or 'Paneltec Group' }}</div>
+        <div class="mark">{{ l.unit.label }}</div>
+        <div class="job">{{ l.job_number }}</div>
+        <div class="small">{{ l.project or l.customer }}</div>
+        {% if l.description %}<div class="small">{{ l.description[:40] }}</div>{% endif %}
+        <div class="size">{{ l.size }} mm<br>{{ l.mass }}</div>
+        <div class="small cast">Cast: {{ l.cast or '____ / ____ / ________' }}</div>
+      </div>
+    </div>
+  {% endfor %}
+  </div>
+</body>
+</html>

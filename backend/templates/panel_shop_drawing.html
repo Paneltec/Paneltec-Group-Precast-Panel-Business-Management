@@ -46,6 +46,8 @@
     table.tb td + td { border-left: 1px solid #C9D2D9; }
     table.tb .k { margin-bottom: 0.5mm; }
     table.tb .val { font-weight: 700; min-height: 3.5mm; }
+    .qrbox { width: 16mm; height: 16mm; flex: none; }
+    .qrbox svg { width: 16mm; height: 16mm; display: block; }
     .foot { padding: 1.5mm 4mm; font-size: 0.85em; color: #6b7280; }
   </style>
 </head>
@@ -146,6 +148,9 @@
           <tr><td><div class="k">Date</div><div class="val">{{ s.v.date }}</div></td>
               <td><div class="k">Sheet</div><div class="val">{{ loop.index }} of {{ total }}</div></td></tr>
         </table>
+        {% if s.qr %}<div style="padding:1.5mm 4mm; display:flex; gap:3mm; align-items:center; border-bottom:1px solid #C9D2D9;">
+          <div class="qrbox">{{ s.qr | safe }}</div>
+          <div class="k" style="margin:0;">Scan for panel record,<br>status &amp; lifting data</div></div>{% endif %}
         <div class="foot">{% if s.footer_note %}{{ s.footer_note }}<br>{% endif %}Generated {{ generated_at }}</div>
       </div>
     </div>
